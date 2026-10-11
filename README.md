@@ -330,19 +330,10 @@ Simulated decision panes write their answer about five seconds after opening (th
 
 - The board launches and watches missions; it never runs them. This process never attaches a mission and never calls `control()`. Every mutation is an operator click, forwarded to the owning session's control socket, which runs the same code the slash command runs.
 - Resume hold, plan mode, Pause gates and the ownership lock apply inside the mission and cannot be routed around. Plan approval always happens in the mission's pane. Recovery (off unless you switch it on per operation) only sends `Continue` to a board-launched session at resume hold, never over failed verification, and only relaunches panes that died; see [Recovery](#recovery).
-- The board page can approve gates, so it binds `127.0.0.1` by default and requires a token (in the URL fragment) on every API call, plus Host and Origin checks. Keep the URL private.
+- The board page can approve gates. Access follows Settings → Server (Tailscale by default); every API call requires the URL-fragment token, plus Host and Origin checks. Keep the full URL private.
 - Land happens on the integration checkout, never in a mission checkout; a conflict becomes a new mission rather than a second copy of the ticket. Linear issues and pull requests are only touched by an operator click (`gh pr merge` on Land) or by auto mode the operator switched on for that operation.
 - Queue stays visible: blocked work never launches and never disappears.
 - History is append-only events; there is no second copy of mission JSON.
-
-## Docs
-
-|Doc|Covers|
-|---|---|
-|[docs/architecture.md](docs/architecture.md)|layers, data flow, invariants|
-|[docs/contract.md](docs/contract.md)|mission status file, control socket, launch recipe|
-|[docs/omp-plan-approval.md](docs/omp-plan-approval.md)|auto-approving plans: what OMP and omp-mission still need|
-|[docs/testing.md](docs/testing.md)|test layout, harnesses, smokes|
 
 ## Data
 
