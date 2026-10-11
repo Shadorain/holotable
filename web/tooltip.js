@@ -1,0 +1,122 @@
+// Themed tooltips for anything with a `title` or `data-tip`. The native title is moved to
+// data-tip on first hover so the browser's own tooltip never shows; text lands via textContent.
+const DELAY_MS = 350;
+let tip = null;
+let timer = null;
+let owner = null;
+// Hosts with live content (the Load stat) register a renderer; show() hands them the tip
+// element to fill instead of copying data-tip text. refreshTooltip() re-runs it.
+const renderers = new WeakMap();
+const closers = new WeakMap();
+
+export function setTipRenderer(host, render, onClose = null) {
+  renderers.set(host, render);
+  if (onClose) closers.set(host, onClose);
+}
+
+/** Re-fill the open tooltip (renderer hosts) or re-copy data-tip; safe when none is open. */
+export function refreshTooltip() {
+  if (!tip || tip.hidden || !owner) return;
+  fill(owner);
+  place(owner);
+}
+
+/** The element currently owning the open tooltip (null when hidden). */
+export function tooltipOwner() {
+  return tip && !tip.hidden ? owner : null;
+}
+function tipFor(target) {
+  const host = target instanceof Element ? target.closest("[data-tip], [title]") : null;
+  if (!host) return null;
+  const title = host.getAttribute("title");
+  if (title) {
+    host.dataset.tip = title;
+    host.setAttribute("aria-description", title);
+    host.removeAttribute("title");
+  }
+  return host.dataset.tip ? host : null;
+}
+
+function place(host) {
+  const r = host.getBoundingClientRect();
+  const t = tip.getBoundingClientRect();
+  const gap = 8;
+  const above = r.top - t.height - gap;
+  const top = above >= 6 ? above : r.bottom + gap;
+  const left = Math.min(Math.max(6, r.left + r.width / 2 - t.width / 2), innerWidth - t.width - 6);
+  tip.style.top = `${Math.round(top)}px`;
+  tip.style.left = `${Math.round(left)}px`;
+  tip.dataset.side = above >= 6 ? "top" : "bottom";
+}
+
+function show(host) {
+  if (!host.isConnected || document.visibilityState !== "visible") return;
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.className = "tooltip";
+    tip.id = "holotable-tooltip";
+    tip.setAttribute("role", "tooltip");
+    document.body.append(tip);
+  }
+  tip.textContent = "";
+  fill(host);
+  tip.hidden = false;
+  place(host);
+  host.setAttribute("aria-describedby", tip.id);
+  owner = host;
+}
+
+function hide() {
+  clearTimeout(timer);
+  timer = null;
+  if (tip) tip.hidden = true;
+  if (owner) {
+    owner.removeAttribute("aria-describedby");
+    const close = closers.get(owner);
+    owner = null;
+    close?.();
+  }
+}
+
+function fill(host) {
+  const render = renderers.get(host);
+  tip.replaceChildren();
+  if (render) render(tip);
+  else tip.textContent = host.dataset.tip;
+}
+
+function arm(host) {
+  if (host === owner) return;
+  hide();
+  if (document.visibilityState !== "visible") return;
+  timer = setTimeout(() => show(host), DELAY_MS);
+}
+
+// Focus tooltips follow keyboard navigation only, not focus a dialog hands back after a click.
+let keyboard = false;
+
+export function installTooltips() {
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Tab" || e.key.startsWith("Arrow")) keyboard = true;
+  }, true);
+  document.addEventListener("pointerdown", () => {
+    keyboard = false;
+  }, true);
+  document.addEventListener("pointerover", (e) => {
+    const host = tipFor(e.target);
+    if (host) arm(host);
+    else if (owner || timer) hide();
+  });
+  document.addEventListener("focusin", (e) => {
+    const host = tipFor(e.target);
+    if (host && keyboard && e.target.matches(":focus-visible")) arm(host);
+  });
+  document.addEventListener("focusout", hide);
+  document.addEventListener("pointerdown", hide, true);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hide();
+  });
+  addEventListener("scroll", hide, true);
+  addEventListener("resize", hide);
+  document.addEventListener("visibilitychange", hide);
+}

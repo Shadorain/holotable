@@ -1,0 +1,62 @@
+{
+  "id": "c5b76e37-7f58-4cb1-8c5f-f92f7e7ef639",
+  "ok": true,
+  "result": {
+    "worktree": {
+      "id": "450353b0-a51c-4d14-a7e8-e1dc26f0098d::/home/daedalus/projects/charidel/.wt/charidel/holo-env-capture",
+      "identity": {
+        "key": "wt2:local:2d829548-76b3-4304-adfe-6b26d5699f99",
+        "executionHostId": "local",
+        "instanceId": "2d829548-76b3-4304-adfe-6b26d5699f99"
+      },
+      "instanceId": "2d829548-76b3-4304-adfe-6b26d5699f99",
+      "repoId": "450353b0-a51c-4d14-a7e8-e1dc26f0098d",
+      "projectId": "github:charidel-suite/charidel",
+      "hostId": "local",
+      "projectHostSetupId": "450353b0-a51c-4d14-a7e8-e1dc26f0098d",
+      "creatorProvenance": { "kind": "host" },
+      "path": "/home/daedalus/projects/charidel/.wt/charidel/holo-env-capture",
+      "head": "ac7c3a662f188639fa1e12d626a99b7ffc1cf138",
+      "branch": "refs/heads/Shadorain/holo-env-capture",
+      "isBare": false,
+      "isMainWorktree": false,
+      "displayName": "holo-env-capture",
+      "displayNameMode": "fixed",
+      "comment": "",
+      "linkedIssue": null,
+      "linkedPR": null,
+      "linkedLinearIssue": null,
+      "linkedGitLabMR": null,
+      "linkedGitLabIssue": null,
+      "isArchived": false,
+      "isUnread": false,
+      "isPinned": false,
+      "sortOrder": 1791509704735,
+      "lastActivityAt": 1791509704734,
+      "createdAt": 1791509704734,
+      "cliProvenance": {
+        "kind": "created-by-cli",
+        "createdAt": 1791509704245,
+        "callerTerminalHandle": "term_0cb00ae0-4cb8-43eb-a103-cac4a1bae5d3"
+      },
+      "baseRef": "main",
+      "workspaceStatus": "in-progress",
+      "parentWorktreeId": null,
+      "childWorktreeIds": [],
+      "lineage": null,
+      "workspaceLineage": null,
+      "git": {
+        "path": "/home/daedalus/projects/charidel/.wt/charidel/holo-env-capture",
+        "head": "ac7c3a662f188639fa1e12d626a99b7ffc1cf138",
+        "branch": "refs/heads/Shadorain/holo-env-capture",
+        "isBare": false,
+        "isMainWorktree": false
+      }
+    },
+    "lineage": null,
+    "workspaceLineage": null,
+    "warnings": [],
+    "catalogVersion": { "epoch": "975bf24e-3a21-4ce3-8745-89f0e276a661", "sequence": 143 }
+  },
+  "_meta": { "runtimeId": "f6b26112-6148-4f10-a6f3-82848e75de90" }
+}

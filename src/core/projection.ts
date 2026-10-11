@@ -1,0 +1,377 @@
+import { foldEvents, contactDerived } from "./fold.ts";
+import { countTasks } from "./notes.ts";
+import { actionsFor, contactState, launchRefusal } from "./policy.ts";
+import { computeStats } from "./stats.ts";
+import type {
+  Contact,
+  ContactState,
+  ContactView,
+  Derived,
+  Actor,
+  Event,
+  HistoryEntry,
+  Operation,
+  PolicyInput,
+  Projection,
+  ProjectionInput,
+  Source,
+} from "./types.ts";
+
+const MAX_LOG = 50;
+const ATTENTION_STATES: ContactState[] = ["hold", "offline", "decision"];
+
+/** Ticket of the newest unresolved conflict contact targeting `ticket`. */
+export function conflictOpenFor(
+  op: Operation,
+  states: ReadonlyMap<string, ContactState>,
+  ticket: string,
+): string | null {
+  let open: string | null = null;
+  for (const c of op.contacts) {
+    if (c.conflictOf !== ticket) continue;
+    const s = states.get(c.ticket);
+    if (s !== "complete" && s !== "landed") open = c.ticket;
+  }
+  return open;
+}
+
+/**
+ * Compute every contact's state. Conflict targets depend on the states of the
+ * contacts targeting them, so iterate to a fixpoint (converges in ≤ contacts+2
+ * passes; the cap keeps malformed graphs from looping).
+ */
+function computeStates(
+  input: ProjectionInput,
+  derived: Derived,
+): Map<string, ContactState> {
+  const { operation: op, statuses, owners } = input;
+  const states = new Map<string, ContactState>();
+  for (let pass = 0; pass < op.contacts.length + 2; pass += 1) {
+    let changed = false;
+    for (const c of op.contacts) {
+      const conflictContacts = op.contacts
+        .filter((x) => x.conflictOf === c.ticket)
+        .map((x) => ({
+          contact: x,
+          state: states.get(x.ticket) ?? "ready",
+        }));
+      const s = contactState({
+        operation: op,
+        contact: c,
+        derived,
+        status: statuses[c.ticket] ?? null,
+        owner: owners[c.ticket] ?? "none",
+        conflictContacts,
+      });
+      if (states.get(c.ticket) !== s) changed = true;
+      states.set(c.ticket, s);
+    }
+    if (!changed) break;
+  }
+  return states;
+}
+
+const OPERATOR_VERBS: Record<string, string> = {
+  "plan-approve": "plan approved",
+  approve: "approved",
+  continue: "continued",
+  review: "review requested",
+  dispatch: "dispatched",
+  mode: "mode changed",
+  "plan-save": "plan saved",
+  "plan-refine": "plan refine requested",
+  relaunch: "relaunched",
+};
+
+const SOURCE_ACTOR: Record<Source, Actor> = { operator: "operator", model: "model", seed: "operator", conflict: "board" };
+const SOURCE_ORIGIN: Record<Source, string> = {
+  operator: "added by you",
+  model: "queued by the model",
+  seed: "seeded from the campaign file",
+  conflict: "opened by a Land conflict",
+};
+
+/** Who caused an event. Mission-side changes come from the watcher reading the mission's own status. */
+function actorOf(e: Event): Actor {
+  switch (e.kind) {
+    case "queued":
+    case "adopted":
+      return SOURCE_ACTOR[e.source ?? "operator"];
+    case "edited":
+      return SOURCE_ACTOR[e.source];
+    case "phase":
+    case "gate-armed":
+    case "socket-up":
+    case "socket-down":
+    case "sample":
+      return "mission";
+    case "blocked":
+    case "unblocked":
+    case "removed":
+      return "board";
+    case "auto":
+      return e.by === "board" ? "board" : "operator";
+    case "recover":
+      return e.by === "board" ? "board" : "operator";
+    case "operator":
+      return e.by !== undefined ? "board" : "operator";
+    default:
+      return "operator";
+  }
+}
+
+/** Human history text. Ids that mean nothing to the operator (gate hashes, sockets) stay out. */
+function historyLine(e: Event): HistoryEntry | null {
+  const contact = "contact" in e ? e.contact : null;
+  const line = (text: string, cls: HistoryEntry["cls"] = ""): HistoryEntry => ({ at: e.at, kind: e.kind, contact, actor: actorOf(e), cls, text });
+  const ticket = contact ?? "";
+  switch (e.kind) {
+    case "queued":
+      return line(`${ticket} ${SOURCE_ORIGIN[e.source ?? "operator"]}`);
+    case "edited":
+      return line(`${ticket} ${e.fields.join(", ")} changed ${e.source === "model" ? "by the model" : "by you"}`);
+    case "blocked":
+      return line(`${ticket} waiting on ${e.by.join(", ")}`);
+    case "unblocked":
+      return line(`${ticket} unblocked: ready to launch`, "ok");
+    case "adopted":
+      return line(`${ticket} adopted an existing checkout`);
+    case "launched":
+      return line(`${ticket} launched`, "ok");
+    case "launch-failed":
+      return line(`${ticket} launch failed (${e.step}): ${e.error}`, "err");
+    case "socket-up":
+      return line(`${ticket} mission session connected`, "ok");
+    case "socket-down":
+      return line(`${ticket} mission session disconnected`, "err");
+    case "phase":
+      return line(e.from ? `${ticket} ${e.from} → ${e.to}` : `${ticket} entered ${e.to}`);
+    case "gate-armed":
+      return line(`${ticket} waiting at a gate`);
+    case "operator":
+      // Launch, land, done and reap leave their own event; only their failures need a line.
+      if (e.ok && !OPERATOR_VERBS[e.op]) return null;
+      return e.ok
+        ? line(`${ticket} ${OPERATOR_VERBS[e.op]}`, "ok")
+        : line(`${ticket} ${e.op} failed${e.error ? `: ${e.error}` : ""}`, "err");
+    case "land-attempt":
+      return e.outcome === "clean"
+        ? null
+        : line(`${ticket} land hit conflicts${e.paths?.length ? ` in ${e.paths.join(", ")}` : ""}`, "err");
+    case "conflict-opened":
+      return line(`${ticket} conflict mission ${e.conflictContact} opened`, "err");
+    case "landed":
+      return line(`${ticket} landed${e.via === "manual" ? " (marked done)" : ` via ${e.via === "pr" ? "PR" : "merge"}`}`, "ok");
+    case "reaped":
+      return line(`${ticket} terminal closed`);
+    case "removed":
+      return line(`${ticket} worktree removed`, "ok");
+    case "auto":
+      return line(
+        e.enabled ? "auto mode on" : e.reason === "every contact landed" ? "auto mode finished: every contact landed" : `auto mode paused: ${e.reason ?? "off"}`,
+        e.enabled || e.reason === "every contact landed" ? "ok" : "err",
+      );
+    case "recover":
+      return line(`recovery ${e.enabled ? "on" : "off"}`);
+    case "workflow":
+      return null;
+    case "closed":
+      return line(`operation closed: ${e.outcome}`);
+    case "sample":
+      return null;
+    case "decided":
+      return line(`${ticket} decided: ${e.choice}${e.by !== "operator" ? ` (by ${e.by})` : ""}`);
+  }
+}
+
+// Events an action leaves behind; the action's own `operator` event is written after them.
+const ACTION_RESULTS = new Set<Event["kind"]>(["launched", "launch-failed", "landed", "land-attempt", "conflict-opened", "reaped"]);
+const parentTicket = (ticket: string) => ticket.replace(/-conflict-\d+$/i, "");
+
+/** Every human-readable entry, oldest first. */
+export function history(events: Event[]): HistoryEntry[] {
+  // Walk backwards so each action result can see the operator event that closes its action.
+  const nextOp = new Map<string, { op: string; board: boolean }>();
+  const out: HistoryEntry[] = [];
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i] as Event;
+    const line = historyLine(e);
+    if (line && e.kind !== "operator" && ACTION_RESULTS.has(e.kind) && "contact" in e) {
+      const closing = nextOp.get(e.contact) ?? nextOp.get(parentTicket(e.contact));
+      if (closing?.board) line.actor = "board";
+      // A terminal closed by anything but an explicit Reap was the post-land cleanup.
+      else if (e.kind === "reaped" && closing?.op !== "reap") line.actor = "board";
+    }
+    if (e.kind === "operator") nextOp.set(e.contact, { op: e.op, board: e.by !== undefined });
+    if (line) out.push(line);
+  }
+  return out.reverse();
+}
+
+/** How a contact got onto the board, from its first queued/adopted event. */
+function originOf(events: Event[], ticket: string): ContactView["origin"] {
+  for (const e of events) {
+    if (!("contact" in e) || e.contact !== ticket) continue;
+    if (e.kind === "queued") return { actor: actorOf(e), at: e.at, text: SOURCE_ORIGIN[e.source ?? "operator"] };
+    if (e.kind === "adopted") return { actor: actorOf(e), at: e.at, text: "adopted an existing checkout" };
+  }
+  return null;
+}
+
+/** One sentence for the card and list when the mission has nothing more specific to say. */
+function detailFor(state: ContactState, view: { refusal: string | null; next: string | null; conflictOpen: string | null; blockers: string[]; conflictOf: string | null; deciding: boolean; autoDecides: boolean }): string {
+  switch (state) {
+    case "ready":
+      return view.refusal ?? "Ready to launch";
+    case "blocked":
+      return view.blockers.length ? `Waiting on ${view.blockers.join(", ")} to land` : (view.refusal ?? "Blocked");
+    case "decision":
+      if (view.deciding) return "An agent is deciding in its pane";
+      // Auto mode takes recommended answers at once; this only shows while it waits for a free slot.
+      return view.autoDecides ? "Auto mode will ask an agent when a live slot frees up (or decide it yourself)" : "Decide, then mark decided";
+    case "conflict":
+      return `Waiting on conflict mission ${view.conflictOpen ?? ""}`.trim();
+    case "landed":
+      return "Landed";
+    case "planning":
+      return view.next ?? "Mission starting";
+    case "offline":
+      return view.next ? `Owner offline · last: ${view.next}` : "Owner offline · showing the last snapshot";
+    case "complete":
+      return view.conflictOf ? `Conflicts resolved: land ${view.conflictOf}` : (view.next ?? "Delivered");
+    default:
+      return view.next ?? state;
+  }
+}
+
+function contactView(
+  input: ProjectionInput,
+  derived: Derived,
+  contact: Contact,
+  state: ContactState,
+  conflictOpen: string | null,
+  decisionPaneOpen: boolean,
+): ContactView {
+  const { operation: op, statuses, owners, probes } = input;
+  const d = contactDerived(derived, contact.ticket);
+  const status = statuses[contact.ticket] ?? null;
+  const owner = owners[contact.ticket] ?? "none";
+  const probe = probes[contact.ticket] ?? null;
+  const policy: PolicyInput = {
+    operation: op,
+    contact,
+    derived,
+    state,
+    status,
+    owner,
+    probe,
+    load: input.load,
+    cap: input.cap,
+    conflictOpen,
+    decisionPaneOpen,
+  };
+
+  const blockers = contact.blockedBy.filter((b) => !contactDerived(derived, b).landed);
+  const detail = detailFor(state, {
+    refusal: state === "ready" || state === "blocked" ? launchRefusal(policy) : null,
+    next: status?.next ?? null,
+    conflictOpen,
+    blockers,
+    conflictOf: contact.conflictOf,
+    deciding: decisionPaneOpen,
+    autoDecides: Boolean(op.auto?.enabled && op.auto.decide && op.frontend !== "none"),
+  });
+  const actions = actionsFor(policy);
+
+  const group: ContactView["group"] =
+    contact.lane === null && !d.landed ? "queue" : "live";
+
+  return {
+    ticket: contact.ticket,
+    title: contact.title,
+    zone: contact.zone,
+    kind: contact.kind,
+    group,
+    state,
+    detail,
+    progress: status?.progress ?? null,
+    phase: status?.phase ?? null,
+    blockedBy: contact.blockedBy.map((t) => ({
+      ticket: t,
+      landed: contactDerived(derived, t).landed,
+    })),
+    tracker: d.lastSample?.tracker ?? null,
+    delivery: probe ?? d.lastSample?.delivery ?? null,
+    workers: status?.workers ?? null,
+    owner,
+    mode: status?.mode ?? null,
+    usage: d.lastSample?.usage ? { tokens: d.lastSample.usage.tokens, costUsd: d.lastSample.usage.costUsd, sessions: status?.usage?.sessions ?? 0 } : (status?.usage ?? null),
+    origin: originOf(input.events, contact.ticket),
+    conflictOf: contact.conflictOf,
+    lane: contact.lane
+      ? { worktree: contact.lane.worktree, branch: contact.lane.branch, frontend: contact.lane.frontend, terminal: contact.lane.terminal !== null }
+      : null,
+    plan: status?.hold === "plan-approval" && status.plan ? { revision: status.plan.revision } : null,
+    options: contact.options,
+    recommended: contact.recommended,
+    decision: d.decision,
+    decisionPane: decisionPaneOpen,
+    // A decision an agent is working on is not waiting on the operator.
+    attention: (ATTENTION_STATES.includes(state) && !(state === "decision" && decisionPaneOpen)) || (state === "complete" && actions.some((a) => a.primary && a.enabled)),
+    actions,
+  };
+}
+
+export function project(input: ProjectionInput): Projection {
+  const op = input.operation;
+  const derived = foldEvents(input.events);
+  const states = computeStates(input, derived);
+
+  const contacts = op.contacts.map((c) =>
+    contactView(
+      input,
+      derived,
+      c,
+      states.get(c.ticket) ?? "ready",
+      conflictOpenFor(op, states, c.ticket),
+      input.decisionPanes?.has(c.ticket) ?? false,
+    ),
+  );
+
+  const selection =
+    contacts.find((c) => c.group === "live")?.ticket ??
+    contacts.find((c) => c.group === "queue")?.ticket ??
+    null;
+
+  const log = history(input.events).slice(-MAX_LOG).reverse();
+
+  return {
+    operation: {
+      id: op.id,
+      name: op.name,
+      base: op.base,
+      frontend: op.frontend,
+      tracker: op.tracker,
+      fleet: op.fleet,
+      delivery: op.delivery,
+      pause: op.pause,
+      auto: op.auto ? { ...op.auto, plansSupported: Object.values(input.statuses).some((s) => s?.actions.includes("plan-approve")) } : null,
+      recover: op.recover,
+      project: input.project,
+      zones: op.zones.map((z, i) => ({
+        ...z,
+        angle: -20 + i * (360 / op.zones.length),
+      })),
+    },
+    header: {
+      live: input.load.live,
+      open: input.load.open,
+      cap: input.cap,
+    },
+    contacts,
+    notes: countTasks(input.notesText),
+    selection,
+    stats: computeStats(derived, input.now, input.load.live),
+    log,
+  };
+}

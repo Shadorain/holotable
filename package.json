@@ -1,0 +1,59 @@
+{
+  "name": "holotable",
+  "version": "1.0.0",
+  "description": "Campaign board that launches and watches OMP missions across projects.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Shadorain",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shadorain/holotable.git"
+  },
+  "keywords": [
+    "omp",
+    "oh-my-pi",
+    "pi-coding-agent",
+    "extension",
+    "omp-extension",
+    "campaign",
+    "board",
+    "mission"
+  ],
+  "files": [
+    "bin",
+    "src",
+    "web",
+    "examples",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "holotable": "./bin/holotable.ts"
+  },
+  "exports": {
+    ".": "./src/plugins/omp/extension.ts"
+  },
+  "omp": {
+    "extensions": [
+      "./src/plugins/omp/extension.ts"
+    ]
+  },
+  "scripts": {
+    "demo": "bun examples/playground.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-coding-agent": ">=18.4.4"
+  },
+  "dependencies": {
+    "proper-lockfile": "4.1.2"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "18.4.4",
+    "@types/bun": "^1.3.14",
+    "@types/proper-lockfile": "^4.1.4",
+    "typescript": "^5.8.0"
+  }
+}

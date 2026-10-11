@@ -1,0 +1,44 @@
+{
+  "id": "fixture",
+  "ok": true,
+  "result": {
+    "terminals": [
+      {
+        "handle": "term_5ed33c02-3de6-4c69-83fc-94038f294ce7",
+        "ptyId": "serve-3e178d7e-05c9-40fd-a07e-0857c725cdc0",
+        "incarnationId": "a84a2bfe-7649-4f41-bc7c-5166826b4233",
+        "orphaned": false,
+        "worktreeId": "f193c142-6395-4705-805e-f736c125d48f::/home/daedalus/projects/faith-apps",
+        "worktreePath": "/home/daedalus/projects/faith-apps",
+        "branch": "",
+        "tabId": "e4fb335b-3ee8-46e3-b687-805126adabf8",
+        "leafId": "89f7276e-9b2f-4c44-95cd-7cc72c317270",
+        "title": null,
+        "connected": true,
+        "writable": true,
+        "lastOutputAt": null,
+        "preview": "",
+        "executionHostId": "local"
+      },
+      {
+        "handle": "term_deadbeef-0000-4000-8000-000000000000",
+        "ptyId": "serve-00000000-0000-4000-8000-000000000000",
+        "incarnationId": "a84a2bfe-0000-4000-8000-000000000000",
+        "orphaned": false,
+        "worktreeId": "f193c142-6395-4705-805e-f736c125d48f::/home/daedalus/projects/faith-apps",
+        "worktreePath": "/home/daedalus/projects/faith-apps",
+        "branch": "",
+        "tabId": "e4fb335b-0000-4000-8000-000000000000",
+        "leafId": "89f7276e-0000-4000-8000-000000000000",
+        "title": "idle",
+        "connected": false,
+        "writable": true,
+        "lastOutputAt": null,
+        "preview": "",
+        "executionHostId": "local"
+      }
+    ],
+    "truncated": false
+  },
+  "_meta": { "runtimeId": "fixture" }
+}

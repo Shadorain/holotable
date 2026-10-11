@@ -1,0 +1,432 @@
+// Operation page (Plan view → "Operation" sub-tab): the operation as a document.
+// Brief, setup fields, the auto-mode card, zones and contacts, the checklist and the
+// seed file — everything the old settings drawer's per-operation section held, plus
+// brief/seed which only the page can show well. Field edits save through
+// POST /api/operation-config; zone/contact adds are POST /api/zones|contacts.
+import { dropdown, el, numberField, switcher, textField } from "./components.js";
+import { enumRow, field, switchRow, textRow } from "./fields.js";
+import { icon } from "./icons.js";
+import { renderMarkdown } from "./markdown.js";
+import { endSection } from "./endop.js";
+import { addContactButton } from "./addcontact.js";
+import { notesPanel } from "./notes.js";
+import { statePill } from "./ui.js";
+
+const titleCase = (kind) => `${kind[0].toUpperCase()}${kind.slice(1)}`;
+
+const WORKSPACE_SOURCE = {
+  "orca-project": "from the Orca project",
+  operation: "set on this operation",
+  settings: "from worktrees.root",
+  none: "not decided by holotable",
+};
+
+// Brief editing state keyed by operation id so a rebuild cannot eat a draft.
+const briefUi = new Map();
+const briefState = (opId) => {
+  let s = briefUi.get(opId);
+  if (!s) {
+    s = { editing: false, draft: "", error: null };
+    briefUi.set(opId, s);
+  }
+  return s;
+};
+/** Digest for region(): rebuild when brief UI state changes. */
+export function opUiKey(opId) {
+  const s = briefUi.get(opId);
+  return s ? String(s.editing) : "";
+}
+
+function docSection(title) {
+  const box = el("section", "opdoc-sec");
+  const head = el("div", "group-head");
+  head.append(el("span", "", title));
+  box.append(head);
+  return box;
+}
+
+function briefSection(p, doc, ctx) {
+  const opId = p.operation.id;
+  const ui = briefState(opId);
+  const box = docSection("Brief");
+  const head = box.querySelector(".group-head");
+
+  const editBtn = el("button", "btn small");
+  editBtn.type = "button";
+  editBtn.append(icon("pencil", { size: 12 }), document.createTextNode(doc.brief ? "Edit" : "Write"));
+  editBtn.dataset.key = "op/brief-edit";
+  editBtn.addEventListener("click", () => {
+    ui.editing = true;
+    ui.draft = doc.brief ?? "";
+    ui.error = null;
+    ctx.rerender();
+  });
+  if (!ui.editing) head.append(editBtn);
+
+  if (ui.editing) {
+    const area = el("textarea", "plan-edit brief-edit");
+    area.value = ui.draft;
+    area.placeholder = "# What this operation is about\nContext for the people and missions working it.";
+    area.setAttribute("aria-label", "Operation brief");
+    area.dataset.key = "op/brief-text";
+    area.addEventListener("input", () => {
+      ui.draft = area.value;
+    });
+    box.append(area);
+    const row = el("div", "actions plan-row");
+    const save = el("button", "btn small primary");
+    save.type = "button";
+    save.append(icon("save", { size: 12 }), document.createTextNode("Save"));
+    save.dataset.key = "op/brief-save";
+    save.addEventListener("click", async () => {
+      ui.error = null;
+      try {
+        const res = await ctx.api("/api/brief", {
+          method: "PUT",
+          body: JSON.stringify({ op: opId, text: area.value }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+        ui.editing = false;
+        ctx.toast("Brief saved", "ok");
+        await ctx.reloadOp();
+      } catch (error) {
+        ui.error = error instanceof Error ? error.message : String(error);
+        ctx.rerender();
+      }
+    });
+    const cancel = el("button", "btn small", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => {
+      ui.editing = false;
+      ui.draft = "";
+      ui.error = null;
+      ctx.rerender();
+    });
+    row.append(save, cancel);
+    box.append(row);
+    if (ui.error) box.append(el("div", "set-err", ui.error));
+    return box;
+  }
+
+  if (doc.brief) box.append(renderMarkdown(doc.brief));
+  else box.append(el("div", "empty-line", "No brief yet — one paragraph on what this operation is for helps everyone reading the board."));
+  return box;
+}
+
+/** Marks a row whose value comes from the project, with a way back after an override. */
+function inheritance(f, key, cfg, ctx) {
+  if (!cfg.fields.project) return;
+  const headRow = f.row.querySelector(".set-field-head");
+  if (cfg.inherited?.includes(key)) {
+    const tag = el("span", "tag-inherit", "from project");
+    tag.title = "Inherited from the project; changing it here overrides it for this operation only";
+    headRow.append(tag);
+  } else {
+    const back = el("button", "linkish tag-inherit", "use project value");
+    back.type = "button";
+    back.title = "Drop this operation's override and follow the project again";
+    back.addEventListener("click", () => ctx.saveOp(key, "inherit"));
+    headRow.append(back);
+  }
+}
+
+const OVERRIDE_KEYS = ["base", "integration", "pause", "tracker", "fleet", "frontend", "delivery", "worktreeRoot"];
+let setupOpen = false;
+
+function setupSection(p, doc, ctx) {
+  const cfg = doc.cfg;
+  const of = cfg.fields;
+  const box = docSection("Setup");
+  const projects = ctx.projects ?? [];
+  const pick = dropdown({
+    label: "Project",
+    options: [...projects.map((pr) => ({ value: pr.id, label: pr.name })), { value: "", label: "No project (standalone)" }],
+    value: of.project ?? "",
+    onChange: (v) => ctx.saveOp("project", v),
+  });
+  const projRow = el("div", "set-inline");
+  projRow.append(pick.root);
+  if (of.project) {
+    const open = el("button", "btn small");
+    open.type = "button";
+    open.append(icon("layers", { size: 12 }), document.createTextNode("Project settings"));
+    open.addEventListener("click", () => ctx.openProject(of.project));
+    projRow.append(open);
+  }
+  field(box, "Project", projRow, {
+    note: of.project
+      ? "Repo, base and wiring come from the project; change them on the project page. Detaching copies the project's values in."
+      : "Standalone: this operation carries its own repo and wiring.",
+  });
+
+  textRow(box, "Name", "name", of.name, ctx.saveOp);
+
+  // With a project, per-operation overrides are the exception: fold them behind a summary.
+  const body = el("div", "setup-body");
+  if (of.project) {
+    const overridden = OVERRIDE_KEYS.filter((k) => !cfg.inherited?.includes(k));
+    const toggle = el("button", "linkish setup-toggle");
+    toggle.type = "button";
+    toggle.dataset.key = "op/setup-overrides";
+    const label = () =>
+      `${setupOpen ? "Hide" : "Show"} settings · ${overridden.length ? `${overridden.length} overridden here (${overridden.join(", ")})` : "all from the project"}`;
+    toggle.append(icon("chevron-down", { size: 12 }), document.createTextNode(label()));
+    body.hidden = !setupOpen;
+    toggle.classList.toggle("open", setupOpen);
+    toggle.addEventListener("click", () => {
+      setupOpen = !setupOpen;
+      body.hidden = !setupOpen;
+      toggle.classList.toggle("open", setupOpen);
+      toggle.lastChild.textContent = label();
+    });
+    box.append(toggle);
+  }
+  box.append(body);
+
+  const grid = el("div", "set-grid");
+  inheritance(textRow(grid, "Base branch", "base", of.base, ctx.saveOp, { mono: true }), "base", cfg, ctx);
+  inheritance(
+    textRow(grid, "Integration checkout", "integration", of.integration, ctx.saveOp, { mono: true, note: "Where Land merges; must be clean and on the base." }),
+    "integration",
+    cfg,
+    ctx,
+  );
+  inheritance(switchRow(grid, "Pause gates", "pause", of.pause, ctx.saveOp, { note: "Missions stop at each Pause gate for your approval." }), "pause", cfg, ctx);
+  body.append(grid);
+  const ports = el("div", "set-grid ports-grid");
+  for (const kind of ["tracker", "fleet", "frontend", "delivery"])
+    inheritance(enumRow(ports, titleCase(kind), kind, cfg.options[kind], of[kind], ctx.saveOp), kind, cfg, ctx);
+  body.append(ports);
+  inheritance(
+    textRow(body, "Worktree folder", "worktreeRoot", of.worktreeRoot, ctx.saveOp, {
+      mono: true,
+      placeholder: "use the board default",
+      note: "Only for lanes holotable creates itself (herdr, custom).",
+    }),
+    "worktreeRoot",
+    cfg,
+    ctx,
+  );
+  const w = cfg.workspace;
+  const ws = el("div", "set-workspace");
+  if (w.path) ws.append(el("span", "mono", `${w.path} · ${WORKSPACE_SOURCE[w.source] ?? w.source}`));
+  if (w.note) ws.append(el("div", "set-note", w.note));
+  if (!w.path && !w.note) ws.append(el("span", "set-note", "No lane folder applies."));
+  body.append(ws);
+  return box;
+}
+
+function autoSection(p, ctx) {
+  const box = docSection("Auto mode");
+  const auto = "auto" in p.operation ? p.operation.auto : null;
+  const card = el("div", "auto-card");
+
+  let swField;
+  const sw = switcher({
+    label: "Auto mode",
+    checked: Boolean(auto?.enabled),
+    onChange: (v) => {
+      swField.setError(null);
+      ctx.saveOp("auto", v ? "on" : "off", (error) => {
+        if (error) {
+          sw.setChecked(Boolean(auto?.enabled));
+          swField.setError(error);
+        } else ctx.rerender();
+      });
+    },
+  });
+  swField = field(card, "Run the board itself", sw.root, {
+    note: "Launch the queue and land finished work without a click each time.",
+  });
+  if (auto?.enabled) {
+    const sub = el("div", "auto-sub");
+    switchRow(sub, "Launch", "auto.launch", auto.launch, ctx.saveOp, {
+      note: "Start queued contacts when a slot is free.",
+    });
+    switchRow(sub, "Land", "auto.land", auto.land, ctx.saveOp, {
+      note: "Merge contacts when they complete.",
+    });
+    {
+      const nf = numberField({ label: "Max live", value: auto.maxLive, min: 1, max: 8 });
+      const f = field(sub, "Max live in this operation", nf.root, {
+        note: "Below the board-wide cap.",
+      });
+      nf.input.addEventListener("change", () => {
+        f.setError(null);
+        ctx.saveOp("auto.maxLive", nf.input.value, (error) => {
+          if (error) {
+            nf.input.value = String(auto.maxLive);
+            f.setError(error);
+          }
+        });
+      });
+    }
+    card.append(sub);
+
+    // Riskier automation, off by default: each one replaces a human judgement.
+    const judge = el("div", "auto-sub auto-judge");
+    switchRow(judge, "Decide", "auto.decide", Boolean(auto.decide), ctx.saveOp, {
+      note: "Decision contacts take their recommended answer; without one, an omp pane investigates, records a choice with its reasoning, and closes. You can change any decision later.",
+    });
+    const plans = switchRow(judge, "Approve plans", "auto.plans", Boolean(auto.plans), ctx.saveOp, {
+      note: auto.plansSupported
+        ? "Plans waiting for approval are approved without you."
+        : "Waiting on OMP: it has no way yet for the board to approve a plan, so plans still wait in their pane. This switch takes effect as soon as omp supports it.",
+    });
+    if (!auto.plansSupported) plans.row.classList.add("pending-support");
+    card.append(judge);
+  }
+  box.append(card);
+  return box;
+}
+
+function recoverSection(p, ctx) {
+  const box = docSection("Recovery");
+  const card = el("div", "auto-card");
+  switchRow(card, "Keep missions running", "recover", Boolean(p.operation.recover), ctx.saveOp, {
+    note: "When a mission pane closes or crashes, reopen it in the same worktree and take the mission back (/mission continue). Never after failed verification, never past a gate or plan, never after you Reap; gives up after 3 reopens in 30 minutes.",
+  });
+  box.append(card);
+  return box;
+}
+
+function zonesContactsSection(p, ctx) {
+  const box = docSection("Zones and contacts");
+  const zones = p.operation.zones;
+
+  const zoneRow = el("div", "zone-chips");
+  for (const z of zones) {
+    const count = p.contacts.filter((c) => c.zone === z.id).length;
+    const chip = el("span", "tag zone-chip", `${z.label} · ${count}`);
+    chip.title = z.id;
+    zoneRow.append(chip);
+  }
+  if (zones.length) box.append(zoneRow);
+
+  // Add zone.
+  const zlabel = textField({ label: "New zone", placeholder: "Zone name, e.g. Billing", spellcheck: false });
+  const zerr = el("div", "set-err");
+  zerr.hidden = true;
+  const zbtn = el("button", "btn small");
+  zbtn.type = "button";
+  zbtn.append(icon("plus", { size: 12 }), document.createTextNode("Add zone"));
+  zbtn.dataset.key = "op/add-zone";
+  zbtn.addEventListener("click", async () => {
+    zerr.hidden = true;
+    try {
+      const res = await ctx.api("/api/zones", {
+        method: "POST",
+        body: JSON.stringify({ op: p.operation.id, label: zlabel.input.value.trim() }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      zlabel.input.value = "";
+      ctx.toast("Zone added", "ok");
+      await ctx.poll();
+    } catch (error) {
+      zerr.hidden = false;
+      zerr.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
+  const zform = el("div", "inline-form");
+  zlabel.input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") zbtn.click();
+  });
+  zform.append(zlabel.root, zbtn);
+  box.append(zform, zerr);
+
+  // Contacts table.
+  const table = el("div", "ctable");
+  const headRow = el("div", "ctable-row ctable-head");
+  for (const h of ["Ticket", "Title", "Zone", "Kind", "State", "Waits for"]) headRow.append(el("span", "", h));
+  table.append(headRow);
+  const zoneLabel = (id) => zones.find((z) => z.id === id)?.label ?? id;
+  for (const c of p.contacts) {
+    const row = el("div", "ctable-row");
+    const tk = el("button", "linkish mono", c.ticket);
+    tk.type = "button";
+    tk.dataset.id = c.ticket;
+    tk.dataset.key = `op/contact/${c.ticket}`;
+    tk.title = c.title ?? c.ticket;
+    row.append(tk, el("span", "ctable-title", c.title ?? "—"), el("span", "", zoneLabel(c.zone)), el("span", "", c.kind));
+    const st = el("span", "");
+    st.append(statePill(c.state));
+    row.append(st);
+    const waits = c.blockedBy.filter((b) => !b.landed).map((b) => b.ticket).join(", ");
+    row.append(el("span", "dim", waits || "—"));
+    table.append(row);
+  }
+  if (!p.contacts.length) table.append(el("div", "empty-line", "No contacts yet."));
+  box.append(table);
+
+  const addRow = el("div", "list-tools");
+  addRow.append(addContactButton(() => ctx.addContact()));
+  box.append(addRow);
+  return box;
+}
+
+function seedSection(doc, p) {
+  const box = docSection("Seed file");
+  if (!doc.seed) {
+    box.append(el("div", "empty-line", "This operation was created without a seed file."));
+    return box;
+  }
+  const row = el("div", "actions plan-row");
+  const dl = el("button", "btn small");
+  dl.type = "button";
+  dl.append(icon("download", { size: 12 }), document.createTextNode("Download seed.json"));
+  dl.addEventListener("click", () => {
+    const blob = new Blob([doc.seed.text], { type: "application/json" });
+    const a = el("a", "");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${p.operation.id}.seed.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+  row.append(dl);
+  const det = el("details", "fold seed-fold");
+  const summary = el("summary", "group-head");
+  summary.append(el("span", "", "Raw JSON"));
+  let pretty = doc.seed.text;
+  try {
+    pretty = JSON.stringify(JSON.parse(doc.seed.text), null, 2);
+  } catch {
+    // Not JSON after all: show it as stored.
+  }
+  det.append(summary, el("pre", "md-code seed-pre", pretty));
+  box.append(row, det);
+  return box;
+}
+
+export function renderOperation(root, projection, doc, ctx) {
+  root.replaceChildren();
+  const p = projection;
+  const head = el("div", "opdoc-head");
+  head.append(el("h1", "opdoc-title", p.operation.name), el("span", "mono opdoc-id", p.operation.id));
+  if (p.operation.auto?.enabled) {
+    const badge = el("span", "auto-ind");
+    badge.append(icon("bot", { size: 12 }), document.createTextNode("Auto mode on"));
+    head.append(badge);
+  }
+  root.append(head);
+
+  if (!doc) {
+    root.append(el("div", "empty-line", "Loading…"));
+    return;
+  }
+  if (doc.error) {
+    root.append(el("div", "set-err big", doc.error));
+    return;
+  }
+  const notes = docSection("Notes");
+  const n = p.notes;
+  if (n?.total) notes.querySelector(".group-head").append(el("span", "count", `${n.done}/${n.total} done`));
+  notes.append(notesPanel(p.operation.id, ctx));
+  root.append(briefSection(p, doc, ctx), notes, autoSection(p, ctx), recoverSection(p, ctx), setupSection(p, doc, ctx), zonesContactsSection(p, ctx));
+
+  root.append(seedSection(doc, p), endSection(p, ctx));
+  const created = el("div", "set-note opdoc-created");
+  created.textContent = doc.createdAt ? `Created ${new Date(doc.createdAt).toLocaleString()}` : "";
+  root.append(created);
+}
