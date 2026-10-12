@@ -172,8 +172,8 @@ export function holotableCompletions(
       return completeFlags(
         "new",
         rest,
-        { repo: [], base: [], name: [], tracker: TRACKERS, fleet: FLEETS, frontend: FRONTENDS, delivery: DELIVERIES, from: [], integration: [], project: snapshot.projects.map((p) => p.id) },
-        ["no-pause", "recover"],
+        { repo: [], base: [], name: [], tracker: TRACKERS, fleet: FLEETS, frontend: FRONTENDS, delivery: DELIVERIES, from: [], integration: [], project: snapshot.projects.map((p) => p.id), brief: [] },
+        ["no-pause", "auto", "recover"],
       );
     case "project": {
       const subs = ["new", "list", "set", "attach", "detach", "delete"];

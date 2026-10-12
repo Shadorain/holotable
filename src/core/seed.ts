@@ -6,6 +6,7 @@ export interface SeedShape {
   workflow?: unknown[];
   notes?: string;
   brief?: string;
+  auto?: unknown;
 }
 
 export function parseSeed(text: string, where: string): SeedShape {

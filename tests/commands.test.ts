@@ -36,6 +36,7 @@ test("new creates and selects an operation with settings defaults", async () => 
   expect(out.current).toBe("lab");
   const op = await readOperation(env.home, "lab");
   expect(op).toMatchObject({ name: "Lab", repo: "/tmp/r", integration: "/tmp/r", pause: true, tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none" });
+  expect(op.auto).toBeUndefined();
   expect(await readEvents(env.home, "lab")).toEqual([]);
 });
 
@@ -53,6 +54,77 @@ test("new --from seeds zones, contacts and workflow and queues each contact", as
   expect(await kinds(env)).toEqual(["queued:one", "queued:two", "blocked:two"]);
 });
 
+test("new --auto enables operation auto mode with safe defaults", async () => {
+  const env = fixture();
+  await runCommand("new lab --repo /tmp/r --base main --auto", env);
+  const op = await readOperation(env.home, "lab");
+  expect(op.auto).toEqual({
+    enabled: true,
+    launch: true,
+    land: true,
+    maxLive: 4,
+    plans: false,
+    decide: false,
+  });
+  expect(op.pause).toBe(true);
+  expect(op.recover).toBe(false);
+});
+
+test("new --auto preserves safety boundaries and explicit overrides", async () => {
+  const env = fixture();
+  await runCommand("new lab --repo /tmp/r --base main --auto --no-pause --recover", env);
+  const op = await readOperation(env.home, "lab");
+  expect(op.pause).toBe(false);
+  expect(op.recover).toBe(true);
+  expect(op.auto?.enabled).toBe(true);
+  expect(op.auto?.plans).toBe(false);
+});
+
+test("new --auto respects seed auto configuration and precedence", async () => {
+  const env = fixture();
+  const file = join(env.home, "seed.json");
+  writeFileSync(
+    file,
+    JSON.stringify({
+      zones: [{ id: "ops", label: "Ops" }],
+      auto: { maxLive: 2, decide: true },
+    }),
+  );
+  await runCommand("new lab --repo /tmp/r --base main --auto --from seed.json", env);
+  const op = await readOperation(env.home, "lab");
+  expect(op.auto).toEqual({
+    enabled: true,
+    launch: true,
+    land: true,
+    maxLive: 2,
+    plans: false,
+    decide: true,
+  });
+});
+
+test("new without --auto preserves an explicitly enabled seed configuration", async () => {
+  const env = fixture();
+  const file = join(env.home, "seed.json");
+  writeFileSync(file, JSON.stringify({ auto: {
+    enabled: true, launch: false, land: false, maxLive: 3, plans: false, decide: false,
+  } }));
+  await runCommand("new lab --repo /tmp/r --base main --from seed.json", env);
+  expect((await readOperation(env.home, "lab")).auto).toEqual({
+    enabled: true, launch: false, land: false, maxLive: 3, plans: false, decide: false,
+  });
+});
+
+test("new --project with --auto inherits repo/base and sets auto mode", async () => {
+  const env = fixture();
+  await runCommand("project new lab-proj --repo /tmp/r --base main", env);
+  await runCommand("new lab --project lab-proj --auto", env);
+  const op = await readOperation(env.home, "lab");
+  expect(op.project).toBe("lab-proj");
+  expect(op.repo).toBe("/tmp/r");
+  expect(op.base).toBe("main");
+  expect(op.auto?.enabled).toBe(true);
+});
+
 test("new rejects bad input and writes nothing", async () => {
   const env = fixture();
   await expect(runCommand("new lab --repo /tmp/r", env)).rejects.toThrow("Usage: /holotable new");
@@ -62,6 +134,7 @@ test("new rejects bad input and writes nothing", async () => {
   expect(await listOperations(env.home)).toEqual([]);
   await runCommand("new lab --repo /tmp/r --base main", env);
   await expect(runCommand("new lab --repo /tmp/r --base main", env)).rejects.toThrow();
+  await expect(runCommand("new lab --repo /tmp/r --base main --auto --bogus", env)).rejects.toThrow("unknown flag --bogus");
 });
 
 test("list marks the selected operation and hides archived ones unless --all", async () => {

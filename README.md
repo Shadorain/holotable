@@ -164,7 +164,7 @@ Once activated, the row shows the selected operation and nonzero live, queued an
 |---|---|
 |(none)|start the board if needed and print its URLs; also records the session's repo for the project picker|
 |`start` / `stop` / `restart` / `status` / `url`|manage or inspect the same home-selected board through the CLI|
-|`new <id> (--project <id> \| --repo <path> --base <branch>) [--name] [--tracker] [--fleet] [--frontend] [--delivery] [--no-pause] [--recover] [--from file.json] [--brief file.md]`|create an operation and select it; with `--project` every unset field comes from the project, otherwise from settings; `--recover` starts it with [recovery](#recovery) on|
+|`new <id> (--project <id> \| --repo <path> --base <branch>) [--name] [--tracker] [--fleet] [--frontend] [--delivery] [--auto] [--no-pause] [--recover] [--from file.json] [--brief file.md]`|create and select an operation; unset fields come from its project or settings; `--auto` enables [auto mode](#auto-mode) and starts the board; `--recover` opts into [recovery](#recovery)|
 |`project new <id> --repo <path> --base <branch> [--name] [--integration] [--tracker] [--fleet] [--frontend] [--delivery] [--no-pause] [--worktree-root]`|create a project (the page's New project and `POST /api/projects` detect any field you leave out)|
 |`project list`|projects and their operations|
 |`project set [<id>:]<field> <value>`|change a project field (default: the selected operation's project); every operation that has not overridden it follows|
@@ -188,6 +188,8 @@ Once activated, the row shows the selected operation and nonzero live, queued an
 ```
 
 A `"brief"` string seeds the operation's brief (same as `--brief`); `--brief <file>` overrides a `brief` key in the seed. `"notes"` seeds the scratch pad.
+
+Start an automatic campaign from OMP with `/holotable new release --repo /path/to/repo --base main --auto`, or use the same `new` arguments in the shell CLI. The flag enables launch and land with `auto.maxLive = 4`, bounded by the board cap. It does **not** disable Pause, approve plans, decide contacts or enable recovery. Explicit auto settings in a seed are preserved, with `enabled` switched on by `--auto`; without the flag, the seed's auto configuration is unchanged.
 
 ### Settings
 

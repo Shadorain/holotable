@@ -95,7 +95,11 @@ export type ProjectField = (typeof PROJECT_FIELDS)[number];
 export const HELP = `/holotable: campaign board over omp-mission missions.
   /holotable                     start the board, print its URL
   /holotable stop                stop the board
-  /holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--no-pause] [--from <file.json>] [--brief <file.md>]
+  /holotable start               start or reuse the board
+  /holotable restart             restart the board without changing missions or data
+  /holotable status              report the selected home's board health
+  /holotable url                 print the running board URLs
+  /holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--no-pause] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]
   /holotable list [--all]
   /holotable project <new|list|set|attach|detach|delete> …
   /holotable use <id>
@@ -157,6 +161,16 @@ function requireCurrent(env: CommandEnv): string {
 }
 
 
+const DEFAULT_AUTO: AutoMode = {
+  enabled: false,
+  launch: true,
+  land: true,
+  maxLive: 4,
+  plans: false,
+  decide: false,
+};
+
+
 export interface NewOperationSpec {
   id: string;
   /** Attach to this project; `repo`/`base` may be omitted to inherit them. */
@@ -176,6 +190,8 @@ export interface NewOperationSpec {
   brief?: string;
   /** Recovery mode: relaunch dead panes and continue resume holds. Default off. */
   recover?: boolean;
+  /** Enable automatic launch/land without opting into plan approval or recovery. */
+  auto?: boolean;
 }
 
 /** The project the selected operation belongs to; `project set`/`detach` work on it. */
@@ -197,6 +213,12 @@ export async function createFromSpec(
   const repo = spec.repo ?? project?.repo;
   const base = spec.base ?? project?.base;
   if (!repo || !base) throw new Error("repo and base are required (or pass a project that supplies them)");
+  let auto = seed.auto;
+  if (spec.auto !== undefined) {
+    if (auto === undefined) auto = { ...DEFAULT_AUTO, enabled: spec.auto };
+    else if (typeof auto === "object" && auto !== null && !Array.isArray(auto))
+      auto = { ...DEFAULT_AUTO, ...auto, enabled: spec.auto };
+  }
   const operation = {
     v: 1,
     id: spec.id,
@@ -219,6 +241,7 @@ export async function createFromSpec(
       lane: null,
     })),
     project: project?.id ?? null,
+    ...(auto !== undefined ? { auto } : {}),
     recover: spec.recover === true,
     createdAt: now.toISOString(),
   } as unknown as Operation;
@@ -241,11 +264,11 @@ export async function createFromSpec(
 
 async function cmdNew(tokens: string[], env: CommandEnv): Promise<CommandOutcome> {
   const usage =
-    "/holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--no-pause] [--recover] [--from <file.json>] [--brief <file.md>]";
+    "/holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--no-pause] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]";
   const parsed = parseArgs(
     tokens,
     ["repo", "base", "project", "name", "tracker", "fleet", "frontend", "delivery", "from", "integration", "brief"],
-    ["no-pause", "recover"],
+    ["no-pause", "auto", "recover"],
     usage,
   );
   const [id] = parsed.positional;
@@ -268,6 +291,7 @@ async function cmdNew(tokens: string[], env: CommandEnv): Promise<CommandOutcome
       ? { integration: resolve(env.cwd, flag(parsed, "integration") ?? repo ?? "") }
       : {}),
     ...(parsed.flags.has("no-pause") ? { pause: false } : {}),
+    ...(parsed.flags.has("auto") ? { auto: true } : {}),
     ...(parsed.flags.has("recover") ? { recover: true } : {}),
     ...(flag(parsed, "tracker") ? { tracker: oneOf(TRACKERS, flag(parsed, "tracker")!, "--tracker") } : {}),
     ...(flag(parsed, "fleet") ? { fleet: oneOf(FLEETS, flag(parsed, "fleet")!, "--fleet") } : {}),
@@ -436,7 +460,7 @@ export function applyOperationField(op: Operation, field: string, raw: string, c
     }
     case "auto": {
       const enabled = oneOf(["on", "off", "true", "false"], value, "auto") === "on" || value === "true";
-      const base = op.auto ?? { enabled: false, launch: true, land: true, maxLive: 4, plans: false, decide: false };
+      const base = op.auto ?? DEFAULT_AUTO;
       return { ...op, auto: { ...base, enabled } };
     }
     case "auto.launch":
@@ -445,14 +469,14 @@ export function applyOperationField(op: Operation, field: string, raw: string, c
     case "auto.decide": {
       const flag = oneOf(["on", "off", "true", "false"], value, name);
       const enabled = flag === "on" || flag === "true";
-      const base = op.auto ?? { enabled: false, launch: true, land: true, maxLive: 4, plans: false, decide: false };
+      const base = op.auto ?? DEFAULT_AUTO;
       const patch = name === "auto.launch" ? { launch: enabled } : name === "auto.land" ? { land: enabled } : name === "auto.plans" ? { plans: enabled } : { decide: enabled };
       return { ...op, auto: { ...base, ...patch } };
     }
     case "auto.maxLive": {
       const n = Number(value);
       if (!Number.isInteger(n) || n < 1 || n > 64) throw new Error("auto.maxLive must be an integer from 1 to 64");
-      const base = op.auto ?? { enabled: false, launch: true, land: true, maxLive: 4, plans: false, decide: false };
+      const base = op.auto ?? DEFAULT_AUTO;
       return { ...op, auto: { ...base, maxLive: n } };
     }
     case "recover": {
