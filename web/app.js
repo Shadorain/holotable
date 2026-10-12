@@ -2,7 +2,7 @@
 // Regions re-render only when their data changed, and never under an open <select>,
 // so a 3 s poll does not steal focus, close dropdowns or flicker.
 import { renderOps } from "./board.js";
-import { cardTabs, planUiKey, renderCard } from "./card.js";
+import { cardTabs, clearCardDecision, getCardDecision, planUiKey, renderCard } from "./card.js";
 import { orderedTickets, renderList } from "./list.js";
 import { drawLinks, renderHistory, renderMap } from "./plan.js";
 import { createRadar } from "./radar.js";
@@ -81,8 +81,12 @@ installLoadTip($("load").closest(".stat"), {
 // ---- toasts ----
 
 function toast(text, kind = "info") {
-  const existing = $("toasts").querySelector(`.toast[data-text="${text}"][data-kind="${kind}"]`);
-  if (existing) existing.remove();
+  for (const existing of $("toasts").children) {
+    if (existing.dataset.text === text && existing.dataset.kind === kind) {
+      existing.remove();
+      break;
+    }
+  }
   const box = el("div", `toast t-${kind}`);
   box.dataset.text = text;
   box.dataset.kind = kind;
@@ -193,7 +197,7 @@ const PAST = {
 };
 
 /** Runs one board action; resolves `{ok, error}` so callers like the plan editor can react. */
-async function runAction(ticket, action, args = {}) {
+async function runAction(ticket, action, args = {}, opId = state.opId) {
   const key = `${ticket}/${action}`;
   if (state.busy.has(key)) return { ok: false, error: "busy: already running" };
   state.busy.add(key);
@@ -203,7 +207,7 @@ async function runAction(ticket, action, args = {}) {
   try {
     const res = await api("/api/actions", {
       method: "POST",
-      body: JSON.stringify({ op: state.opId, contact: ticket, action, args }),
+      body: JSON.stringify({ op: opId, contact: ticket, action, args }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
@@ -229,7 +233,13 @@ function confirmOrRun(ticket, action) {
   // Recording a decision needs the choice (and maybe why), so it opens a dialog first.
   const contact = state.projection?.contacts.find((c) => c.ticket === ticket);
   if (contact?.kind === "decision" && (action === "done" || action === "redecide")) {
-    openDecide(contact, action, (args) => runAction(ticket, action, args));
+    const opId = state.opId;
+    const initialChoice = action === "done" ? getCardDecision(opId, ticket) : null;
+    openDecide(contact, action, async (args) => {
+      const res = await runAction(ticket, action, args, opId);
+      if (res.ok) clearCardDecision(opId, ticket);
+      return res;
+    }, { initialChoice });
     return;
   }
   if (CONFIRM[action] && state.confirming !== key) {

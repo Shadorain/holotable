@@ -491,15 +491,26 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan) {
   const next = el("div", `next s-${contact.state}`);
   next.append(el("div", "kicker", contact.attention ? "Your move" : "Status"), el("div", "next-text", contact.detail));
   body.append(next);
-  const decided = decisionBox(contact);
+  const decided = decisionBox(contact, projection.operation.id);
   if (decided) body.append(decided);
   for (const part of [actionBar(contact, ctx), relations(contact, projection)]) if (part) body.append(part);
+}
+
+// The operator's tentative pick on a decision card survives region re-renders; the decision
+// itself is only recorded after they confirm it in the "Mark decided" dialog.
+const cardChoices = new Map();
+const choiceKey = (opId, ticket) => `${opId}/${ticket}`;
+export function getCardDecision(opId, ticket) {
+  return cardChoices.get(choiceKey(opId, ticket)) ?? null;
+}
+export function clearCardDecision(opId, ticket) {
+  cardChoices.delete(choiceKey(opId, ticket));
 }
 
 const DECIDED_BY = { operator: "you", agent: "an agent", recommended: "its recommendation" };
 
 /** A decision contact's question options before it is decided, its answer and reasoning after. */
-function decisionBox(contact) {
+function decisionBox(contact, opId) {
   if (contact.kind !== "decision") return null;
   const box = el("div", "decision-box");
   if (contact.decision) {
@@ -512,12 +523,74 @@ function decisionBox(contact) {
     box.append(el("div", "set-note", "An agent is investigating this in an omp pane; its choice and reasoning will appear here."));
   if (!contact.options?.length) return contact.decisionPane ? box : null;
   box.append(el("div", "kicker", "Options"));
-  const list = el("ul", "decision-opts");
-  for (const o of contact.options) {
-    const li = el("li", "", o);
-    if (o === contact.recommended) li.append(el("span", "tag", "recommended"));
-    list.append(li);
+  const options = contact.options;
+  const key = choiceKey(opId, contact.ticket);
+  let choice = cardChoices.get(key) ?? null;
+  if (choice !== null && !options.includes(choice)) {
+    cardChoices.delete(key);
+    choice = null;
+  }
+
+  const validRec =
+    typeof contact.recommended === "string" && contact.recommended.length > 0 && options.includes(contact.recommended)
+      ? contact.recommended
+      : null;
+
+  const radios = [];
+  let pickBtn = null;
+  const updatePick = (value) => {
+    pickBtn?.setAttribute("aria-pressed", String(value === validRec));
+  };
+  const select = (value) => {
+    choice = value;
+    cardChoices.set(key, value);
+    for (const r of radios) r.checked = r.value === value;
+    updatePick(value);
+  };
+
+  if (validRec) {
+    const recBar = el("div", "decide-rec");
+    const recInfo = el("div", "decide-rec-info");
+    recInfo.append(el("span", "decide-rec-kicker", "Recommended"), el("span", "decide-rec-val", validRec));
+    pickBtn = el("button", "btn small decide-rec-btn");
+    pickBtn.type = "button";
+    pickBtn.append(icon("sparkles", { size: 13 }), document.createTextNode("Pick recommended"));
+    pickBtn.setAttribute("aria-label", `Pick recommended: ${validRec}`);
+    pickBtn.addEventListener("click", () => {
+      radios[options.indexOf(validRec)]?.focus();
+      select(validRec);
+    });
+    recBar.append(recInfo, pickBtn);
+    box.append(recBar);
+  }
+
+  const list = el("fieldset", "decide-opts");
+  list.setAttribute("role", "radiogroup");
+  list.setAttribute("aria-label", "Choice");
+  for (let i = 0; i < options.length; i++) {
+    const option = options[i];
+    const optId = `card-decide-${i}-${Math.random().toString(36).slice(2, 6)}`;
+    const row = el("label", "decide-opt");
+    row.htmlFor = optId;
+
+    const radio = el("input", "decide-radio");
+    radio.type = "radio";
+    radio.id = optId;
+    radio.name = `card-decide-${opId}-${contact.ticket}`;
+    radio.value = option;
+    radio.checked = option === choice;
+    radios.push(radio);
+
+    const dot = el("span", "decide-dot");
+    dot.setAttribute("aria-hidden", "true");
+    row.append(radio, dot, el("span", "decide-label", option));
+    if (option === contact.recommended) row.append(el("span", "tag tag-recommended", "recommended"));
+    radio.addEventListener("change", () => {
+      if (radio.checked) select(option);
+    });
+    list.append(row);
   }
   box.append(list);
+  updatePick(choice);
   return box;
 }
