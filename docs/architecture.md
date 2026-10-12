@@ -2,7 +2,7 @@
 
 The board is a standalone Bun service (`bin/holotable.ts serve`, usually a systemd user unit) that owns campaign data (operations, contacts, zones, queue, events), the HTTP board and the watcher. Host plugins (only OMP today, `src/plugins/omp/`) are thin adapters over a host-agnostic core (`src/plugin/`): they expose the `/holotable` commands and the two model tools, and read the running service rather than owning it. Everything stack-specific sits behind four optional ports.
 
-Automatic startup resolves `bun` from `PATH`; it never treats OMP's `process.execPath` as a Bun interpreter (OMP may be a compiled executable). A missing Bun produces an installation error before any process or service is started.
+Automatic startup resolves `bun` from `PATH`; it never treats OMP's `process.execPath` as a Bun interpreter (OMP may be a compiled executable). A missing Bun produces an installation error before any process or service is started. Detached spawn waits for spawn/error, unreferences the child and closes the parent's log descriptor.
 
 The installed Linux unit bounds its cgroup (board plus CLI subprocesses): `CPUQuota=25%`, `MemoryHigh=256M`, `MemoryMax=512M`, `TasksMax=64`, `Nice=10`. Stop timeout is 15 s; failure restarts wait 10 s and are limited to three starts in 300 s. Orca/herdr mission panes run outside that cgroup. Direct/detached `serve` has no systemd resource ceiling.
 
@@ -41,9 +41,18 @@ flowchart LR
 |`src/adapters/`|the only code that spawns processes or opens sockets; spawns go through the injected `Run`|
 |`src/runtime/`|watcher, launcher, actions, lander, auto mode (`auto.ts`), post-land cleanup (`cleanup.ts`), end-of-operation wind-down (`winddown.ts`, `end.ts`): orchestration over ports and store|
 |`src/service.ts`|the standalone board owner: lock, server, watcher loop, token; used by `bin/holotable.ts` and the tests|
-|`bin/holotable.ts`|the CLI: `serve`, `url`, `install`/`uninstall` (systemd user unit), `status`, and every `/holotable` store command|
+|`bin/holotable.ts`|the CLI: `start`, `stop`, `restart`, `status`, `url`, foreground `serve`, Linux default-home `install`/`uninstall`, and shared store commands; global `--home` and `--json` precede the command|
 |`src/plugin/`|host-agnostic core: command runner, generic tool definitions, status-row text, service health via `board.json`|
 |`src/plugins/omp/`|the OMP adapter: wires the core into `ExtensionAPI` (zod tools, status row, completions). No server, no watcher|
+
+
+## Service lifecycle
+
+One authenticated board is shared per home. Default-home Linux starts use the installed systemd user unit when available; custom homes and other platforms use a detached Bun process. `stop` reads the live identity from `GET /api/service`, then posts its PID and ephemeral instance nonce to `POST /api/service/stop`, under the existing token, Host and Origin checks. A stale identity is rejected; the CLI never kills a PID from `board.json`.
+
+The shutdown reply finishes before closing the listener. The service stops scheduling passes, drains tracked HTTP requests and the current watcher, auto and recovery work, then releases the ownership lock. Stop waits for that lock release; a replaced owner is not stopped. Startup failures close any acquired resources and release the lock. Restart uses this same stop path before starting, keeping campaign files and the URL token.
+
+`board.json` binds discovery to the home it was written in (realpath). A copied `board.json`/`token` pair cannot make another home's CLI manage this board; symlinked homes resolve to the same owner.
 
 ## Ports
 

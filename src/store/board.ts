@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { lock } from "proper-lockfile";
+import { check, lock } from "proper-lockfile";
 
 export interface BoardInfo {
+  home: string;
   pid: number;
   url: string;
   urls?: string[];
@@ -22,12 +23,26 @@ const info = (home: string) => join(home, "board.json");
 
 export async function readBoardInfo(home: string): Promise<BoardInfo | null> {
   try {
-    const value = JSON.parse(await readFile(info(home), "utf8")) as Partial<BoardInfo>;
-    if (typeof value.pid !== "number" || typeof value.url !== "string") return null;
-    const urls = Array.isArray(value.urls) && value.urls.every((u) => typeof u === "string") ? value.urls : [value.url];
-    return { pid: value.pid, url: value.url, urls };
+    const value: unknown = JSON.parse(await readFile(info(home), "utf8"));
+    if (typeof value !== "object" || value === null || !("home" in value) || !("pid" in value) || !("url" in value))
+      return null;
+    // Discovery is bound to this home: copied board.json/token can never take over another home's board.
+    if (typeof value.home !== "string" || value.home !== await realpath(home) || typeof value.pid !== "number" || typeof value.url !== "string")
+      return null;
+    const urls = "urls" in value && Array.isArray(value.urls) && value.urls.every((u: unknown) => typeof u === "string")
+      ? value.urls : [value.url];
+    return { home: value.home, pid: value.pid, url: value.url, urls };
   } catch {
     return null;
+  }
+}
+
+export async function boardIsLocked(home: string): Promise<boolean> {
+  try {
+    return await check(target(home), { realpath: false, stale: 30_000 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
   }
 }
 
@@ -50,7 +65,7 @@ export async function acquireBoard(home: string, onCompromised: (error: Error) =
     ok: true,
     lock: {
       async publish(url, urls = [url]) {
-        await writeFile(info(home), `${JSON.stringify({ pid: process.pid, url, urls })}\n`, { mode: 0o600 });
+        await writeFile(info(home), `${JSON.stringify({ home: await realpath(home), pid: process.pid, url, urls })}\n`, { mode: 0o600 });
       },
       async release() {
         await rm(info(home), { force: true });

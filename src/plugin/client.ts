@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { homedir, platform as osPlatform } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OperationSummary } from "../board.ts";
 import type { Projection } from "../core/types.ts";
 import { installService, UNIT_NAME, type InstallOptions, type InstallResult } from "../service.ts";
-import { readBoardInfo, readToken } from "../store/board.ts";
+import { boardIsLocked, readBoardInfo, readToken } from "../store/board.ts";
 
 export interface ServiceRef {
   pid: number;
@@ -67,6 +67,45 @@ export function operations(home: string): Promise<OperationSummary[] | null> {
 
 export function projection(home: string, opId: string): Promise<Projection | null> {
   return serviceRef(home).then((ref) => (ref ? get<Projection>(ref, `/api/projection?op=${encodeURIComponent(opId)}`) : null));
+}
+
+interface ServiceIdentity {
+  pid: number;
+  instance: string;
+}
+
+/** Authenticated, instance-bound shutdown; never signal a PID from a stale discovery file. */
+export async function stopService(home: string, timeoutMs = 15_000): Promise<ServiceHealth> {
+  const stopped: ServiceHealth = { running: false, url: null, pid: null };
+  const ref = await serviceRef(home);
+  if (!ref) {
+    if (await boardIsLocked(home)) throw new Error("Board is locked but not discoverable; refusing to stop an unknown owner.");
+    return stopped;
+  }
+  const identity = await get<ServiceIdentity>(ref, "/api/service");
+  if (!identity) {
+    if (!await boardIsLocked(home)) return stopped;
+    throw new Error("Board is not answering the shutdown API. Check board.log; an older board needs one manual service restart.");
+  }
+  if (identity.pid !== ref.pid) throw new Error("Board discovery is stale; refusing to stop a different process.");
+  const response = await fetch(`${ref.base}/api/service/stop`, {
+    method: "POST",
+    headers: { ...headers(ref), origin: ref.base, "content-type": "application/json" },
+    body: JSON.stringify(identity),
+    signal: AbortSignal.timeout(2000),
+  });
+  if (!response.ok) {
+    const body = await response.json() as { error?: string };
+    throw new Error(body.error ?? `Board shutdown failed (${response.status}).`);
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!await boardIsLocked(home)) return stopped;
+    const next = await serviceRef(home);
+    if (next && (next.pid !== ref.pid || next.url !== ref.url)) return serviceHealth(home);
+    await Bun.sleep(100);
+  }
+  throw new Error("Board is still finishing in-flight work; its ownership lock remains held. Retry status before restarting.");
 }
 
 export interface EnsureServiceOptions {
@@ -150,15 +189,24 @@ export async function ensureService(options: string | EnsureServiceOptions): Pro
     const logPath = join(home, "board.log");
     const spawnFn =
       opts.spawnDetached ??
-      ((cmd, args, outPath, env) => {
-        mkdirSync(dirname(outPath), { recursive: true });
-        const out = openSync(outPath, "a");
-        const child = spawn(cmd, args, {
-          detached: true,
-          stdio: ["ignore", out, out],
-          env: env as NodeJS.ProcessEnv,
-        });
-        child.unref();
+      (async (cmd, args, outPath, env) => {
+        mkdirSync(dirname(outPath), { recursive: true, mode: 0o700 });
+        const out = openSync(outPath, "a", 0o600);
+        try {
+          const child = spawn(cmd, args, {
+            detached: true,
+            windowsHide: true,
+            stdio: ["ignore", out, out],
+            env: env as NodeJS.ProcessEnv,
+          });
+          await new Promise<void>((resolve, reject) => {
+            child.once("error", reject);
+            child.once("spawn", resolve);
+          });
+          child.unref();
+        } finally {
+          closeSync(out);
+        }
       });
 
     await spawnFn(bunPath, [scriptPath, "serve"], logPath, {

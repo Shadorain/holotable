@@ -64,7 +64,10 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
   const portsFor = options.portsFor ?? ((op: Operation, s: Settings) => resolvePorts(op, s, run, agentDir()));
 
   let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: Timer | undefined;
+  let tickInFlight: Promise<void> | undefined;
+  let autoInFlight: Promise<void> | undefined;
+  let recoverInFlight: Promise<void> | undefined;
   let boardLock: BoardLock | null = null;
   let server: BoardServer | null = null;
   const { promise: closed, resolve: resolveClosed } = Promise.withResolvers<void>();
@@ -77,9 +80,13 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     clearTimeout(timer);
     try {
       await server?.close();
+      await Promise.allSettled([tickInFlight, autoInFlight, recoverInFlight]);
     } finally {
-      await boardLock?.release();
-      resolveClosed();
+      try {
+        await boardLock?.release();
+      } finally {
+        resolveClosed();
+      }
     }
   }
 
@@ -145,8 +152,9 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
   });
   const ender = createEnder({ home, now: () => new Date(), settings: settingsFn, portsFor, run, inFlight });
 
-  const bootSettings = await settingsFn();
+  let bootSettings: Settings;
   try {
+    bootSettings = await settingsFn();
     server = await startServer({
       service: createBoardService(home, {
         extras: watcher.extras,
@@ -183,6 +191,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
         run,
         urls: () => server?.urls ?? [],
       }),
+      onShutdown: close,
       settings: {
         access: options.access ?? bootSettings.access,
         port: options.port ?? bootSettings.port,
@@ -195,17 +204,16 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     });
     await boardLock.publish(server.url, server.urls);
   } catch (error) {
-    await boardLock.release();
+    await close();
     throw error;
   }
 
   // Serial over itself (the watcher serializes too): a slow pass moves the next one, never overlaps it.
   let delay = bootSettings.pollMs;
-  let autoInFlight: Promise<void> | undefined;
-  let recoverInFlight: Promise<void> | undefined;
   const tick = async () => {
     try {
       await watcher.pass();
+      if (stopped) return;
       // Skip a pass still in flight (slow land/recover) instead of re-entering;
       // failures reach the log rather than being swallowed.
       autoInFlight ??= auto
@@ -224,9 +232,14 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     } catch (error) {
       warn(`watcher pass: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (!stopped) timer = setTimeout(() => void tick(), delay);
+    if (!stopped) timer = setTimeout(poll, delay);
   };
-  timer = setTimeout(() => void tick(), 0);
+  function poll(): void {
+    tickInFlight = tick().finally(() => {
+      tickInFlight = undefined;
+    });
+  }
+  timer = setTimeout(poll, 0);
 
   if (options.signals) {
     process.once("SIGINT", onSignal);

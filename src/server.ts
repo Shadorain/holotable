@@ -172,6 +172,7 @@ export interface StartServerInput {
   token?: string;
   run?: Run;
   onRebind?: (url: string, urls: string[]) => Promise<void> | void;
+  onShutdown?: () => Promise<void>;
 }
 
 export async function startServer(input: StartServerInput): Promise<BoardServer> {
@@ -179,12 +180,14 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
   let currentAccess: Access = input.settings.access ?? "tailscale";
   let bindHost = currentAccess === "local" ? "127.0.0.1" : "0.0.0.0";
   const token = input.token ?? randomBytes(32).toString("hex");
+  const instance = randomBytes(16).toString("hex");
   const tokenBytes = Buffer.from(token, "utf8");
   let acceptedHosts = new Set<string>();
   let currentUrls: string[] = [];
   let currentUrl = "";
   let actualPort = 0;
   let currentServer: Server;
+  const pending = new Set<Promise<void | ServerResponse>>();
 
   const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     try {
@@ -225,6 +228,19 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
           !acceptedHosts.has(origin.host.toLowerCase())
         )
           return fail(res, 403, "Cross-origin request rejected");
+      }
+
+      if (method === "GET" && pathname === "/api/service")
+        return respond(res, 200, JSON.stringify({ pid: process.pid, instance }));
+      if (method === "POST" && pathname === "/api/service/stop") {
+        if (!input.onShutdown) return fail(res, 503, "Service shutdown is unavailable");
+        const body = await readBody(req);
+        if (body.pid !== process.pid || body.instance !== instance)
+          return fail(res, 409, "Board instance changed; refusing to stop it");
+        res.once("finish", () => {
+          void input.onShutdown?.().catch((error) => console.error(`holotable: shutdown: ${error}`));
+        });
+        return respond(res, 202, JSON.stringify({ stopping: true }));
       }
 
       if (method === "GET" && pathname === "/api/setup")
@@ -578,6 +594,11 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       return fail(res, 500, message);
     }
   };
+  function trackRequest(req: IncomingMessage, res: ServerResponse): void {
+    const task = handleRequest(req, res);
+    pending.add(task);
+    void task.then(() => pending.delete(task), () => pending.delete(task));
+  }
 
   async function doRebind(newSettings: { access: Access; port: number }): Promise<{ url: string; urls: string[] }> {
     currentAccess = newSettings.access;
@@ -586,7 +607,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
     const oldServer = currentServer;
     oldServer.close();
 
-    const newServer = createServer(handleRequest);
+    const newServer = createServer(trackRequest);
     try {
       actualPort = await listenWithFallback(newServer, newSettings.port, bindHost);
       currentServer = newServer;
@@ -598,13 +619,13 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       }
       return { url: currentUrl, urls: currentUrls };
     } catch (err) {
-      currentServer = createServer(handleRequest);
+      currentServer = createServer(trackRequest);
       actualPort = await listenWithFallback(currentServer, actualPort, bindHost);
       throw err;
     }
   }
 
-  currentServer = createServer(handleRequest);
+  currentServer = createServer(trackRequest);
   actualPort = await listenWithFallback(currentServer, input.settings.port, bindHost);
   acceptedHosts = await buildAcceptedHosts(actualPort, currentAccess, input.run);
   currentUrls = await resolveBoardUrls({ port: actualPort, token, access: currentAccess, run: input.run });
@@ -621,7 +642,9 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       const { promise, resolve, reject } = Promise.withResolvers<void>();
       currentServer.close((error) => (error ? reject(error) : resolve()));
       currentServer.closeAllConnections();
-      return promise;
+      return promise.then(async () => {
+        await Promise.allSettled(pending);
+      });
     },
     rebind: doRebind,
   };

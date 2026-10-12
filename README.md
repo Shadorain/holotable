@@ -90,20 +90,42 @@ flowchart LR
 
 The status row shows the operation, live-agent cap, queue and contacts needing you. `holotable_state` reads the board; `holotable_queue` proposes or edits queued contacts. Neither tool launches, lands or approves work. Model selection, provider routing, verification and review remain in OMP and the mission.
 
-On Linux, the default board uses a resource-bounded **systemd user service**. Other platforms use a detached Bun process. Your campaigns live outside the plugin checkout, under `~/.omp/agent/holotable` by default; updates do not replace them. See [Resource budgets](#resource-budgets).
+The CLI is the cross-platform management interface. On Linux, the default home uses a resource-bounded **systemd user service** when available. Custom homes and other platforms use a detached Bun process. Your campaigns live outside the plugin checkout, under `~/.omp/agent/holotable` by default; updates do not replace them. See [Resource budgets](#resource-budgets).
 
 <details>
 <summary>Standalone CLI and service management</summary>
 
-From a checkout, `bun bin/holotable.ts` starts or reuses the board without an OMP session. These are optional; the normal `/holotable` flow handles startup.
+The OMP plugin installer does not put `holotable` on your shell's `PATH`. From a checkout with dependencies installed, expose the existing executable:
+
+```bash
+bun link
+export PATH="${BUN_INSTALL:-$HOME/.bun}/bin:$PATH"
+holotable --help
+```
+
+Keep the checkout in place: the command links to it. Keep Bun's bin directory on your shell's `PATH` for future terminals. Without linking, `bun bin/holotable.ts` runs the same CLI from the checkout.
+
+All OMP sessions and shell commands using the same `OMP_HOLOTABLE_HOME` share **one board process**. Closing OMP does not stop it. The localhost, Tailscale IP and Tailscale DNS URLs are different addresses for that same board, not separate instances. A different home deliberately creates a separate board.
 
 |Command|Effect|
 |---|---|
-|`bun bin/holotable.ts status`|check whether the board answers|
-|`bun bin/holotable.ts url`|print its URLs|
-|`bun bin/holotable.ts serve --access local`|run in the foreground|
-|`bun bin/holotable.ts install --now`|install and enable the Linux user service|
-|`bun bin/holotable.ts uninstall`|stop and remove that service; campaign data is kept|
+|`holotable` / `holotable start`|start or reuse the board and print its URLs|
+|`holotable status`|check the board and show its PID and URLs; exit code 3 means offline|
+|`holotable url`|print the running board's URLs|
+|`holotable list`|list operations; all `/holotable` store commands also work here|
+|`holotable serve --access local`|run in the foreground; Ctrl+C stops this foreground board|
+|`holotable stop`|gracefully stop this home's board, keeping campaign data|
+|`holotable restart`|stop, then start this home's board; the URL token is kept|
+|`holotable install --now`|install and enable the Linux default-home user service for login startup|
+|`holotable uninstall`|stop and remove that Linux service; campaign data is kept|
+
+Stopping the board stops watching and automatic board actions, not mission panes already owned by Orca or Herdr. In-flight actions finish before ownership is released. After a stop, `holotable start` starts it again.
+
+Global options go **before** the command: `holotable --home /path/to/campaigns status` controls a separate home; `holotable --json status` returns structured output. Shell selection is stored per home. Host integrations use `--current <id>` (or `--current ""` for none) to keep selection session-local.
+
+Discovery is bound to its home: a copied `board.json`/`token` cannot let one home manage another home's board, and two homes always get separate processes.
+
+`systemctl --user` remains useful for Linux logs and unit diagnostics, not required for normal lifecycle commands. After upgrading a board from a release without the shutdown API, restart it once with its original process manager before using CLI stop/restart.
 
 </details>
 
@@ -237,9 +259,12 @@ Active only while the board runs and after `/holotable` enables them. They propo
 
 ## Resource budgets
 
-The installed Linux user service limits the board **and its CLI subprocesses** to a quarter of one CPU core (`CPUQuota=25%`), 256 MiB memory pressure threshold, 512 MiB memory ceiling and 64 tasks. It runs at lower CPU priority and stops restarting after three starts in five minutes. A memory ceiling breach stops the board; operation data remains on disk. Existing installations: run `bun bin/holotable.ts install`, then `systemctl --user restart holotable`.
+The installed Linux user service limits the board **and its CLI subprocesses** to a quarter of one CPU core (`CPUQuota=25%`), 256 MiB memory pressure threshold, 512 MiB memory ceiling and 64 tasks. It runs at lower CPU priority and stops restarting after three starts in five minutes. A memory ceiling breach stops the board; operation data remains on disk. Existing installations: run `holotable install`, then `holotable restart` (use the original process manager once when upgrading from a release without the shutdown API).
 
 These limits do **not** cover mission panes hosted by Orca/herdr, other services, or a board started directly with `serve`/a detached fallback. The Agents cap limits mission concurrency across operations, not each mission's CPU. On a small or heat-constrained machine, start with **2** live agents and raise it only after measuring the workload. No board setting can guarantee safe temperatures for the entire host.
+
+
+Watcher passes never overlap. Explicit CLI starts close the parent's log descriptor after spawn. Stop authenticates a live PID and instance nonce, never signals a PID from a discovery file, and drains HTTP actions, watcher, auto and recovery work before releasing the ownership lock.
 
 Queued-only operations do not run terminal-list commands; operations with live recorded terminals or decision panes share one Orca/herdr listing per watcher pass. Custom frontends remain operation-scoped. Usage viewers share one machine snapshot instead of independently scanning `/proc`. Browser polls wait three seconds after completion rather than stacking requests behind slow responses. Hidden pages stop polling and drawing; usage polling runs only while its tooltip is visible. Unchanged header and formatted statistics leave their DOM intact.
 

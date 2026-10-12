@@ -1,146 +1,133 @@
 #!/usr/bin/env bun
-// holotable: the board service and its store commands, without an OMP session.
-//
-//   holotable serve [--access A] [--port P]   run the board (lock + HTTP + watcher) in the foreground
-//   holotable url                           print the running board URL
-//   holotable status                        is the service up?
-//   holotable install [--now]               install the systemd user service (Linux)
-//   holotable uninstall                     remove it
-//   holotable <verb> …                      every /holotable subcommand (new list use zone set add close config)
 import { homedir, platform } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
 import { formatUrls } from "../src/access.ts";
+import type { CliReply } from "../src/adapters/holotable-cli.ts";
+import { HELP } from "../src/commands.ts";
+import { ACCESS_MODES } from "../src/core/types.ts";
 import type { Access } from "../src/core/types.ts";
 import { holotableHome } from "../src/paths.ts";
 import { createHolotableCore } from "../src/plugin/core.ts";
-import { installService, ServiceError, startBoard, uninstallService } from "../src/service.ts";
-import { readBoardInfo, readSelection, writeSelection } from "../src/store/board.ts";
-const HOME = holotableHome();
+import { stopService } from "../src/plugin/client.ts";
+import { installService, startBoard, uninstallService } from "../src/service.ts";
+import type { InstallOptions } from "../src/service.ts";
+import { readSelection, writeSelection } from "../src/store/board.ts";
+
 const SCRIPT = fileURLToPath(import.meta.url);
+const argv = process.argv.slice(2);
+let home = resolve(holotableHome());
+let json = false;
+let explicitCurrent = false;
+let current: string | null = null;
 
-const CLI_HELP = `holotable: campaign board service and commands.
-  holotable serve [--access A] [--port P]   run the board (systemd: holotable install --now)
-  holotable url                           print the running board URL
-  holotable status                        whether the service is answering
-  holotable install [--now]               install the systemd user service (Linux)
-  holotable uninstall                     stop and remove the systemd user service
-  holotable help                          this text
-  holotable <verb> …                      every /holotable verb: project new list use zone set add close config help
-The board is one process per OMP_HOLOTABLE_HOME (${HOME}).`;
-
-const fail = (message: string): never => {
-  console.error(`holotable: ${message}`);
-  process.exit(1);
-};
-
-function flag(argv: string[], name: string): string | undefined {
-  const i = argv.indexOf(`--${name}`);
-  return i >= 0 ? argv[i + 1] : undefined;
+function print(reply: CliReply, code = 0): void {
+  console.log(json ? JSON.stringify(reply) : reply.message);
+  process.exitCode = code;
 }
 
-async function serve(argv: string[]): Promise<void> {
-  const host = flag(argv, "host");
-  const accessFlag = flag(argv, "access");
-  const port = flag(argv, "port");
-  if (port !== undefined && (!/^\d+$/.test(port) || Number(port) > 65535)) fail(`--port must be 0-65535 (got ${port})`);
-  // --access wins; the legacy --host flag maps onto the nearest mode.
-  const access: Access | undefined =
-    accessFlag !== undefined ? (accessFlag as Access) : host ? (host === "127.0.0.1" || host === "localhost" ? "local" : "network") : undefined;
-  let board;
-  try {
-    board = await startBoard({
-      home: HOME,
-      ...(access ? { access } : {}),
-      ...(port !== undefined ? { port: Number(port) } : {}),
-      signals: true,
-    });
-  } catch (error) {
-    if (error instanceof ServiceError && error.code === "locked") fail(error.message);
-    throw error;
-  }
-  const urls = board.urls.length > 0 ? board.urls : [board.url];
-  console.log(`Board:\n${formatUrls(urls)}`);
-  console.log("Keep the full URL private. HTTP is unencrypted; use a trusted network or SSH tunnel.");
-  await board.closed;
-}
-
-function installOptions() {
-  return {
-    bunPath: process.execPath,
-    scriptPath: SCRIPT,
-    configDir: process.env.XDG_CONFIG_HOME || `${homedir()}/.config`,
-    env: { path: process.env.PATH, ...(process.env.OMP_HOLOTABLE_HOME ? { home: process.env.OMP_HOLOTABLE_HOME } : {}) },
-  };
-}
-
-function install(argv: string[]): Promise<void> | void {
-  const now = argv.includes("--now");
-  if (platform() !== "linux")
-    return fail(`no systemd here. Run the board in the foreground: ${process.execPath} ${SCRIPT} serve`);
-  return installService(installOptions(), now).then(({ unitPath, warnings }) => {
-    console.log(`Installed ${unitPath}`);
-    for (const warning of warnings) console.error(`holotable: warning: ${warning}`);
-    if (!now) console.log(`Start it with: systemctl --user enable --now holotable`);
-  });
-}
-
-function uninstall(): Promise<void> | void {
-  if (platform() !== "linux") return fail("no systemd here; nothing to uninstall");
-  return uninstallService(installOptions()).then(({ unitPath, warnings }) => {
-    console.log(`Removed ${unitPath}`);
-    for (const warning of warnings) console.error(`holotable: warning: ${warning}`);
-  });
-}
-
-async function main(argv: string[]): Promise<void> {
-  const [verb, ...rest] = argv;
-  switch (verb) {
-    case undefined: {
-      const core = createHolotableCore({ home: HOME, now: () => new Date() });
-      await core.recordRecent(process.cwd());
-      const health = await core.ensureService();
-      const urls = health.urls.length > 0 ? health.urls : health.url ? [health.url] : [];
-      console.log(`Board:\n${formatUrls(urls)}`);
-      console.log("Keep the full URL private. HTTP is unencrypted; use a trusted network or SSH tunnel.");
-      return;
+async function main(): Promise<void> {
+  while (["--home", "--json", "--current"].includes(argv[0] ?? "")) {
+    const option = argv.shift();
+    if (option === "--json") {
+      json = true;
+      continue;
     }
+    const value = argv.shift();
+    if (value === undefined || (option === "--home" && !value) || value.startsWith("--"))
+      throw new Error(`${option} needs a value.`);
+    if (option === "--home") home = resolve(value);
+    else {
+      explicitCurrent = true;
+      current = value || null;
+    }
+  }
+  const [verb, ...rest] = argv;
+  const core = createHolotableCore({ home, now: () => new Date(), current: () => current });
+  if (!explicitCurrent) current = await readSelection(home);
+  switch (verb) {
     case "help":
     case "--help":
     case "-h":
-      console.log(CLI_HELP);
-      return;
-    case "serve":
-      return serve(rest);
-    case "url": {
-      const info = await readBoardInfo(HOME);
-      if (!info) fail(`board not running. Start it with 'holotable serve' or 'holotable install --now'`);
-      const urls = info.urls && info.urls.length > 0 ? info.urls : [info.url];
-      console.log(formatUrls(urls));
+      return print({ message: `holotable [--home PATH] [--json] [--current ID] <command>
+One board per home: ${home}
+Global options precede the command. --current overrides selection without changing the shell's selection.
+  holotable serve [--access A] [--port P]   foreground board
+  holotable install [--now]               install the Linux systemd user service
+  holotable uninstall                     stop and remove that service; keep data
+${HELP.replaceAll("/holotable", "holotable")}` });
+    case "serve": {
+      if (json) throw new Error("serve is a foreground process; use --json start for machine control.");
+      let access: Access | undefined;
+      let port: number | undefined;
+      for (let i = 0; i < rest.length; i += 2) {
+        const flag = rest[i], value = rest[i + 1];
+        if (flag === "--access" && ACCESS_MODES.includes(value as Access)) access = value as Access;
+        else if (flag === "--port" && value !== undefined && /^\d+$/.test(value) && Number(value) <= 65535) port = Number(value);
+        else throw new Error("Usage: holotable serve [--access local|tailscale|network] [--port 0-65535]");
+      }
+      const board = await startBoard({ home, access, port, signals: true });
+      print({ message: `Board:\n${formatUrls(board.urls)}\nKeep the full URL private. HTTP is unencrypted; use a trusted network or SSH tunnel.` });
+      await board.closed;
       return;
     }
-    case "status": {
-      const { running, url, pid } = await createHolotableCore({ home: HOME, now: () => new Date() }).service();
-      if (!running) {
-        console.log("holotable service is not running. Start it with 'holotable serve' or 'holotable install --now'");
-        process.exit(3);
-      }
-      console.log(`running (pid ${pid}): ${url}`);
-      return;
+    case undefined:
+    case "start":
+    case "restart": {
+      if (rest.length) throw new Error(`Usage: holotable ${verb ?? "start"}`);
+      if (verb === "restart") await stopService(home);
+      await core.recordRecent(process.cwd());
+      const service = await core.ensureService();
+      const urls = service.urls?.length ? service.urls : service.url ? [service.url] : [];
+      return print({ service, message: `Board:\n${formatUrls(urls)}\nKeep the full URL private. HTTP is unencrypted; use a trusted network or SSH tunnel.` });
+    }
+    case "stop": {
+      if (rest.length) throw new Error("Usage: holotable stop");
+      const service = await stopService(home);
+      return print({ service, message: service.running ? "Previous board stopped; another instance is now running." : "Board stopped. Mission panes and operation data are unchanged." });
+    }
+    case "status":
+    case "url": {
+      if (rest.length) throw new Error(`Usage: holotable ${verb}`);
+      const service = await core.service();
+      if (!service.running) return print({ service, message: "Board is not running. Start it with holotable start." }, 3);
+      return print({ service, message: verb === "url" ? formatUrls(service.urls ?? [service.url as string]) : `running (pid ${service.pid})\n${formatUrls(service.urls ?? [service.url as string])}` });
     }
     case "install":
-      return install(rest);
-    case "uninstall":
-      return uninstall();
+    case "uninstall": {
+      if (platform() !== "linux") throw new Error("Systemd installation is Linux-only; holotable start/stop/restart work without it.");
+      if (home !== join(homedir(), ".omp", "agent", "holotable"))
+        throw new Error("The systemd unit manages only the default home. Use holotable --home PATH start for a separate instance.");
+      if (rest.some((arg) => verb !== "install" || arg !== "--now")) throw new Error(`Usage: holotable ${verb}${verb === "install" ? " [--now]" : ""}`);
+      const options: InstallOptions = {
+        bunPath: process.execPath,
+        scriptPath: SCRIPT,
+        configDir: process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
+        env: { path: process.env.PATH },
+      };
+      const result = verb === "install" ? await installService(options, rest.includes("--now")) : await uninstallService(options);
+      for (const warning of result.warnings) console.error(`holotable: warning: ${warning}`);
+      return print({ message: `${verb === "install" ? "Installed" : "Removed"} ${result.unitPath}${verb === "install" && !rest.includes("--now") ? "\nStart with holotable start; install --now also enables login startup." : ""}` });
+    }
     default: {
-      // Every /holotable subcommand works here too, through the same plugin core.
-      const core = createHolotableCore({ home: HOME, now: () => new Date() });
-      const args = [verb, ...rest].map((token) => (/[\s"]/.test(token) ? JSON.stringify(token) : token)).join(" ");
-      const outcome = await core.runCommand(args, { cwd: process.cwd(), current: await readSelection(HOME) });
-      if (outcome.current !== undefined) await writeSelection(HOME, outcome.current);
-      console.log(outcome.message);
+      const args = argv.map((token) => /[\s"\\]/.test(token) ? JSON.stringify(token) : token).join(" ");
+      const outcome = await core.runCommand(args, { cwd: process.cwd(), current });
+      if (outcome.current !== undefined && !explicitCurrent) await writeSelection(home, outcome.current);
+      if (verb === "new" && rest.includes("--auto")) {
+        try {
+          await core.ensureService();
+        } catch (error) {
+          throw new Error(`${outcome.message}\nBoard could not start: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      print(outcome);
     }
   }
 }
 
-await main(process.argv.slice(2)).catch((error: unknown) => fail(error instanceof Error ? error.message : String(error)));
+await main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  if (json) console.log(JSON.stringify({ error: message }));
+  else console.error(`holotable: ${message}`);
+  process.exitCode = 1;
+});

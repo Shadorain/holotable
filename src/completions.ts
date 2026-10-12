@@ -17,6 +17,10 @@ const SUBS: Array<{ name: string; description: string }> = [
   { name: "add", description: "Add a contact to the selected operation" },
   { name: "close", description: "Close and archive an operation" },
   { name: "config", description: "Show or set board settings" },
+  { name: "start", description: "Start or reuse the board" },
+  { name: "restart", description: "Restart the board; keep missions and data" },
+  { name: "status", description: "Show board health" },
+  { name: "url", description: "Show board URLs" },
   { name: "stop", description: "Stop the board" },
   { name: "help", description: "Show usage" },
 ];
