@@ -5,8 +5,7 @@ import { join } from "node:path";
 import { createHolotableCore } from "../../src/plugin/core.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings.ts";
 import { startBoard } from "../../src/service.ts";
-import { createOperation } from "../../src/store/operations.ts";
-import { fakePorts, noRun, operation } from "../helpers.ts";
+import { contact, fakePorts, noRun, seedOperation } from "../helpers.ts";
 import { readRecentRepos } from "../../src/store/recent-repos.ts";
 import type { Run } from "../../src/ports.ts";
 
@@ -35,10 +34,6 @@ test("the core runs store commands: new, use, zone, add, list", async () => {
   expect((await core.runCommand("list", ctx)).message).toContain("lab");
 });
 
-test("stop explains that lifecycle belongs to the service", async () => {
-  const { run } = setup();
-  expect((await run("stop")).message).toContain("holotable serve");
-});
 
 test("completions come from the store, not the host", async () => {
   const { core } = setup();
@@ -49,11 +44,10 @@ test("completions come from the store, not the host", async () => {
   expect(await values("add t --zone ", "lab")).toEqual(["add t --zone ops "]);
 });
 
-test("service() and status() describe a stopped then running service", async () => {
+test("status distinguishes a stopped service from an empty running board", async () => {
   const { home, core } = setup();
   expect(await core.service()).toEqual({ running: false, url: null, pid: null });
-  expect(await core.status()).toContain("board not running");
-  await createOperation(home, operation());
+  expect(await core.status()).toEqual({ running: false });
   const board = await startBoard({
     home,
     settings: { ...DEFAULT_SETTINGS, port: 0, pollMs: 60_000, sampleMs: 60_000 },
@@ -61,13 +55,28 @@ test("service() and status() describe a stopped then running service", async () 
     portsFor: () => fakePorts().ports,
   });
   cleanup.push(() => board.close());
-  const health = await core.service();
-  expect(health.running).toBe(true);
-  expect(health.url).toBe(board.url);
-  expect(health.pid).toBe(process.pid);
-  const row = await core.status("lab");
-  expect(row).toContain("holotable · Lab");
-  expect(row).not.toContain("not running");
+  expect(await core.service()).toMatchObject({ running: true, url: board.url, pid: process.pid });
+  expect(await core.status()).toEqual({ running: true, operation: null, operations: 0, live: 0, queued: 0, attention: 0 });
+});
+
+test("status scopes counts to the selection and aggregates only without a selected operation", async () => {
+  let selected: string | null = null;
+  const { home, core } = setup(() => selected);
+  await seedOperation(home, { contacts: [contact("A")] });
+  await seedOperation(home, { id: "other", name: "Other", contacts: [contact("B"), contact("C")] });
+  const board = await startBoard({
+    home,
+    settings: { ...DEFAULT_SETTINGS, port: 0, pollMs: 60_000, sampleMs: 60_000 },
+    run: noRun,
+    portsFor: () => fakePorts().ports,
+  });
+  cleanup.push(() => board.close());
+  expect(await core.status()).toMatchObject({ operation: null, operations: 2, queued: 3 });
+  selected = "lab";
+  expect(await core.status()).toMatchObject({ operation: "Lab", queued: 1 });
+  expect(await core.status("other")).toMatchObject({ operation: "Other", queued: 2 });
+  expect(await core.status(null)).toMatchObject({ operation: null, queued: 3 });
+  expect(await core.status("missing")).toMatchObject({ operation: null, queued: 3 });
 });
 
 test("recordRecent writes the session's git top-level into recent-repos.json", async () => {

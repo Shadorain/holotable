@@ -1,13 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import holotableExtension from "../src/plugins/omp/extension.ts";
 import { DEFAULT_SETTINGS } from "../src/settings.ts";
-import { startBoard, type Board } from "../src/service.ts";
+import { startBoard } from "../src/service.ts";
+import type { Board } from "../src/service.ts";
 import { readSelection } from "../src/store/board.ts";
-import { createOperation } from "../src/store/operations.ts";
+import { serviceHealth, stopService } from "../src/plugin/client.ts";
+import { createOperation, readOperation } from "../src/store/operations.ts";
 import { fakePorts, noRun, operation } from "./helpers.ts";
 
 const cleanup: Array<() => Promise<void> | void> = [];
@@ -27,17 +29,27 @@ interface ToolStub {
 function fixture(kind: "main" | "sub" = "main") {
   const home = mkdtempSync(join(tmpdir(), "holotable-ext-"));
   const prev = process.env.OMP_HOLOTABLE_HOME;
+  const prevAgent = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(home, "agent");
   process.env.OMP_HOLOTABLE_HOME = home;
-  cleanup.push(() => {
+  writeFileSync(join(home, "settings.json"), JSON.stringify({
+    ...DEFAULT_SETTINGS, access: "local", port: 0, pollMs: 60_000, sampleMs: 60_000,
+    defaults: { tracker: "none", fleet: "none", frontend: "none", delivery: "none" },
+  }));
+  cleanup.push(async () => {
+    await stopService(home);
     rmSync(home, { recursive: true, force: true });
     if (prev === undefined) delete process.env.OMP_HOLOTABLE_HOME;
     else process.env.OMP_HOLOTABLE_HOME = prev;
+    if (prevAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prevAgent;
   });
   const commands = new Map<string, CommandStub>();
   const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => Promise<void>>();
   const notices: Array<{ text: string; type?: string }> = [];
   const statuses: Array<string | undefined> = [];
   const tools = new Map<string, ToolStub>();
+  const timers = new Set<Timer>();
   let active = ["read"];
   // A hand-rolled ExtensionAPI: the test double is deliberately narrower than the real surface.
   const pi = {
@@ -55,34 +67,34 @@ function fixture(kind: "main" | "sub" = "main") {
     agent: { kind },
     setInterval: (fn: () => void, ms: number) => {
       const timer = setInterval(fn, ms);
+      timers.add(timer);
       cleanup.push(() => clearInterval(timer));
       return timer;
     },
-    clearTimer: (timer: ReturnType<typeof setInterval>) => clearInterval(timer),
+    clearTimer: (timer: Timer) => {
+      clearInterval(timer);
+      timers.delete(timer);
+    },
     ui: {
+      theme: { fg: (_tone: string, text: string) => text, symbol: () => "" },
       notify: (text: string, type?: string) => notices.push({ text, type }),
       setStatus: (_k: string, text?: string) => statuses.push(text),
     },
   } as unknown as ExtensionContext;
-  // Starting the board stays in-process: a test must never spawn a service or touch systemd units.
-  let started = 0;
-  holotableExtension(pi as unknown as ExtensionAPI, {
-    startService: async () => {
-      started += 1;
-      const board = await startBoard({
-        home,
-        settings: { ...DEFAULT_SETTINGS, port: 0, pollMs: 60_000, sampleMs: 60_000 },
-        run: noRun,
-        portsFor: () => fakePorts().ports,
-      });
-      cleanup.push(() => board.close());
-      return { running: true, url: board.url, urls: [board.url], pid: process.pid };
-    },
-  });
+  async function serve(): Promise<Board> {
+    const board = await startBoard({
+      home,
+      settings: { ...DEFAULT_SETTINGS, port: 0, pollMs: 60_000, sampleMs: 60_000 },
+      run: noRun,
+      portsFor: () => fakePorts().ports,
+    });
+    cleanup.push(() => board.close());
+    return board;
+  }
+  holotableExtension(pi as unknown as ExtensionAPI);
   const command = commands.get("holotable") as CommandStub;
   return {
     home,
-    started: () => started,
     active: () => active,
     tools,
     commands,
@@ -93,17 +105,14 @@ function fixture(kind: "main" | "sub" = "main") {
     run: (args: string) => command.handler(args, ctx),
     complete: (prefix: string) => command.getArgumentCompletions?.(prefix),
     start: () => handlers.get("session_start")?.({}, ctx),
+    switch: () => handlers.get("session_switch")?.({}, ctx),
+    branch: () => handlers.get("session_branch")?.({}, ctx),
+    timers: () => timers.size,
+    serve,
     shutdown: () => handlers.get("session_shutdown")?.({}, ctx),
   };
 }
 
-test("registers the command and both tools, inactive by default", () => {
-  const f = fixture();
-  expect(f.commands.has("holotable")).toBe(true);
-  expect([...f.tools.keys()].sort()).toEqual(["holotable_queue", "holotable_state"]);
-  for (const name of ["holotable_state", "holotable_queue"]) expect(f.tools.get(name)?.defaultInactive).toBe(true);
-  expect(f.active()).toEqual(["read"]);
-});
 
 test("a board-launched child process registers nothing", () => {
   process.env.OMP_HOLOTABLE_CHILD = "1";
@@ -113,13 +122,14 @@ test("a board-launched child process registers nothing", () => {
   expect(f.tools.size).toBe(0);
 });
 
-test("new selects the operation and the status row says the service is down", async () => {
+test("store commands select locally without starting the board service", async () => {
   const f = fixture();
   await f.start();
   await f.run("new lab --repo /tmp/r --base main");
   await f.run("zone Ops");
   await f.run("add CHR-1 --zone ops");
-  expect(f.lastStatus()).toContain("holotable · board not running");
+  expect((await serviceHealth(f.home)).running).toBe(false);
+  expect(f.active()).toContain("holotable_state");
   // The OMP session keeps its own selection; the CLI's is untouched.
   expect(await readSelection(f.home)).toBeNull();
 });
@@ -139,16 +149,26 @@ test("a subagent session cannot use the command", async () => {
   await expect(f.run("list")).rejects.toThrow("main session");
 });
 
-test("stop is refused: the board belongs to the service now", async () => {
+test("stop shuts down only the selected board and deactivates this OMP session", async () => {
   const f = fixture();
+  await createOperation(f.home, operation());
+  await f.serve();
+  await f.run("");
+  await f.run("use lab");
   await f.run("stop");
-  expect(f.notices.at(-1)?.text).toContain("service");
+  expect((await serviceHealth(f.home)).running).toBe(false);
+  expect(f.lastStatus()).toBeUndefined();
+  expect(f.timers()).toBe(0);
+  expect(f.active()).toEqual(["read"]);
+  await f.run("zone Retained");
+  await f.run("add CHR-AFTER --zone retained");
+  expect((await readOperation(f.home, "lab")).contacts.some((c) => c.ticket === "CHR-AFTER")).toBe(true);
+  expect(await readSelection(f.home)).toBeNull();
 });
 
 test("bare /holotable with no service starts it, shows its URL and enables the tools", async () => {
   const f = fixture();
   await f.run("");
-  expect(f.started()).toBe(1);
   expect(f.active()).toContain("holotable_state");
   expect(f.active()).toContain("holotable_queue");
   const notice = f.notices.find((n) => n.text.includes("Board:"));
@@ -158,16 +178,52 @@ test("bare /holotable with no service starts it, shows its URL and enables the t
 test("bare /holotable with a running service shows its URL", async () => {
   const f = fixture();
   await createOperation(f.home, operation());
-  const board: Board = await startBoard({
-    home: f.home,
-    settings: { ...DEFAULT_SETTINGS, port: 0, pollMs: 60_000, sampleMs: 60_000 },
-    run: noRun,
-    portsFor: () => fakePorts().ports,
-  });
-  cleanup.push(() => board.close());
+  const board = await f.serve();
   await f.run("");
   const notice = f.notices.find((n) => n.text.includes("Board:"));
   expect(notice?.text).toContain(board.url);
-  expect(f.lastStatus()).toContain("holotable ·");
-  expect(f.lastStatus()).not.toContain("service not running");
+});
+
+test("a fresh session stays inactive even when a board is already running", async () => {
+  const f = fixture();
+  await createOperation(f.home, operation());
+  await f.serve();
+  await f.start();
+  await f.switch();
+  await f.branch();
+  expect(f.statuses.every((status) => status === undefined)).toBe(true);
+  expect(f.timers()).toBe(0);
+  expect(f.active()).toEqual(["read"]);
+  expect(f.tools.size).toBe(0);
+  expect((await serviceHealth(f.home)).running).toBe(true);
+});
+
+test("an explicitly opened empty board has no status row", async () => {
+  const f = fixture();
+  await f.start();
+  await f.run("");
+  expect(f.lastStatus()).toBeUndefined();
+  expect(f.active()).toContain("holotable_queue");
+  expect(f.timers()).toBe(1);
+  await f.shutdown();
+  expect(f.timers()).toBe(0);
+  expect(f.active()).toEqual(["read"]);
+});
+
+test("switching or branching clears activation until this session runs holotable", async () => {
+  const f = fixture();
+  await createOperation(f.home, operation());
+  await f.serve();
+  await f.run("");
+  await f.switch();
+  expect(f.lastStatus()).toBeUndefined();
+  expect(f.timers()).toBe(0);
+  expect(f.active()).toEqual(["read"]);
+  await f.run("use lab");
+  expect(f.active()).toContain("holotable_state");
+  expect(f.timers()).toBe(1);
+  await f.branch();
+  expect(f.lastStatus()).toBeUndefined();
+  expect(f.timers()).toBe(0);
+  expect(f.active()).toEqual(["read"]);
 });

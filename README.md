@@ -77,18 +77,18 @@ Default access is **Tailscale**, on port **4848** (or the next available port). 
 
 ## OMP integration
 
-`/holotable` starts one board per `OMP_HOLOTABLE_HOME`, records the current repo for the project picker, prints the URLs and enables the model tools. The OMP extension is a thin client; the board stays up independently of the session.
+`/holotable` runs the bundled `holotable` CLI to start or reuse one board per `OMP_HOLOTABLE_HOME`, records the current repo for the project picker, prints the URLs and enables the model tools. Bun must be on `PATH`; linking the shell command is optional for OMP. The board stays up independently of the session.
 
 ```mermaid
 flowchart LR
-  OMP["OMP /holotable"] --> Board["Bun board service"]
+  OMP["OMP /holotable"] --> CLI["holotable CLI"] --> Board["Bun board service"]
   Browser["Browser"] <-->|HTTP| Board
   Board -->|Open worktrees and panes| Frontend["Orca / Herdr / custom"]
   Frontend --> Mission["OMP + omp-mission"]
   Board -->|Status files and control sockets| Mission
 ```
 
-The status row shows the operation, live-agent cap, queue and contacts needing you. `holotable_state` reads the board; `holotable_queue` proposes or edits queued contacts. Neither tool launches, lands or approves work. Model selection, provider routing, verification and review remain in OMP and the mission.
+The optional status row follows OMP's theme and omits zero counts. `holotable_state` reads the board; `holotable_queue` proposes or edits queued contacts. Neither tool launches, lands or approves work. Model selection, provider routing, verification and review remain in OMP and the mission.
 
 The CLI is the cross-platform management interface. On Linux, the default home uses a resource-bounded **systemd user service** when available. Custom homes and other platforms use a detached Bun process. Your campaigns live outside the plugin checkout, under `~/.omp/agent/holotable` by default; updates do not replace them. See [Resource budgets](#resource-budgets).
 
@@ -119,7 +119,7 @@ All OMP sessions and shell commands using the same `OMP_HOLOTABLE_HOME` share **
 |`holotable install --now`|install and enable the Linux default-home user service for login startup|
 |`holotable uninstall`|stop and remove that Linux service; campaign data is kept|
 
-Stopping the board stops watching and automatic board actions, not mission panes already owned by Orca or Herdr. In-flight actions finish before ownership is released. After a stop, `holotable start` starts it again.
+Stopping the board stops watching and automatic board actions, not mission panes already owned by Orca or Herdr. In-flight actions finish before ownership is released. Stopping from OMP also clears that session's row and disables its tools. After a stop, `holotable start` or `/holotable` starts it again.
 
 Global options go **before** the command: `holotable --home /path/to/campaigns status` controls a separate home; `holotable --json status` returns structured output. Shell selection is stored per home. Host integrations use `--current <id>` (or `--current ""` for none) to keep selection session-local.
 
@@ -154,13 +154,16 @@ The gear at the right of the header opens a settings drawer for board-wide setti
 
 `/holotable` with no arguments makes sure the board service is running (starting it if needed), records the session's repo for the project picker, prints the URLs and enables the model tools. One board runs per `OMP_HOLOTABLE_HOME`: a second session is told where the first one lives.
 
-The status row shows `holotable · <name> · <open>/<cap> omp · <queued> queued · <attention> need you` for the selected operation.
+Activation is session-local. Until you use `/holotable` (with or without arguments), OMP does not load the board core or CLI adapter, register its model tools, read campaign data, poll the service or show a board row. A new, switched or branched session returns to this inactive state, as does `/holotable stop`; the session's selected operation is kept.
+
+Once activated, the row shows the selected operation and nonzero live, queued and need-you counts, using OMP's themed symbols and colors. With one operation it shows that operation automatically; with several and no selection it shows board totals. An empty board adds no row. An unreachable board shows a compact offline hint.
 
 ### Commands
 
 |Command|Effect|
 |---|---|
 |(none)|start the board if needed and print its URLs; also records the session's repo for the project picker|
+|`start` / `stop` / `restart` / `status` / `url`|manage or inspect the same home-selected board through the CLI|
 |`new <id> (--project <id> \| --repo <path> --base <branch>) [--name] [--tracker] [--fleet] [--frontend] [--delivery] [--no-pause] [--recover] [--from file.json] [--brief file.md]`|create an operation and select it; with `--project` every unset field comes from the project, otherwise from settings; `--recover` starts it with [recovery](#recovery) on|
 |`project new <id> --repo <path> --base <branch> [--name] [--integration] [--tracker] [--fleet] [--frontend] [--delivery] [--no-pause] [--worktree-root]`|create a project (the page's New project and `POST /api/projects` detect any field you leave out)|
 |`project list`|projects and their operations|
@@ -264,7 +267,7 @@ The installed Linux user service limits the board **and its CLI subprocesses** t
 These limits do **not** cover mission panes hosted by Orca/herdr, other services, or a board started directly with `serve`/a detached fallback. The Agents cap limits mission concurrency across operations, not each mission's CPU. On a small or heat-constrained machine, start with **2** live agents and raise it only after measuring the workload. No board setting can guarantee safe temperatures for the entire host.
 
 
-Watcher passes never overlap. Explicit CLI starts close the parent's log descriptor after spawn. Stop authenticates a live PID and instance nonce, never signals a PID from a discovery file, and drains HTTP actions, watcher, auto and recovery work before releasing the ownership lock.
+Watcher passes never overlap. OMP's passive 10-second refresh reads the service in-process; it does not spawn CLI polling processes. Explicit CLI starts close the parent's log descriptor after spawn. Stop authenticates a live PID and instance nonce, never signals a PID from a discovery file, and drains HTTP actions, watcher, auto and recovery work before releasing the ownership lock.
 
 Queued-only operations do not run terminal-list commands; operations with live recorded terminals or decision panes share one Orca/herdr listing per watcher pass. Custom frontends remain operation-scoped. Usage viewers share one machine snapshot instead of independently scanning `/proc`. Browser polls wait three seconds after completion rather than stacking requests behind slow responses. Hidden pages stop polling and drawing; usage polling runs only while its tooltip is visible. Unchanged header and formatted statistics leave their DOM intact.
 

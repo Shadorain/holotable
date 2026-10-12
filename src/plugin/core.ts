@@ -1,9 +1,13 @@
-import { runCommand as runStoreCommand, type CommandOutcome, tokenize } from "../commands.ts";
-import { holotableCompletions, type CompletionSnapshot } from "../completions.ts";
+import { runCommand as runStoreCommand } from "../commands.ts";
+import type { CommandOutcome } from "../commands.ts";
+import { holotableCompletions } from "../completions.ts";
+import type { CompletionSnapshot } from "../completions.ts";
 import { listOperations, readOperation } from "../store/operations.ts";
 import { listProjects } from "../store/projects.ts";
-import { ensureService, operations, serviceHealth, type ServiceHealth } from "./client.ts";
-import { holotableToolDefs, type GenericTool } from "./tools.ts";
+import { ensureService, operations, serviceHealth } from "./client.ts";
+import type { ServiceHealth } from "./client.ts";
+import { holotableToolDefs } from "./tools.ts";
+import type { GenericTool } from "./tools.ts";
 import { createRun } from "../run.ts";
 import { recordRecentRepo } from "../store/recent-repos.ts";
 import type { Run } from "../ports.ts";
@@ -25,18 +29,21 @@ export interface HolotableCoreDeps {
   now(): Date;
   /** The host's selection, used as the default for commands and tools. */
   current?(): Promise<string | null> | string | null;
-  /** Starts the board when it is not answering. Tests inject one; the default starts a real service. */
-  startService?(): Promise<ServiceHealth>;
   run?: Run;
 }
+
+export type HolotableStatus =
+  | { running: false }
+  | { running: true; operation: string | null; operations: number; live: number; queued: number; attention: number };
 
 export interface HolotableCore {
   runCommand(args: string, ctx: CommandContext): Promise<CommandOutcome>;
   /** Builds a fresh snapshot each call: cheap, and always in step with the store. */
   completions(prefix: string, current?: string | null): Promise<CompletionItem[] | null>;
+  completionSnapshot(current?: string | null): Promise<CompletionSnapshot>;
   tools: { state: GenericTool; queue: GenericTool };
-  /** Status-row text: live service numbers when reachable, an explanation when not. */
-  status(current?: string | null): Promise<string>;
+  /** Structured live status; hosts render it in their own theme. */
+  status(current?: string | null): Promise<HolotableStatus>;
   /** Service health: board.json exists and the service answers with our token. */
   service(): Promise<ServiceHealth>;
   /** Ensures the board service is running and healthy. */
@@ -45,7 +52,7 @@ export interface HolotableCore {
   recordRecent(cwd: string): Promise<void>;
 }
 /**
- * The host-agnostic plugin core: command surface, model tools, completions, status text and service
+ * The host-agnostic plugin core: command surface, model tools, completions, structured status and service
  * discovery. It reads the store directly for CRUD and queries the running service over HTTP for live
  * data; it never starts a server or a watcher.
  */
@@ -77,36 +84,29 @@ export function createHolotableCore(deps: HolotableCoreDeps): HolotableCore {
   return {
     async runCommand(args, ctx) {
       void recordRecent(ctx.cwd);
-      const first = tokenize(args)[0];
-      // The in-session board is gone: lifecycle belongs to the service.
-      if (first === "stop")
-        return {
-          message:
-            "The board runs as a service now. Stop it with `holotable uninstall` (systemd) or stop the `holotable serve` process.",
-        };
       return runStoreCommand(args, { home, cwd: ctx.cwd, now: deps.now(), current: await currentOf(ctx.current) });
     },
     async completions(prefix, current) {
       return holotableCompletions(prefix, await snapshot(await currentOf(current)));
     },
+    completionSnapshot: async (current) => snapshot(await currentOf(current)),
     tools: holotableToolDefs({ home, current: () => deps.current?.() ?? null, now: deps.now }),
     async status(current) {
-      const health = await serviceHealth(home);
-      if (!health.running) return "holotable · board not running — /holotable starts it";
-      const rows = (await operations(home)) ?? [];
-      const open = rows.reduce((sum, row) => sum + row.live, 0);
+      const rows = await operations(home);
+      if (rows === null) return { running: false };
       const selected = await currentOf(current);
-      const op = rows.find((row) => row.id === selected);
-      const attention = rows.reduce((sum, row) => sum + row.attention, 0);
-      const detail = op ? `${op.name} · ${op.live} live · ${op.queued} queued` : `${rows.length} operations · ${open} live`;
-      return `holotable · ${detail} · ${attention} need you`;
+      const op = rows.find((row) => row.id === selected) ?? (rows.length === 1 ? rows[0] : undefined);
+      if (op) return { running: true, operation: op.name, operations: rows.length, live: op.live, queued: op.queued, attention: op.attention };
+      let live = 0, queued = 0, attention = 0;
+      for (const row of rows) {
+        live += row.live;
+        queued += row.queued;
+        attention += row.attention;
+      }
+      return { running: true, operation: null, operations: rows.length, live, queued, attention };
     },
     service: () => serviceHealth(home),
-    async ensureService() {
-      if (!deps.startService) return ensureService({ home });
-      const health = await serviceHealth(home);
-      return health.running ? health : deps.startService();
-    },
+    ensureService: () => ensureService({ home }),
     recordRecent,
   };
 }
