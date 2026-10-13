@@ -53,6 +53,7 @@ async function setup(contacts: Contact[], over: { load?: { live: number; open: n
       load: over.load ?? { live: 0, open: 0 },
       vanished: new Set(),
       decisionPanes: watcher.extras("lab").decisionPanes,
+      integrationDirty: null,
     }),
     run: act,
     integrationReady: async () => {},

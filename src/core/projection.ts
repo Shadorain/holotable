@@ -375,6 +375,7 @@ export function project(input: ProjectionInput): Projection {
         ...z,
         angle: -20 + i * (360 / op.zones.length),
       })),
+      integrationDirty: input.integrationDirty ?? null,
     },
     header: {
       live: input.load.live,

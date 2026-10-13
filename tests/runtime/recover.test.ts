@@ -61,7 +61,7 @@ async function setup(opts: Opts = {}) {
     return out;
   };
   const settings = async () => ({ ...DEFAULT_SETTINGS, cap: opts.cap ?? 8 });
-  const extras = () => ({ statuses, owners: owners(), probes: {}, load: { live: opts.open ?? 1, open: opts.open ?? 1 }, vanished, decisionPanes: new Set<string>() });
+  const extras = () => ({ statuses, owners: owners(), probes: {}, load: { live: opts.open ?? 1, open: opts.open ?? 1 }, vanished, decisionPanes: new Set<string>(), integrationDirty: null });
 
   const noRun: Run = async () => ({ stdout: "", stderr: "", code: 0 });
   const act = createActionRunner({

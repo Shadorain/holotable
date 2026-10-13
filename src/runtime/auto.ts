@@ -6,6 +6,7 @@ import { appendEvent } from "../store/events.ts";
 import { listOperations, mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
 import { PortError } from "../ports.ts";
+import { newestConflict } from "./lander.ts";
 
 export interface AutoDeps {
   home: string;
@@ -14,7 +15,7 @@ export interface AutoDeps {
   extras(opId: string): Required<ProjectionExtras>;
   /** The same runner operator clicks use; auto requests carry `by: "auto"`. */
   run(req: ActionRequest): Promise<void>;
-  integrationReady(operation: Operation): Promise<void>;
+  integrationReady(operation: Operation, branch: string): Promise<void>;
   /** Internal failures (store reads, settings); action failures already pause via `auto` events. */
   warn(message: string): void;
 }
@@ -90,7 +91,12 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
         const wait = landingWaits.get(opId);
         if (!landable || !wait || deps.now().getTime() >= wait.retryAt) {
           try {
-            if (landable) await deps.integrationReady(await readOperation(deps.home, opId));
+            if (landable) {
+              const operation = await readOperation(deps.home, opId);
+              const branch = newestConflict(operation, target.ticket)?.lane?.branch
+                ?? operation.contacts.find((c) => c.ticket === target.ticket)?.lane?.branch;
+              if (branch) await deps.integrationReady(operation, branch);
+            }
             landingWaits.delete(opId);
             await deps.run({ op: opId, contact: target.ticket, action: landable ? "land" : "done", args: {}, by: "auto" });
           } catch (error) {

@@ -62,7 +62,7 @@ export function renderProject(root, cfg, operations, ctx) {
   textRow(grid, "Name", "name", f.name, ctx.save);
   textRow(grid, "Base branch", "base", f.base, ctx.save, { mono: true });
   textRow(grid, "Repository", "repo", f.repo, ctx.save, { mono: true, note: "The checkout missions branch from." });
-  textRow(grid, "Integration checkout", "integration", f.integration, ctx.save, { mono: true, note: "Where Land merges; must be clean and on the base." });
+  textRow(grid, "Integration checkout", "integration", f.integration, ctx.save, { mono: true, note: "Where Land merges; must be on the base branch, with no uncommitted changes in the merge's paths." });
   setup.append(grid);
   const ports = el("div", "set-grid ports-grid");
   for (const kind of ["tracker", "fleet", "frontend", "delivery"]) enumRow(ports, titleCase(kind), kind, cfg.options[kind], f[kind], ctx.save);

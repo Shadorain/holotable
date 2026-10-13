@@ -15,7 +15,7 @@ import type {
 } from "../core/types.ts";
 import type { Ports } from "../ports.ts";
 import type { ProjectionExtras } from "../snapshot.ts";
-import type { ListedTerminal } from "../ports.ts";
+import type { ListedTerminal, Run } from "../ports.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { listDecisionPanes, readDecisionDoc, readDecisionPane, removeDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
 import { listOperations, readOperation } from "../store/operations.ts";
@@ -27,6 +27,8 @@ export interface WatcherDeps {
   portsFor(operation: Operation, settings: Settings): Ports;
   /** Port failures and similar; the watcher never throws out of a pass. */
   warn(message: string): void;
+  /** Shell for the integration dirtiness probe; absent leaves integrationDirty null. */
+  run?: Run;
 }
 
 /** What the watcher has already written for a contact, so a restart or a repeated pass emits nothing twice. */
@@ -49,6 +51,8 @@ interface OpState {
   vanished: Set<string>;
   /** Decision contacts with an open agent pane (decisions/<ticket>.pane.json on disk). */
   decisionPanes: Set<string>;
+  /** Uncommitted path count in the integration checkout; null until probed or not a local-merge op. */
+  integrationDirty: number | null;
 }
 
 const GLOBAL_FRONTENDS: Record<string, true> = { orca: true, herdr: true };
@@ -242,12 +246,21 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     const listed = needsTerminals ? await getTerminals(ports) : null;
     trackTerminals(op, folded, state, listed);
     await trackDecisionPanes(op, folded, state, ports, listed);
+    await probeIntegration(op, state);
     for (const contact of op.contacts) {
       if (contact.lane || folded.contacts[contact.ticket]?.landed) continue;
       if (seeds(contact.ticket).blocked && unmetBlockers(op, folded, contact.ticket).length === 0)
         await appendEvent(deps.home, op.id, { v: 1, at: deps.now().toISOString(), kind: "unblocked", contact: contact.ticket });
     }
     state.open = openCount(op, folded, state);
+  }
+
+  /** Dirty-path count of the integration checkout: the header warns before a land ever runs. */
+  async function probeIntegration(op: Operation, state: OpState): Promise<void> {
+    if (!deps.run || op.delivery !== "local-merge") { state.integrationDirty = null; return; }
+    const r = await guard(`integration status ${op.id}`, () => deps.run!("git", ["status", "--porcelain"], op.integration));
+    if (r === undefined) return;
+    state.integrationDirty = r.code === 0 ? r.stdout.split("\n").filter((l) => l.trim().length > 0).length : null;
   }
 
   /** A terminal the frontend stopped listing is gone however alive its last status looked. */
@@ -347,7 +360,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         return { op, events };
       });
       if (!read) continue;
-      const state = ops.get(row.id) ?? { statuses: {}, owners: {}, probes: {}, lastSampleAt: 0, open: 0, vanished: new Set<string>(), decisionPanes: new Set<string>() };
+      const state = ops.get(row.id) ?? { statuses: {}, owners: {}, probes: {}, lastSampleAt: 0, open: 0, vanished: new Set<string>(), decisionPanes: new Set<string>(), integrationDirty: null };
       ops.set(row.id, state);
       const listsPanes = state.decisionPanes.size > 0 || read.op.contacts.some((c) => c.kind === "decision");
       state.decisionPanes = listsPanes
@@ -395,7 +408,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       const state = ops.get(opId);
       const open = [...ops.values()].reduce((sum, s) => sum + s.open, 0);
       const load: Load = { live: state?.open ?? 0, open };
-      return { statuses: state?.statuses ?? {}, owners: state?.owners ?? {}, probes: state?.probes ?? {}, load, vanished: state?.vanished ?? new Set(), decisionPanes: state?.decisionPanes ?? new Set() };
+      return { statuses: state?.statuses ?? {}, owners: state?.owners ?? {}, probes: state?.probes ?? {}, load, vanished: state?.vanished ?? new Set(), decisionPanes: state?.decisionPanes ?? new Set(), integrationDirty: state?.integrationDirty ?? null };
     },
   };
 }

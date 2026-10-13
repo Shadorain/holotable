@@ -72,6 +72,7 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
       load: opts.load ?? { live: 0, open: 0 },
       vanished: new Set(),
       decisionPanes: new Set(),
+      integrationDirty: null,
     }),
     run: act,
     integrationReady: async () => { if (integrationError) throw integrationError; },

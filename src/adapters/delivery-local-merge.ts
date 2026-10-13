@@ -26,7 +26,7 @@ export function localMergeDelivery(run: Run): DeliveryPort {
       };
     },
     async land(i) {
-      await assertIntegrationReady(run, i.operation.integration, i.operation.base);
+      await assertIntegrationReady(run, i.operation.integration, i.operation.base, i.sourceBranch);
       const outcome = await mergeBranch(run, i.operation.integration, i.sourceBranch);
       if (outcome.outcome === "conflict") return outcome;
       return { outcome: "landed", via: "merge" };

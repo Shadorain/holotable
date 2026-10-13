@@ -377,6 +377,9 @@ function renderHeader() {
   const auto = p?.operation?.auto;
   $("autoInd").hidden = !auto?.enabled;
   $("autoText").textContent = auto?.enabled ? (auto.launch || auto.land ? "Auto" : "Auto (manual land)") : "";
+  const intDirty = p?.operation?.integrationDirty;
+  $("intWarn").hidden = !(typeof intDirty === "number" && intDirty > 0);
+  $("intWarnText").textContent = typeof intDirty === "number" && intDirty > 0 ? `integration dirty · ${intDirty}` : "";
 }
 function showBlank(message, detail) {
   document.body.dataset.view = "blank";
@@ -969,6 +972,9 @@ function openOperationPage(id = state.opId) {
   setView("plan"); // loads the operation doc and polls
 }
 $("autoInd").addEventListener("click", () => {
+  openOperationPage();
+});
+$("intWarn").addEventListener("click", () => {
   openOperationPage();
 });
 

@@ -451,6 +451,8 @@ export interface ProjectionInput {
   decisionPanes?: ReadonlySet<string>;
   recoveryWaits?: Readonly<Record<string, RecoveryWait>>;
   vanished?: ReadonlySet<string>;
+  /** Uncommitted path count in the integration checkout; null when not probed. */
+  integrationDirty?: number | null;
   now: number;
 }
 
@@ -513,6 +515,8 @@ export interface Projection {
     pause: boolean;
     project: { id: string; name: string } | null;
     zones: Array<Zone & { angle: number }>;
+    /** Uncommitted path count in the integration checkout (local-merge); null when not probed. */
+    integrationDirty: number | null;
   };
   header: { live: number; open: number; cap: number };
   contacts: ContactView[];

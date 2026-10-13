@@ -119,7 +119,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     warned.add(message);
     console.error(`holotable: ${message}`);
   };
-  const watcher = createWatcher({ home, now: () => new Date(), settings: settingsFn, portsFor, warn });
+  const watcher = createWatcher({ home, now: () => new Date(), settings: settingsFn, portsFor, warn, run });
   const inFlight = new Map<string, string>();
   const action = createActionRunner({
     home,
@@ -143,7 +143,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     settings: settingsFn,
     extras: watcher.extras,
     run: action,
-    integrationReady: (op) => assertIntegrationReady(run, op.integration, op.base),
+    integrationReady: (op, branch) => assertIntegrationReady(run, op.integration, op.base, branch),
     warn,
   });
   const recover = createRecover({

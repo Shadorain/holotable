@@ -558,6 +558,8 @@ dialog.help dd { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
 .auto-ind { display: inline-flex; align-items: center; gap: 6px; background: var(--well); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 999px; padding: 0 12px; font-size: 13px; font-weight: 600; color: var(--accent); }
 .auto-ind:hover { border-color: var(--accent); }
 .auto-ind .icon { color: var(--accent); }
+.int-warn { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
+.int-warn:hover, .int-warn .icon { border-color: var(--warning); color: var(--warning); }
 
 /* ---- new operation form ---- */
 .opnew .opdoc-sec { margin-bottom: 18px; }

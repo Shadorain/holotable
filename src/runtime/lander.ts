@@ -12,7 +12,7 @@ export interface LanderDeps extends LauncherDeps {
 }
 
 /** Highest `-conflict-<n>` contact opened for `ticket`, if any. */
-function newestConflict(operation: Operation, ticket: string): Contact | null {
+export function newestConflict(operation: Operation, ticket: string): Contact | null {
   const rank = (c: Contact) => Number(c.ticket.match(/-conflict-(\d+)$/i)?.[1] ?? 0);
   return operation.contacts.filter((c) => c.conflictOf === ticket).sort((a, b) => rank(b) - rank(a))[0] ?? null;
 }

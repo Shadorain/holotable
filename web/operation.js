@@ -197,7 +197,7 @@ function setupSection(p, doc, ctx) {
   const grid = el("div", "set-grid");
   inheritance(textRow(grid, "Base branch", "base", of.base, ctx.saveOp, { mono: true }), "base", cfg, ctx);
   inheritance(
-    textRow(grid, "Integration checkout", "integration", of.integration, ctx.saveOp, { mono: true, note: "Where Land merges; must be clean and on the base." }),
+    textRow(grid, "Integration checkout", "integration", of.integration, ctx.saveOp, { mono: true, note: "Where Land merges; must be on the base branch, with no uncommitted changes in the merge's paths." }),
     "integration",
     cfg,
     ctx,

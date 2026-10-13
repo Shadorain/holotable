@@ -150,10 +150,20 @@ test("once the conflict mission is complete, Land merges its resolution branch",
   expect(events.filter((e) => e.kind === "conflict-opened")).toHaveLength(1);
 });
 
-test("a dirty integration checkout refuses the land before any attempt is recorded", async () => {
+test("unrelated uncommitted files stay put while the land goes through", async () => {
   const t = await setup();
   await t.branch("feat/a", "g.txt", "g changed\n");
   writeFileSync(join(t.repo, "f.txt"), "uncommitted\n");
+  await t.act({ op: "lab", contact: "a", action: "land", args: {} });
+  expect(readFileSync(join(t.repo, "f.txt"), "utf8")).toBe("uncommitted\n");
+  expect(readFileSync(join(t.repo, "g.txt"), "utf8")).toBe("g changed\n");
+  expect((await readEvents(t.home, "lab")).some((e) => e.kind === "landed")).toBe(true);
+});
+
+test("a dirty file the merge would overwrite refuses the land before any attempt", async () => {
+  const t = await setup();
+  await t.branch("feat/a", "g.txt", "g changed\n");
+  writeFileSync(join(t.repo, "g.txt"), "uncommitted\n");
   const failure = await t.refused(t.act({ op: "lab", contact: "a", action: "land", args: {} }));
   expect(failure.code).toBe("integration-dirty");
   expect((await t.events()).includes("land-attempt")).toBe(false);

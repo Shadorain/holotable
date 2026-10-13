@@ -11,6 +11,8 @@ export interface ProjectionExtras {
   probes?: Record<string, DeliveryProbe | null>;
   /** Board-wide load across open operations; defaults to this operation alone. */
   load?: Load;
+  /** Uncommitted path count in the integration checkout (local-merge ops); null when not probed. */
+  integrationDirty?: number | null;
   /** Terminals the frontend stopped listing this pass (null = frontend does not list). */
   vanished?: ReadonlySet<string>;
   /** Tickets of decision contacts that currently have an open agent pane. */
@@ -39,7 +41,7 @@ export async function loadProjection(
     load: extras.load ?? { live: own, open: own },
     cap: settings.cap,
     decisionPanes: extras.decisionPanes,
-    vanished: extras.vanished,
+    integrationDirty: extras.integrationDirty ?? null,
     recoveryWaits,
     now,
   });

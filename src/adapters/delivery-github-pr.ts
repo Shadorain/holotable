@@ -64,7 +64,7 @@ export function githubPrDelivery(run: Run): DeliveryPort {
     async land(i) {
       const { operation, contact, sourceBranch, status } = i;
       const integration = operation.integration;
-      await assertIntegrationReady(run, integration, operation.base);
+      await assertIntegrationReady(run, integration, operation.base, sourceBranch);
 
       // The PR is identified by the contact's own branch, not sourceBranch:
       // after a conflict the lander passes the resolution branch as source.

@@ -132,11 +132,11 @@ describe("localMergeDelivery.land", () => {
     expect(head.stdout.trim()).toBe("main");
   });
 
-  test("refuses dirty integration before merging", async () => {
+  test("refuses when local changes overlap paths the merge writes", async () => {
     const { run, calls } = realRun();
     const repo = await makeRepo(run);
     await branchWith(run, repo, "feat", "base\nfeat\n");
-    writeFileSync(join(repo, "untracked.txt"), "x");
+    writeFileSync(join(repo, "f.txt"), "uncommitted\n");
     await expect(
       localMergeDelivery(run).land({
         operation: makeOperation(repo),
@@ -144,7 +144,45 @@ describe("localMergeDelivery.land", () => {
         sourceBranch: "feat",
         status,
       }),
-    ).rejects.toMatchObject({ code: "integration-dirty" });
+    ).rejects.toMatchObject({ code: "integration-dirty", message: expect.stringContaining("f.txt") });
+    expect(calls.some((c) => c.args[0] === "merge")).toBe(false);
+  });
+
+  test("unrelated uncommitted files do not block the merge and are preserved", async () => {
+    const { run } = realRun();
+    const repo = await makeRepo(run);
+    await branchWith(run, repo, "feat", "base\nfeat\n");
+    writeFileSync(join(repo, "notes.md"), "operator notes\n");
+    const result = await localMergeDelivery(run).land({
+      operation: makeOperation(repo),
+      contact,
+      sourceBranch: "feat",
+      status,
+    });
+    expect(result).toEqual({ outcome: "landed", via: "merge" });
+    const dirty = await git(run, repo, "status", "--porcelain");
+    expect(dirty.stdout.trim()).toBe("?? notes.md");
+    expect((await git(run, repo, "log", "-1", "--format=%s")).stdout.trim()).toContain("feat");
+  });
+
+  test("untracked file in the merge's way blocks, like git merge", async () => {
+    const { run, calls } = realRun();
+    const repo = await makeRepo(run);
+    await branchWith(run, repo, "feat", "base\nfeat\n");
+    await git(run, repo, "checkout", "-qb", "feat2");
+    writeFileSync(join(repo, "added.txt"), "from branch\n");
+    await git(run, repo, "add", "added.txt");
+    await git(run, repo, "commit", "-qm", "add file");
+    await git(run, repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "added.txt"), "local untracked\n");
+    await expect(
+      localMergeDelivery(run).land({
+        operation: makeOperation(repo),
+        contact,
+        sourceBranch: "feat2",
+        status,
+      }),
+    ).rejects.toMatchObject({ code: "integration-dirty", message: expect.stringContaining("added.txt") });
     expect(calls.some((c) => c.args[0] === "merge")).toBe(false);
   });
 
