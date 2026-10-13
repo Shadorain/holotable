@@ -45,7 +45,10 @@ function header(contact, zoneLabel) {
   status.append(statePill(contact.state));
   const owner = OWNER_COPY[contact.owner];
   if (owner) {
-    const dot = el("span", `owner o-${owner[0]}`, owner[1]);
+    const dot = el("span", `owner o-${owner[0]}`);
+    dot.setAttribute("role", "img");
+    dot.setAttribute("aria-label", owner[1]);
+    dot.title = owner[1];
     status.append(dot);
   }
   head.append(status);
@@ -156,7 +159,8 @@ function actionBar(contact, ctx) {
   wrap.append(box);
   const reasons = el("ul", "reasons");
   for (const a of wired)
-    if (!a.enabled && a.reason && (a.primary || a.id === "launch" || a.id === "land"))
+    if (!a.enabled && a.reason && (a.primary || a.id === "launch" || a.id === "land")
+      && !(a.id === "launch" && contact.state === "blocked" && a.reason.startsWith("blocked by ")))
       reasons.append(el("li", "", `${a.label} unavailable: ${a.reason}`));
   if (reasons.childElementCount) wrap.append(reasons);
   return wrap;
@@ -231,7 +235,8 @@ function relations(contact, projection) {
     const head = el("div", "kicker", "Waits for");
     const list = el("div", "rel-list");
     for (const b of contact.blockedBy) {
-      const btn = el("button", `rel${b.landed ? " ok" : ""}`, `${b.ticket} · ${b.landed ? "landed" : "not landed"}`);
+      const btn = el("button", `rel${b.landed ? " ok" : ""}`, b.ticket);
+      btn.title = b.landed ? "Landed" : "Not landed";
       btn.type = "button";
       btn.dataset.id = b.ticket;
       btn.dataset.key = `rel/${b.ticket}`;
@@ -554,9 +559,11 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan) {
   }
   const bar = progress(contact);
   if (bar) body.append(bar);
-  const next = el("div", `next s-${contact.state}`);
-  next.append(el("div", "kicker", contact.attention ? "Your move" : "Status"), el("div", "next-text", contact.detail));
-  body.append(next);
+  if (contact.state !== "blocked") {
+    const next = el("div", `next s-${contact.state}`);
+    next.append(el("div", "kicker", contact.attention ? "Your move" : "Status"), el("div", "next-text", contact.detail));
+    body.append(next);
+  }
   const decided = decisionBox(contact, projection.operation.id);
   if (decided) body.append(decided);
   for (const part of [actionBar(contact, ctx), relations(contact, projection)]) if (part) body.append(part);

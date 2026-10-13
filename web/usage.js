@@ -1,8 +1,4 @@
-// Live usage tooltip on the header's Load stat (GET /api/usage). While the stat is hovered,
-// keyboard-focused or its click-opened chip is pinned it samples every ~2 s and renders
-// this operation / all operations / the machine; nothing is fetched otherwise. The stat's
-// `title` stays in data-tip as the dim footer line, so the static explanation never fights
-// the live numbers.
+// Hover, focus and the pinned chip share one demand-driven sampling loop.
 import { el } from "./components.js";
 import { icon } from "./icons.js";
 import { setTipRenderer, refreshTooltip, tooltipOwner } from "./tooltip.js";
@@ -81,7 +77,6 @@ export function installLoadTip(stat, { api, opId, sessions, ops }) {
       if (!data.op || ops() > 1) opLine(tip, "All operations", data.all, s.all);
       machineLine(tip, data.machine);
     }
-    tip.append(el("div", "tip-line dim", stat.dataset.tip ?? ""));
   };
 
   function fillChip() {

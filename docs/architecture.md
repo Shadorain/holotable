@@ -93,6 +93,10 @@ Description-only changes participate in rendering signatures. The new-operation 
 with markdown preview and a wide focus editor; draft completion updates unedited preview/focus
 views without replacing the operator's edits.
 
+Blocked cards use dependency chips as their sole prerequisite list, omitting duplicate status
+and launch-refusal lists. Connectivity dots keep accessible labels and themed live/offline colors.
+The demand-driven Load tooltip renders measurements only.
+
 ## Ports
 
 |Port|Adapters|Role|
