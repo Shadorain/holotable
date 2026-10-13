@@ -40,7 +40,9 @@ export function contactState(i: {
     if (!d.socketEver && contact.lane.terminal !== null && d.launchFailed === null) return "planning";
     return "offline";
   }
-  // Landing needs no live owner: a finished mission stays landable after its session is gone.
+  // A quota park must stay visible after the pane stops answering. Treating it as
+  // offline would offer a crash relaunch and spend another turn on the same cap.
+  if (status.hold === "quota") return "hold";
   if ((owner === "offline" || d.reaped) && !status.complete) return "offline";
   if (status.hold !== "none") return "hold";
   if (status.complete) return "complete";

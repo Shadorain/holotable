@@ -114,6 +114,16 @@ describe("project: state table", () => {
     expect(v2.state).toBe("offline");
   });
 
+  test("quota hold stays parked when the owner is gone", () => {
+    const op = makeOp([makeContact("a", { lane: live() })]);
+    const v = viewOf(op, "a", {
+      statuses: { a: makeStatus({ hold: "quota", next: "Provider quota exhausted. Restore quota or change the model, then /mission continue" }) },
+      owners: { a: "offline" },
+    });
+    expect(v.state).toBe("hold");
+    expect(v.detail).toContain("quota exhausted");
+  });
+
   test("offline: lane without terminal and no status", () => {
     const op = makeOp([makeContact("a", { lane: live(false) })]);
     expect(viewOf(op, "a").state).toBe("offline");

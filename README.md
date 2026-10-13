@@ -408,7 +408,7 @@ Per operation, off by default and never inherited from a project: `/holotable se
 Everything recovery does is an `operator` event with `by: "recover"`; history credits it to the board. Recovery never:
 
 - continues a session whose `verify` is `failed` (continuing resets verification; that is your call),
-- continues or relaunches a quota-held mission; restore funding or change its model before an explicit retry,
+- continues or relaunches a quota-held mission, and does not show that park as a crash; restore funding or change its model before an explicit retry,
 - touches a session without a control socket (a human's `omp` in the worktree),
 - approves a gate or a plan,
 - relaunches a contact you Reaped,
