@@ -251,10 +251,30 @@ Start an automatic campaign from OMP with `/holotable new release --repo /path/t
 |`defaults.delivery`|`none`|`github-pr`, `local-merge`, `none`|
 |`cleanup`|`true`|after a contact lands or is marked done, close its terminal and remove its worktree when clean (a dirty worktree is kept and noted)|
 
+### AI models and token usage
+
+**Settings → AI & Models** controls new panes, not sessions already running. Searchable model
+pickers also sit beside **Draft it**, **Launch** and **Decide with an agent**. A pick there overrides
+the per-use default for that action; **OMP default** bypasses Holotable's model defaults. Explicit
+mission picks survive replacement panes. **Refine** uses the model already running in the mission:
+the control socket cannot change it.
+
+The catalog loads only when you open a model picker; there is no model polling. Prices are
+catalog input/output dollars per million tokens, not spend limits or a promise of provider access.
+Authenticate the selected provider in OMP. OMP still owns fallback and subagent-role routing.
+Use a cheaper model, lower reasoning effort and a lower Agents cap to control token use and load.
+
+```bash
+holotable config cap 2
+holotable config ai.thinking low
+holotable config ai.draft openrouter/google/gemini-3.8-flash
+holotable config ai.draft ""   # inherit the global/OMP default again
+```
+
 
 ### Views and keys
 
-The header has the project breadcrumb (opens the project page), the operation picker (grouped by project; below the list, New operation and a link to the Archive), the three view buttons, the needs-you and auto-mode pills (the auto pill opens the Operation page), base branch, load, note tasks done (hidden when the notes have no task lines), the connection dot and, rightmost, the settings gear. Hovering or focusing any control shows a tooltip saying what it does, and for a disabled one why it is off. Hovering or focusing the Load stat instead shows live CPU and memory for the operation, all open operations and the machine (`GET /api/usage`: /proc sampling, processes attributed by lane worktree; over 80% is tinted, over 95% marked bad). Simulated missions in the playground have no real processes, so attributed usage there reads zero while the machine line stays real.
+The header has the project breadcrumb (opens the project page), the operation picker (grouped by project; below the list, New operation and a link to the Archive), the three view buttons, the needs-you and auto-mode pills (the auto pill opens the Operation page), base branch, load, note tasks done (hidden when the notes have no task lines), the connection dot and, rightmost, the settings gear. Hovering or focusing any control shows a tooltip saying what it does, and for a disabled one why it is off. Hovering or focusing the Load stat instead shows live CPU and memory for the operation and the machine (plus all open operations when more than one is open) ; clicking Load pins a small CPU · MEM chip for the selected operation next to it, and clicking again hides it (`GET /api/usage`: /proc sampling, processes attributed by lane worktree; over 80% is tinted, over 95% marked bad). Simulated missions in the playground have no real processes, so attributed usage there reads zero while the machine line stays real.
 
 Toggle views with the header buttons or `1 2 3` / `t b p`. The Plan view has two sub-views (Map | Operation); `Shift+P` flips between them.
 

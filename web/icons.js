@@ -205,6 +205,29 @@ const ICONS = {
     ["path", { d: "m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65" }],
     ["path", { d: "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" }],
   ],
+  cpu: [
+    ["rect", { x: "4", y: "4", width: "16", height: "16", rx: "2" }],
+    ["rect", { x: "9", y: "9", width: "6", height: "6" }],
+    ["path", { d: "M15 2v2" }],
+    ["path", { d: "M15 20v2" }],
+    ["path", { d: "M2 15h2" }],
+    ["path", { d: "M2 9h2" }],
+    ["path", { d: "M20 15h2" }],
+    ["path", { d: "M20 9h2" }],
+    ["path", { d: "M9 2v2" }],
+    ["path", { d: "M9 20v2" }],
+  ],
+  "memory-stick": [
+    ["path", { d: "M6 19v3" }],
+    ["path", { d: "M10 19v3" }],
+    ["path", { d: "M14 19v3" }],
+    ["path", { d: "M18 19v3" }],
+    ["path", { d: "M8 11V9" }],
+    ["path", { d: "M16 11V9" }],
+    ["path", { d: "M12 11V9" }],
+    ["path", { d: "M2 15h20" }],
+    ["path", { d: "M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1.1a2 2 0 0 0 0 3.837V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.1a2 2 0 0 0 0-3.837Z" }],
+  ],
 };
 
 /** Build an inline SVG icon (stroke=currentColor). `size` is in px. */

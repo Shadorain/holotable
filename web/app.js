@@ -76,6 +76,7 @@ installLoadTip($("load").closest(".stat"), {
   api,
   opId: () => state.opId,
   sessions: () => ({ op: state.projection?.stats.omp.current ?? 0, all: state.projection?.header.open ?? 0 }),
+  ops: () => state.operations.length,
 });
 
 // ---- toasts ----

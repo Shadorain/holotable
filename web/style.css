@@ -159,6 +159,9 @@ button:has(> svg.icon), .btn:has(> svg.icon) { display: inline-flex; align-items
 .meter { display: block; height: 4px; border-radius: 99px; background: var(--track); overflow: hidden; margin-top: 3px; }
 .meter > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
 .meter.full > span { background: var(--warn); }
+.stat[role="button"] { cursor: pointer; }
+.stat-row { display: flex; align-items: center; gap: 8px; }
+.load-chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 999px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
 .conn { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
 .conn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
 .conn.c-live .dot { background: var(--ok); }
