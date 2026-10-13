@@ -298,7 +298,7 @@ export interface Settings {
   theme: Theme;
   /** Folder template for lanes holotable creates with git itself; see core/worktrees.ts. */
   worktrees: { root: string };
-  defaults: { tracker: Tracker; fleet: Fleet; frontend: Frontend; delivery: Delivery };
+  defaults: { tracker: Tracker; fleet: Fleet; frontend: Frontend; delivery: Delivery; pause: boolean };
   custom?: { terminal?: string; focus?: string; close?: string };
   /** After a contact lands, close its pane and remove its worktree. */
   cleanup: boolean;

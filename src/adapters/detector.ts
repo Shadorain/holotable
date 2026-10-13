@@ -19,7 +19,8 @@ export interface DetectedFields {
   fleet: string;
   frontend: string;
   delivery: string;
-  pause: boolean;
+  /** Set by the board from settings, not by detection. */
+  pause?: boolean;
   worktreeRoot?: string;
 }
 
@@ -177,11 +178,9 @@ export async function detectRepo(repo: string, run: Run, orca?: OrcaRepoEntry[] 
     fleet: "omp-mission",
     frontend,
     delivery,
-    pause: true,
   };
   reasons.integration = "Repo path";
   reasons.fleet = "Standard mission fleet";
-  reasons.pause = "Safer default";
 
   return { fields, reasons };
 }

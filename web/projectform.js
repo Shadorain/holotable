@@ -14,7 +14,7 @@ export const PORT_OPTIONS = {
 };
 const PORTS = ["tracker", "fleet", "frontend", "delivery"];
 const SOURCE = { orca: "Orca", project: "project", session: "omp session" };
-const FIELD_LABEL = { base: "Base branch", tracker: "Tracker", frontend: "Panes", delivery: "Lands by", name: "Name" };
+const FIELD_LABEL = { base: "Base branch", tracker: "Tracker", frontend: "Panes", delivery: "Lands by", name: "Name", pause: "Mission mode" };
 
 let reposCache = null;
 /** GET /api/repos once per page; the list barely changes while someone fills a form. */
@@ -84,9 +84,9 @@ export function projectFields(defaults, api) {
     ports[kind] = dropdown({ label: titleCase(kind), options: PORT_OPTIONS[kind].map((v) => ({ value: v, label: v })), value: defaults?.[kind] ?? "none" });
     field(portGrid, titleCase(kind), ports[kind].root, {});
   }
-  const pause = switcher({ label: "Pause gates", checked: true });
+  const pause = switcher({ label: "Pause gates", checked: defaults?.pause === true });
   adjust.append(grid, portGrid);
-  field(adjust, "Pause gates", pause.root, { note: "Missions stop at each Pause gate for your approval." });
+  field(adjust, "Pause gates", pause.root, { note: "On launches omp-mission in pause. Off is auto. Starts from Settings → Mission mode." });
   box.append(adjust);
 
   const toggle = el("button", "linkish pf-toggle");
@@ -100,9 +100,9 @@ export function projectFields(defaults, api) {
   function showSummary(fields, reasons) {
     summary.replaceChildren();
     const list = el("dl", "detect-list");
-    for (const key of ["base", "tracker", "frontend", "delivery"]) {
+    for (const key of ["base", "tracker", "frontend", "delivery", "pause"]) {
       const row = el("div", "");
-      row.append(el("dt", "", FIELD_LABEL[key]), el("dd", "mono", String(fields[key])));
+      row.append(el("dt", "", FIELD_LABEL[key]), el("dd", "mono", key === "pause" ? (fields.pause ? "pause" : "auto") : String(fields[key] ?? "")));
       if (reasons?.[key]) row.append(el("dd", "set-note", reasons[key]));
       list.append(row);
     }
@@ -126,7 +126,7 @@ export function projectFields(defaults, api) {
         base.input.value = fields.base ?? "";
         integ.input.value = fields.integration && fields.integration !== (fields.repo ?? repo) ? fields.integration : "";
         for (const kind of PORTS) if (fields[kind]) ports[kind].setValue(fields[kind]);
-        pause.setChecked(fields.pause !== false);
+        if (typeof fields.pause === "boolean") pause.setChecked(fields.pause);
         showSummary(fields, reasons);
         box.dispatchEvent(new CustomEvent("detected", { detail: fields }));
       })

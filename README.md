@@ -194,8 +194,8 @@ Once activated, the row shows the selected operation and nonzero live, queued an
 |---|---|
 |(none)|start the board if needed and print its URLs; also records the session's repo for the project picker|
 |`start` / `stop` / `restart` / `status` / `url`|manage or inspect the same home-selected board through the CLI|
-|`new <id> (--project <id> \| --repo <path> --base <branch>) [--name] [--tracker] [--fleet] [--frontend] [--delivery] [--auto] [--no-pause] [--recover] [--from file.json] [--brief file.md]`|create and select an operation; unset fields come from its project or settings; `--auto` enables [auto mode](#auto-mode) and starts the board; `--recover` opts into [recovery](#recovery)|
-|`project new <id> --repo <path> --base <branch> [--name] [--integration] [--tracker] [--fleet] [--frontend] [--delivery] [--no-pause] [--worktree-root]`|create a project (the page's New project and `POST /api/projects` detect any field you leave out)|
+|`new <id> (--project <id> \| --repo <path> --base <branch>) [--name] [--tracker] [--fleet] [--frontend] [--delivery] [--auto] [--pause \| --no-pause] [--recover] [--from file.json] [--brief file.md]`|create and select an operation; unset fields follow the project, then global defaults; `--auto` enables board launch/land, independently of mission Pause gates|
+|`project new <id> --repo <path> --base <branch> [--name] [--integration] [--tracker] [--fleet] [--frontend] [--delivery] [--pause \| --no-pause] [--worktree-root]`|create a project; mission mode follows the global default unless explicitly overridden|
 |`project list`|projects and their operations|
 |`project set [<id>:]<field> <value>`|change a project field (default: the selected operation's project); every operation that has not overridden it follows|
 |`project attach <id> [op]` / `project detach [op]` / `project delete <id>`|attach (the operation takes every project value), detach (the values are copied in), delete (refused while an open operation uses it)|
@@ -249,6 +249,7 @@ Start an automatic campaign from OMP with `/holotable new release --repo /path/t
 |`defaults.fleet`|`omp-mission`|`omp-mission`, `none`|
 |`defaults.frontend`|`none`|`orca`, `herdr`, `custom`, `none`|
 |`defaults.delivery`|`none`|`github-pr`, `local-merge`, `none`|
+|`defaults.pause`|`false`|new mission mode: Auto when false, Pause gates when true; saved projects and operations retain their mode|
 |`cleanup`|`true`|after a contact lands or is marked done, close its terminal and remove its worktree when clean (a dirty worktree is kept and noted)|
 
 ### AI models and token usage

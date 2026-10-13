@@ -49,6 +49,7 @@ const CONFIG_VALUES: Record<string, readonly string[]> = {
   "defaults.fleet": FLEETS,
   "defaults.frontend": FRONTENDS,
   "defaults.delivery": DELIVERIES,
+  "defaults.pause": ["auto", "pause", "false", "true"],
   "custom.terminal": [],
   "custom.focus": [],
   "custom.close": [],
@@ -177,7 +178,7 @@ export function holotableCompletions(
         "new",
         rest,
         { repo: [], base: [], name: [], tracker: TRACKERS, fleet: FLEETS, frontend: FRONTENDS, delivery: DELIVERIES, from: [], integration: [], project: snapshot.projects.map((p) => p.id), brief: [] },
-        ["no-pause", "auto", "recover"],
+        ["no-pause", "pause", "auto", "recover"],
       );
     case "project": {
       const subs = ["new", "list", "set", "attach", "detach", "delete"];
@@ -185,7 +186,7 @@ export function holotableCompletions(
         return orNull(subs.filter((s) => prefixMatches(partial, s)).map((s) => item(`project ${s} `, s)));
       switch (done[0]) {
         case "new":
-          return completeFlags("project new", rest, { repo: [], base: [], name: [], tracker: TRACKERS, fleet: FLEETS, frontend: FRONTENDS, delivery: DELIVERIES, integration: [] }, ["no-pause"]);
+          return completeFlags("project new", rest, { repo: [], base: [], name: [], tracker: TRACKERS, fleet: FLEETS, frontend: FRONTENDS, delivery: DELIVERIES, integration: [] }, ["no-pause", "pause"]);
         case "set":
           if (done.length !== 1) return null;
           return orNull(

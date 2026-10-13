@@ -7,6 +7,7 @@ import { runCommand, type CommandEnv } from "../src/commands.ts";
 import { archiveDir } from "../src/paths.ts";
 import { readEvents } from "../src/store/events.ts";
 import { listOperations, readOperation } from "../src/store/operations.ts";
+import { readProject } from "../src/store/projects.ts";
 import { readSettings } from "../src/store/settings.ts";
 
 const dirs: string[] = [];
@@ -48,7 +49,7 @@ test("new creates and selects an operation with settings defaults", async () => 
   const out = await runCommand("new lab --repo /tmp/r --base main --name Lab", env);
   expect(out.current).toBe("lab");
   const op = await readOperation(env.home, "lab");
-  expect(op).toMatchObject({ name: "Lab", repo: "/tmp/r", integration: "/tmp/r", pause: true, tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none" });
+  expect(op).toMatchObject({ name: "Lab", repo: "/tmp/r", integration: "/tmp/r", pause: false, tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none" });
   expect(op.auto).toBeUndefined();
   expect(await readEvents(env.home, "lab")).toEqual([]);
 });
@@ -79,7 +80,7 @@ test("new --auto enables operation auto mode with safe defaults", async () => {
     plans: false,
     decide: false,
   });
-  expect(op.pause).toBe(true);
+  expect(op.pause).toBe(false);
   expect(op.recover).toBe(false);
 });
 
@@ -91,6 +92,29 @@ test("new --auto preserves safety boundaries and explicit overrides", async () =
   expect(op.recover).toBe(true);
   expect(op.auto?.enabled).toBe(true);
   expect(op.auto?.plans).toBe(false);
+});
+
+test("pause follows settings, then the project, and explicit flags win", async () => {
+  const env = fixture();
+  await runCommand("config defaults.pause true", env);
+  await runCommand("project new paused --repo /tmp/paused --base main", env);
+  expect((await readProject(env.home, "paused")).pause).toBe(true);
+  await runCommand("new from-project --project paused", env);
+  expect((await readOperation(env.home, "from-project")).pause).toBe(true);
+  await runCommand("new forced-off --project paused --no-pause", env);
+  expect((await readOperation(env.home, "forced-off")).pause).toBe(false);
+
+  await runCommand("config defaults.pause auto", env);
+  expect((await readProject(env.home, "paused")).pause).toBe(true);
+  await runCommand("project new open --repo /tmp/open --base main", env);
+  expect((await readProject(env.home, "open")).pause).toBe(false);
+  await runCommand("new inherited --project open", env);
+  expect((await readOperation(env.home, "inherited")).pause).toBe(false);
+  await runCommand("new forced-on --project open --pause", env);
+  expect((await readOperation(env.home, "forced-on")).pause).toBe(true);
+  await runCommand("new standalone --repo /tmp/alone --base main", env);
+  expect((await readOperation(env.home, "standalone")).pause).toBe(false);
+  await expect(runCommand("new both --repo /tmp/both --base main --pause --no-pause", env)).rejects.toThrow("pass only one of --pause and --no-pause");
 });
 
 test("new --auto respects seed auto configuration and precedence", async () => {

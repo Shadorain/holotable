@@ -434,8 +434,30 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
       note: "When a contact lands, close its mission pane and remove its worktree.",
     });
 
-    // ---- Defaults for new operations ----
+    // ---- Defaults for new projects and standalone operations ----
     sec = section("Defaults for new operations");
+    const missionMode = s.defaults.pause ? "pause" : "auto";
+    let committedMode = missionMode;
+    const mode = segmented({
+      label: "Mission mode",
+      value: missionMode,
+      options: [
+        { value: "auto", label: "Auto", hint: "omp-mission runs without Pause gates" },
+        { value: "pause", label: "Pause", hint: "missions stop at each Pause gate" },
+      ],
+      onChange: (value) => {
+        modeField.setError(null);
+        saveSetting("defaults.pause", value, (error) => {
+          if (error) {
+            mode.setValue(committedMode);
+            modeField.setError(error);
+          } else committedMode = value;
+        });
+      },
+    });
+    const modeField = field(sec, "Mission mode", mode.root, {
+      note: "omp-mission mode for new projects and operations that do not inherit a project. Auto does not arm Pause gates. Existing projects and operations stay as saved. This is not board auto launch or land.",
+    });
     for (const kind of ["tracker", "fleet", "frontend", "delivery"])
       enumRow(sec, titleCase(kind), `defaults.${kind}`, PORT_OPTIONS[kind], s.defaults[kind], saveSetting);
     textRow(sec, "Worktree folder", "worktrees.root", s.worktrees.root, saveSetting, {

@@ -39,7 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: "holo",
   cleanup: true,
   worktrees: { root: DEFAULT_WORKTREE_ROOT },
-  defaults: { tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none" },
+  defaults: { tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none", pause: false },
   ai: { ...DEFAULT_AI_SETTINGS },
 };
 
@@ -56,6 +56,7 @@ export const SETTING_KEYS = [
   "cleanup",
   "defaults.frontend",
   "defaults.delivery",
+  "defaults.pause",
   "custom.terminal",
   "custom.focus",
   "custom.close",
@@ -93,6 +94,12 @@ export function displaySettingsPath(home: string, homeDir = homedir()): string {
   const prefix = homeDir.endsWith("/") ? homeDir : `${homeDir}/`;
   return path.startsWith(prefix) ? `~/${path.slice(prefix.length)}` : path;
 }
+function pauseDefault(fields: Record<string, unknown>, fail: (message: string) => never): boolean {
+  if (!("pause" in fields) || fields.pause === undefined) return DEFAULT_SETTINGS.defaults.pause;
+  if (typeof fields.pause !== "boolean") return fail("defaults.pause must be a boolean");
+  return fields.pause;
+}
+
 
 export function validateSettings(value: unknown, path = "settings.json"): Settings {
   const fail = invalidAt("settings", path);
@@ -156,6 +163,7 @@ export function validateSettings(value: unknown, path = "settings.json"): Settin
       fleet: pick<Fleet>("fleet", FLEETS, "fleet"),
       frontend: pick<Frontend>("frontend", FRONTENDS, "frontend"),
       delivery: pick<Delivery>("delivery", DELIVERIES, "delivery"),
+      pause: pauseDefault(fields, fail),
     };
   }
 
@@ -221,6 +229,7 @@ export function formatSettings(settings: Settings): string {
     `  defaults.fleet: ${settings.defaults.fleet}`,
     `  defaults.frontend: ${settings.defaults.frontend}`,
     `  defaults.delivery: ${settings.defaults.delivery}`,
+    `  defaults.pause: ${settings.defaults.pause}`,
     `  cleanup: ${settings.cleanup}`,
     `  ai.model: ${settings.ai.model || "(unset)"}`,
     `  ai.thinking: ${settings.ai.thinking || "(unset)"}`,
@@ -288,6 +297,13 @@ export function setSettingKey(settings: Settings, key: string, value: string | n
     case "defaults.delivery":
       next.defaults.delivery = value as Delivery;
       break;
+    case "defaults.pause": {
+      const normalized = value?.trim().toLowerCase();
+      if (normalized === "true" || normalized === "pause") next.defaults.pause = true;
+      else if (normalized === "false" || normalized === "auto") next.defaults.pause = false;
+      else throw new Error("defaults.pause must be true, false, auto, or pause");
+      break;
+    }
     case "ai.model":
     case "ai.draft":
     case "ai.decision":

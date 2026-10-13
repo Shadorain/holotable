@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { startServer, type BoardServer } from "../src/server.ts";
 import { createBoardService } from "../src/board.ts";
 import { readProject } from "../src/store/projects.ts";
+import { writeSettings } from "../src/store/settings.ts";
 import { recordRecentRepo } from "../src/store/recent-repos.ts";
+import { DEFAULT_SETTINGS } from "../src/settings.ts";
 import type { CommandResult, Run } from "../src/ports.ts";
 
 const cleanup: Array<() => Promise<void> | void> = [];
@@ -121,7 +123,8 @@ describe("repos and detect routes", () => {
     expect(body.fields.tracker).toBe("linear");
     expect(body.fields.delivery).toBe("github-pr");
     expect(body.fields.fleet).toBe("omp-mission");
-    expect(body.fields.pause).toBe(true);
+    expect(body.fields.pause).toBe(false);
+    expect(body.reasons.pause).toBe("Settings mission mode: auto");
     expect(Object.keys(body.reasons).length).toBeGreaterThan(3);
   });
 
@@ -146,9 +149,40 @@ describe("repos and detect routes", () => {
     expect(project.integration).toBe(repo);
     expect(project.tracker).toBe("linear");
     expect(project.delivery).toBe("local-merge");
-    // Detection really ran (git + the CLIs), not defaults.
+    expect(project.pause).toBe(false);
     expect(calls.some((c) => c.command === "git" && c.args[0] === "rev-parse")).toBe(true);
     expect(calls.some((c) => c.command === "lin")).toBe(true);
+  });
+
+  test("saved defaults.pause true is inherited unless the body sets pause", async () => {
+    const home = tempHome();
+    const pausedRepo = tempHome();
+    const explicitRepo = tempHome();
+    await writeSettings(home, { ...DEFAULT_SETTINGS, defaults: { ...DEFAULT_SETTINGS.defaults, pause: true } });
+    const { run } = fakeRun((call) => {
+      const { command, args, cwd } = call;
+      if (command === "git" && args[0] === "rev-parse") return ok(`${cwd}\n`);
+      if (command === "orca") return fail(127);
+      if (command === "git" && args[0] === "symbolic-ref") return ok("origin/main\n");
+      if (command === "git" && args[0] === "branch") return ok("main\n");
+      if (command === "git" && args[0] === "remote") return fail(2);
+      if (command === "gh" || command === "lin" || command === "herdr") return fail(127);
+      return null;
+    });
+    const { api } = await boot(run, home);
+    const detected = await api("/api/projects/detect", { method: "POST", body: { repo: pausedRepo } });
+    expect(detected.status).toBe(200);
+    const detectedBody = (await detected.json()) as { fields: { pause: boolean } };
+    expect(detectedBody.fields.pause).toBe(true);
+    const created = await api("/api/projects", { method: "POST", body: { repo: pausedRepo } });
+    expect(created.status).toBe(200);
+    const createdBody = (await created.json()) as { id: string };
+    expect((await readProject(home, createdBody.id)).pause).toBe(true);
+    const explicit = await api("/api/projects", { method: "POST", body: { repo: explicitRepo, pause: false } });
+    expect(explicit.status).toBe(200);
+    const explicitBody = (await explicit.json()) as { id: string };
+    expect((await readProject(home, explicitBody.id)).pause).toBe(false);
+    expect((await readProject(home, createdBody.id)).pause).toBe(true);
   });
 
   test("GET /api/repos merges project, orca and session rows deduped by realpath", async () => {

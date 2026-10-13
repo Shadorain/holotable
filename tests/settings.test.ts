@@ -64,6 +64,13 @@ describe("validateSettings", () => {
     expect(() => validateSettings({ defaults: { tracker: "jira" } })).toThrow("defaults.tracker must be one of");
   });
 
+  test("defaults.pause is auto unless explicitly saved true", () => {
+    expect(validateSettings({}).defaults.pause).toBe(false);
+    expect(validateSettings({ defaults: { tracker: "github" } }).defaults.pause).toBe(false);
+    expect(validateSettings({ defaults: { pause: true } }).defaults.pause).toBe(true);
+    expect(() => validateSettings({ defaults: { pause: "true" } })).toThrow("defaults.pause must be a boolean");
+  });
+
   test("normalizes empty custom templates to absent", () => {
     const withEmpty = validateSettings({ custom: { terminal: "x", focus: "" } });
     expect(withEmpty.custom).toEqual({ terminal: "x" });
@@ -138,6 +145,14 @@ describe("setSettingKey", () => {
   test("sets enum defaults", () => {
     expect(setSettingKey(DEFAULT_SETTINGS, "defaults.frontend", "orca").defaults.frontend).toBe("orca");
     expect(() => setSettingKey(DEFAULT_SETTINGS, "defaults.fleet", "k8s")).toThrow("defaults.fleet must be one of");
+  });
+
+  test("sets mission mode through defaults.pause", () => {
+    expect(setSettingKey(DEFAULT_SETTINGS, "defaults.pause", "true").defaults.pause).toBe(true);
+    expect(setSettingKey(DEFAULT_SETTINGS, "defaults.pause", "pause").defaults.pause).toBe(true);
+    expect(setSettingKey(DEFAULT_SETTINGS, "defaults.pause", "false").defaults.pause).toBe(false);
+    expect(setSettingKey(DEFAULT_SETTINGS, "defaults.pause", "auto").defaults.pause).toBe(false);
+    expect(() => setSettingKey(DEFAULT_SETTINGS, "defaults.pause", "maybe")).toThrow("defaults.pause must be true, false, auto, or pause");
   });
 
   test("sets access and custom templates", () => {

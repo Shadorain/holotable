@@ -59,7 +59,7 @@ const state = {
   archiveKey: null, // open report
   archiveReports: new Map(),
   opDoc: null,
-  defaults: { tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none" },
+  defaults: { tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none", pause: false },
 };
 const POLL_INTERVAL_MS = 3000;
 let polling = false;

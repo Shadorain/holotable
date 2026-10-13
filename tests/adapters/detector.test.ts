@@ -145,7 +145,8 @@ describe("detectRepo", () => {
     expect(d.fields.delivery).toBe("github-pr");
     expect(d.fields.integration).toBe(dir);
     expect(d.fields.fleet).toBe("omp-mission");
-    expect(d.fields.pause).toBe(true);
+    expect(d.fields.pause).toBeUndefined();
+    expect(d.reasons.pause).toBeUndefined();
 
     // lin absent, github origin + gh signed in → github tracker
     const { run: r2 } = fakeRun((call) => {

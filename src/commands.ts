@@ -99,7 +99,7 @@ export const HELP = `/holotable: campaign board over omp-mission missions.
   /holotable restart             restart the board without changing missions or data
   /holotable status              report the selected home's board health
   /holotable url                 print the running board URLs
-  /holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--no-pause] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]
+  /holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]
   /holotable list [--all]
   /holotable project <new|list|set|attach|detach|delete> …
   /holotable use <id>
@@ -248,7 +248,7 @@ export async function createFromSpec(
     repo,
     base,
     integration: spec.integration ?? project?.integration ?? repo,
-    pause: spec.pause ?? project?.pause ?? true,
+    pause: spec.pause ?? project?.pause ?? defaults.pause,
     tracker: spec.tracker ?? project?.tracker ?? defaults.tracker,
     fleet: spec.fleet ?? project?.fleet ?? defaults.fleet,
     frontend: spec.frontend ?? project?.frontend ?? defaults.frontend,
@@ -285,13 +285,22 @@ export async function createFromSpec(
   return created;
 }
 
+function explicitPause(flags: ReadonlyMap<string, string | true>): boolean | undefined {
+  const pause = flags.has("pause");
+  const noPause = flags.has("no-pause");
+  if (pause && noPause) throw new Error("pass only one of --pause and --no-pause");
+  if (pause) return true;
+  if (noPause) return false;
+  return undefined;
+}
 async function cmdNew(tokens: string[], env: CommandEnv): Promise<CommandOutcome> {
+
   const usage =
-    "/holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--no-pause] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]";
+    "/holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]";
   const parsed = parseArgs(
     tokens,
     ["repo", "base", "project", "name", "tracker", "fleet", "frontend", "delivery", "from", "integration", "brief"],
-    ["no-pause", "auto", "recover"],
+    ["no-pause", "pause", "auto", "recover"],
     usage,
   );
   const [id] = parsed.positional;
@@ -313,7 +322,7 @@ async function cmdNew(tokens: string[], env: CommandEnv): Promise<CommandOutcome
     ...(flag(parsed, "integration") !== undefined || repo !== undefined
       ? { integration: resolve(env.cwd, flag(parsed, "integration") ?? repo ?? "") }
       : {}),
-    ...(parsed.flags.has("no-pause") ? { pause: false } : {}),
+    ...(explicitPause(parsed.flags) !== undefined ? { pause: explicitPause(parsed.flags) } : {}),
     ...(parsed.flags.has("auto") ? { auto: true } : {}),
     ...(parsed.flags.has("recover") ? { recover: true } : {}),
     ...(flag(parsed, "tracker") ? { tracker: oneOf(TRACKERS, flag(parsed, "tracker")!, "--tracker") } : {}),
@@ -337,11 +346,11 @@ async function cmdProject(tokens: string[], env: CommandEnv): Promise<CommandOut
   const [sub, ...rest] = tokens;
   switch (sub) {
     case "new": {
-      const u = "/holotable project new <id> --repo <path> --base <branch> [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--no-pause] [--integration <path>] [--worktree-root <path>]";
+      const u = "/holotable project new <id> --repo <path> --base <branch> [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--integration <path>] [--worktree-root <path>]";
       const parsed = parseArgs(
         rest,
         ["repo", "base", "name", "tracker", "fleet", "frontend", "delivery", "integration", "worktree-root"],
-        ["no-pause"],
+        ["no-pause", "pause"],
         u,
       );
       const [id] = parsed.positional;
@@ -356,7 +365,7 @@ async function cmdProject(tokens: string[], env: CommandEnv): Promise<CommandOut
         repo: resolve(env.cwd, repo),
         base,
         integration: resolve(env.cwd, flag(parsed, "integration") ?? repo),
-        pause: !parsed.flags.has("no-pause"),
+        pause: explicitPause(parsed.flags) ?? defaults.pause,
         tracker: oneOf(TRACKERS, flag(parsed, "tracker") ?? defaults.tracker, "--tracker"),
         fleet: oneOf(FLEETS, flag(parsed, "fleet") ?? defaults.fleet, "--fleet"),
         frontend: oneOf(FRONTENDS, flag(parsed, "frontend") ?? defaults.frontend, "--frontend"),

@@ -34,7 +34,7 @@ function fixture(kind: "main" | "sub" = "main") {
   process.env.OMP_HOLOTABLE_HOME = home;
   writeFileSync(join(home, "settings.json"), JSON.stringify({
     ...DEFAULT_SETTINGS, access: "local", port: 0, pollMs: 60_000, sampleMs: 60_000,
-    defaults: { tracker: "none", fleet: "none", frontend: "none", delivery: "none" },
+    defaults: { tracker: "none", fleet: "none", frontend: "none", delivery: "none", pause: false },
   }));
   cleanup.push(async () => {
     await stopService(home);

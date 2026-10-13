@@ -564,7 +564,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       const fleet = (input.fleet ?? detected.fields.fleet ?? defaults.fleet) as Project["fleet"];
       const frontend = (input.frontend ?? detected.fields.frontend ?? defaults.frontend) as Project["frontend"];
       const delivery = (input.delivery ?? detected.fields.delivery ?? defaults.delivery) as Project["delivery"];
-      const pause = input.pause ?? detected.fields.pause ?? true;
+      const pause = input.pause ?? defaults.pause;
       const worktreeRoot = input.worktreeRoot ?? detected.fields.worktreeRoot;
 
       const project = await asBadRequest(async () =>
@@ -703,7 +703,15 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
     async detect(repo: string) {
       const run = hooks.run ?? createRun();
       try {
-        return await detectRepo(repo, run);
+        const detected = await detectRepo(repo, run);
+        const { defaults } = await readSettings(home);
+        return {
+          fields: { ...detected.fields, pause: defaults.pause },
+          reasons: {
+            ...detected.reasons,
+            pause: defaults.pause ? "Settings mission mode: pause" : "Settings mission mode: auto",
+          },
+        };
       } catch (error) {
         throw new HttpError(400, error instanceof Error ? error.message : String(error));
       }
