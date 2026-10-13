@@ -343,6 +343,14 @@ The installed Linux user service limits the board **and its CLI subprocesses** t
 
 These limits do **not** cover mission panes hosted by Orca/herdr, other services, or a board started directly with `serve`/a detached fallback. The Agents cap limits mission concurrency across operations, not each mission's CPU. On a small or heat-constrained machine, start with **2** live agents and raise it only after measuring the workload. No board setting can guarantee safe temperatures for the entire host.
 
+On Linux, each mission launch/relaunch also checks `MemAvailable` before creating or closing
+a pane: it needs a 600 MiB pane budget plus a 512 MiB machine reserve, with another
+600 MiB reserved for each concurrently opening mission. Low headroom refuses the action
+without changing the saved lane. Recovery waits for headroom and does not count memory
+refusals against its crash-loop budget. This is admission control, not a memory limit on
+running missions; other tools can still exhaust the host. If `/proc` is unavailable,
+this check is unavailable and the Agents cap remains the limit.
+
 Queued-only operations do not run terminal-list commands; operations with live recorded terminals or decision panes share one Orca/herdr listing per watcher pass. Custom frontends remain operation-scoped. Usage viewers share one machine snapshot instead of independently scanning `/proc`. Browser polls wait three seconds after completion rather than stacking requests behind slow responses. Hidden pages stop polling and drawing; usage polling runs only while its tooltip is visible. Unchanged header and formatted statistics leave their DOM intact.
 
 Watcher passes never overlap. OMP's passive 10-second refresh reads the service in-process; it does not spawn CLI polling processes. Explicit CLI starts close the parent's log descriptor after spawn. Stop authenticates a live PID and instance nonce, never signals a PID from a discovery file, and drains HTTP actions, watcher, auto and recovery work before releasing the ownership lock.

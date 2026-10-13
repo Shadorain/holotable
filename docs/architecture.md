@@ -107,6 +107,15 @@ Recovery treats producer `hold: quota` as an operator hold, even when the pane i
 neither Continue nor Relaunch is automatic. Serialized relaunches recheck that hold when
 their queued action begins, so a newly reported exhausted quota cannot trigger a retry storm.
 
+Mission launch and relaunch admission reads Linux `MemAvailable` without scanning the
+process table. `core/policy.ts` requires 600 MiB per new/pending pane plus a 512 MiB
+machine reserve. `runtime/launcher.ts` checks before frontend creation or old-pane
+closure; refusal is `409 memory-pressure` and preserves the saved lane. Recovery checks
+both before enqueueing and when a queued relaunch begins. A later admission refusal is
+logged but excluded from its crash budget. Missing `/proc` skips memory admission;
+the cross-operation cap still applies. Existing missions and their tools are not capped
+by this check.
+
 ## Ports
 
 |Port|Adapters|Role|

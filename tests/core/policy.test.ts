@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { foldEvents } from "../../src/core/fold.ts";
-import { actionsFor, launchRefusal } from "../../src/core/policy.ts";
+import { actionsFor, launchRefusal, memoryLaunchRefusal } from "../../src/core/policy.ts";
 import type {
   ActionView,
   Derived,
@@ -298,4 +298,13 @@ describe("launch that stopped early", () => {
     const adopted = makeOp([makeContact("a", { lane: makeLane({ terminal: null, frontend: "external" }) })], live);
     expect(labels(actionsFor(policy(adopted, "a", { state: "offline" }))).some((l) => l.startsWith("launch"))).toBe(false);
   });
+});
+
+test("memory admission leaves reserve and accounts for panes still opening", () => {
+  const mib = 1024 * 1024;
+  expect(memoryLaunchRefusal(1111 * mib)).not.toBeNull();
+  expect(memoryLaunchRefusal(1112 * mib)).toBeNull();
+  expect(memoryLaunchRefusal(1711 * mib, 1)).not.toBeNull();
+  expect(memoryLaunchRefusal(1712 * mib, 1)).toBeNull();
+  expect(memoryLaunchRefusal(null)).toBeNull();
 });

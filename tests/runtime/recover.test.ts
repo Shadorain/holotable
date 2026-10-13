@@ -23,6 +23,7 @@ interface Opts {
   open?: number;
   frontend?: "orca" | "none";
   contacts?: ReturnType<typeof contact>[];
+  availableMemory?(): number | null;
 }
 
 /** Real action runner + real recovery over fake ports; the test plays the watcher by setting statuses, sockets and vanished panes. */
@@ -73,9 +74,10 @@ async function setup(opts: Opts = {}) {
     token: () => "abc123",
     socketWaitMs: 0,
     run: noRun,
+    availableMemory: opts.availableMemory,
   });
   const warnings: string[] = [];
-  const newRecover = () => createRecover({ home, now: () => new Date(now), settings, extras, run: act, warn: (m) => warnings.push(m) });
+  const newRecover = () => createRecover({ home, now: () => new Date(now), settings, extras, run: act, warn: (m) => warnings.push(m), availableMemory: opts.availableMemory });
   const recover = newRecover();
 
   const events = () => readEvents(home, "lab");
@@ -498,4 +500,40 @@ describe("Relaunch button legality", () => {
     expect(t.fake.count("frontend.openTerminal")).toBe(0);
     expect(await t.operator("relaunch")).toMatchObject([{ ok: false }]);
   });
+});
+
+test("manual relaunch under memory pressure preserves its old terminal and saved lane", async () => {
+  const t = await setup({ availableMemory: () => 100 * 1024 * 1024 });
+  t.dead("a");
+  t.vanished.add("a");
+  const before = await loadProjection(t.home, "lab", await t.settings(), t.now(), t.extras());
+  await expect(t.act({ op: "lab", contact: "a", action: "relaunch", args: {} }))
+    .rejects.toMatchObject({ code: "memory-pressure" });
+  const after = await loadProjection(t.home, "lab", await t.settings(), t.now(), t.extras());
+  expect(after.contacts[0]?.lane).toEqual(before.contacts[0]?.lane);
+  expect(t.fake.count("frontend.closeTerminal")).toBe(0);
+  expect(t.fake.count("frontend.openTerminal")).toBe(0);
+});
+
+test("memory pressure defers recovery without spending the crash-loop budget", async () => {
+  let available = 100 * 1024 * 1024;
+  const t = await setup({ availableMemory: () => available });
+  t.dead("a");
+  t.vanished.add("a");
+  await t.ev("socket-up", T - 5 * MIN);
+  for (let attempt = 0; attempt < 4; attempt++) await t.recover.pass();
+  await t.settle();
+  expect(await t.relaunches()).toEqual([]);
+  expect(t.fake.count("frontend.openTerminal")).toBe(0);
+  // Headroom can disappear after the queue check; persisted refusals aren't crashes.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await appendEvent(t.home, "lab", {
+      v: 1, at: iso(T - 3 + attempt), kind: "operator", contact: "a",
+      op: "relaunch", by: "recover", ok: false, error: "memory-pressure: insufficient memory",
+    });
+  }
+  available = 1200 * 1024 * 1024;
+  await t.recover.pass();
+  await t.until(async () => (await t.relaunches()).length === 4);
+  expect((await t.relaunches()).at(-1)?.ok).toBe(true);
 });

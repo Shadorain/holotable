@@ -5,6 +5,7 @@ import type { Event, Settings } from "../core/types.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { listOperations } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
+import { memoryLaunchRefusal } from "../core/policy.ts";
 
 export interface RecoverDeps {
   home: string;
@@ -15,6 +16,7 @@ export interface RecoverDeps {
   run(req: ActionRequest): Promise<void>;
   /** Internal failures (store reads, projection); action failures are already on the log. */
   warn(message: string): void;
+  availableMemory?(): number | null;
 }
 
 /** A crashed pane deserves a few tries, not a launch loop. */
@@ -38,6 +40,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void> } {
     queued.add(key);
     relaunchChain = relaunchChain.then(async () => {
       if (deps.extras(opId).statuses[ticket]?.hold === "quota") return;
+      if (memoryLaunchRefusal(deps.availableMemory?.() ?? null)) return;
       await act(opId, ticket, "relaunch");
     }).finally(() => queued.delete(key));
   }
@@ -64,6 +67,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void> } {
         e.contact === ticket &&
         e.op === "relaunch" &&
         e.by === "recover" &&
+        e.error?.startsWith("memory-pressure:") !== true &&
         Date.parse(e.at) >= since &&
         Date.parse(e.at) > lastReset,
     );
@@ -142,6 +146,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void> } {
       // 2. Relaunch: pane gone from the frontend's list, or a listed pane whose owner died 60+ s ago.
       const lane = contact.lane;
       if (contact.state !== "offline" || lane === null || !lane.terminal) continue;
+      if (memoryLaunchRefusal(deps.availableMemory?.() ?? null)) continue;
       // An operator Reap means "leave it"; the only way back is the operator's own Relaunch.
       if (folded.contacts[contact.ticket]?.reaped) continue;
       if (status?.complete) continue;

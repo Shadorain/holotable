@@ -5,6 +5,7 @@ import { appendEvent, readEvents } from "../store/events.ts";
 import { ensureLaunchOverlay } from "../store/launch.ts";
 import { mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
+import { memoryLaunchRefusal } from "../core/policy.ts";
 
 export interface LauncherDeps {
   home: string;
@@ -19,6 +20,7 @@ export interface LauncherDeps {
   socketWaitMs?: number;
   /** Shared action-runner keys (op/ticket → action); lets launches and End see each other. */
   inFlight?: Map<string, string>;
+  availableMemory?(): number | null;
 }
 
 const POLL_MS = 1_000;
@@ -89,6 +91,10 @@ export async function launchContact(
 
   const operation = await readOperation(deps.home, opId);
   const contact = operation.contacts.find((c) => c.ticket === ticket) as Contact;
+  if (!contact.lane?.terminal) {
+    const memory = memoryLaunchRefusal(deps.availableMemory?.() ?? null, Math.max(0, inflightLaunches));
+    if (memory) throw new ActionError(409, "memory-pressure", memory);
+  }
   const ports = deps.portsFor(operation, settings);
   const at = () => deps.now().toISOString();
   // A conflict mission launched from its card (after a refused launch) still needs the paths it may edit.
@@ -191,6 +197,8 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
   const inflightLaunches = [...(deps.inFlight?.values() ?? [])].filter((a) => a === "launch" || a === "relaunch").length - (deps.inFlight?.get(`${opId}/${ticket}`) === "relaunch" ? 1 : 0);
   if (load && load.open + inflightLaunches >= settings.cap)
     throw new ActionError(409, "refused", `cap ${load.open + inflightLaunches}/${settings.cap} omp`);
+  const memory = memoryLaunchRefusal(deps.availableMemory?.() ?? null, Math.max(0, inflightLaunches));
+  if (memory) throw new ActionError(409, "memory-pressure", memory);
   const operation = await readOperation(deps.home, opId);
   const contact = operation.contacts.find((c) => c.ticket === ticket) as Contact;
   const lane = contact.lane as NonNullable<Contact["lane"]>;

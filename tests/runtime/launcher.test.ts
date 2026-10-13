@@ -73,6 +73,20 @@ test("refusals happen before any port call, in the documented order", async () =
   expect((await noFleet.reject(noFleet.act({ op: "lab", contact: "a", action: "launch", args: {} }))).message).toBe("no fleet configured");
 });
 
+test("memory refusal preserves the lane and a retry succeeds after headroom returns", async () => {
+  let available = 100 * 1024 * 1024;
+  const t = await setup({}, { availableMemory: () => available });
+  const before = await readOperation(t.home, "lab");
+  const error = await t.reject(t.act({ op: "lab", contact: "a", action: "launch", args: {} }));
+  expect(error.code).toBe("memory-pressure");
+  expect(await readOperation(t.home, "lab")).toEqual(before);
+  expect(t.fake.count("frontend.openTerminal")).toBe(0);
+  available = 1200 * 1024 * 1024;
+  t.readyChild();
+  await t.act({ op: "lab", contact: "a", action: "launch", args: {} });
+  expect((await readOperation(t.home, "lab")).contacts[0]?.lane?.terminal).not.toBeNull();
+});
+
 test("launch runs the steps in order, records the lane, and ends at socket-up", async () => {
   const t = await setup({ tracker: "linear", contacts: [contact("CHR-1"), contact("CHR-2", { blockedBy: ["CHR-1"] })] });
   t.fake.world.statuses.set("/wt/chr-1", status({ worktree: "/wt/chr-1" }));

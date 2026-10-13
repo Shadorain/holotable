@@ -28,6 +28,10 @@ export function usableMemoryBytes(): number {
   return Math.min(...figures);
 }
 
+export function availableMemoryBytes(procRoot = "/proc"): number | null {
+  return memInfo(procRoot).memAvailableBytes;
+}
+
 /**
  * One /proc snapshot: machine CPU jiffies, meminfo totals and the process table
  * (pid, ppid, cwd, utime+stime, RSS). Everything degrades to null — never throws —

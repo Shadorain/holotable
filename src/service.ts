@@ -18,6 +18,7 @@ import { createWatcher } from "./runtime/watcher.ts";
 import { startServer, type BoardServer } from "./server.ts";
 import { readSettings } from "./store/settings.ts";
 import { acquireBoard, ensureToken, type BoardInfo, type BoardLock } from "./store/board.ts";
+import { availableMemoryBytes } from "./machine.ts";
 
 export class ServiceError extends Error {
   constructor(
@@ -133,6 +134,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     token: () => randomBytes(3).toString("hex"),
     run,
     inFlight,
+    availableMemory: availableMemoryBytes,
   });
   const auto = createAuto({
     home,
@@ -149,6 +151,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     extras: watcher.extras,
     run: action,
     warn,
+    availableMemory: availableMemoryBytes,
   });
   const ender = createEnder({ home, now: () => new Date(), settings: settingsFn, portsFor, run, inFlight });
 
