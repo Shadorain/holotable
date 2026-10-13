@@ -55,6 +55,7 @@ async function setup(contacts: Contact[], over: { load?: { live: number; open: n
       decisionPanes: watcher.extras("lab").decisionPanes,
     }),
     run: act,
+    integrationReady: async () => {},
     warn: (m) => warnings.push(m),
   });
   const events = async () => readEvents(home, "lab");

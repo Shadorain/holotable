@@ -25,6 +25,7 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
   load?: { live: number; open: number };
   fail?: Record<string, Error>;
   delivery?: "local-merge" | "none";
+  integrationError?: PortError;
 } = {}) {
   const home = tempDir("auto", dirs);
   await seedOperation(home, {
@@ -58,9 +59,11 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
     run: async () => ({ stdout: "", stderr: "", code: 0 }),
   });
   const warnings: string[] = [];
+  let integrationError = opts.integrationError;
+  let autoNow = Date.parse("2026-01-01T03:00:00Z");
   const auto = createAuto({
     home,
-    now: () => new Date("2026-01-01T03:00:00Z"),
+    now: () => new Date(autoNow),
     settings: async () => ({ ...DEFAULT_SETTINGS, cleanup: true }),
     extras: (opId) => ({
       statuses: Object.fromEntries(statuses),
@@ -71,6 +74,7 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
       decisionPanes: new Set(),
     }),
     run: act,
+    integrationReady: async () => { if (integrationError) throw integrationError; },
     warn: (m) => warnings.push(m),
   });
   const events = async () => readEvents(home, "lab");
@@ -88,7 +92,10 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
     fake.world.alive.add(`/sim/${name}.sock`);
     return st;
   };
-  return { home, fake, auto, act, events, op, setStatus, setProbe, liveWorktree, warnings };
+  return { home, fake, auto, act, events, op, setStatus, setProbe, liveWorktree, warnings,
+    setIntegrationError: (error?: PortError) => { integrationError = error; },
+    advance: (ms: number) => { autoNow += ms; },
+  };
 }
 
 describe("auto mode", () => {
@@ -137,6 +144,58 @@ describe("auto mode", () => {
     const auto = (await t.events()).find((e) => e.kind === "auto");
     expect(auto).toMatchObject({ kind: "auto", enabled: false, by: "board" });
     expect(auto && "reason" in auto ? auto.reason : "").toContain("orca exploded");
+  });
+
+  test("dirty integration waits without turning auto off or repeatedly landing; queue still launches", async () => {
+    const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") }), contact("b")], {
+      integrationError: new PortError("integration-dirty", "integration worktree has uncommitted changes"),
+    });
+    t.setStatus("a", status({ worktree: "/wt/a", complete: true, phase: "complete", ctl: null }));
+    t.setProbe("a", { url: "u", state: "open", mergeable: "clean", checks: "pass" });
+    t.liveWorktree("b");
+    await t.auto.pass();
+    await t.auto.pass();
+    expect((await t.op()).auto?.enabled).toBe(true);
+    expect((await t.events()).filter(e => e.kind === "operator" && e.op === "land")).toEqual([]);
+    expect((await t.events()).some(e => e.kind === "launched" && e.contact === "b")).toBe(true);
+    expect((await t.events()).some(e => e.kind === "auto" && !e.enabled)).toBe(false);
+    expect(t.auto.landingWait("lab")).toContain("uncommitted changes");
+    t.setIntegrationError();
+    t.advance(30_001);
+    await t.auto.pass();
+    expect((await t.events()).some(e => e.kind === "landed" && e.contact === "a")).toBe(true);
+    expect(t.auto.landingWait("lab")).toBeNull();
+  });
+
+  test("integration changing after preflight defers landing instead of disabling auto", async () => {
+    const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") })], {
+      fail: { "delivery.land": new PortError("integration-dirty", "integration worktree has uncommitted changes") },
+    });
+    t.setStatus("a", status({ worktree: "/wt/a", complete: true, phase: "complete", ctl: null }));
+    t.setProbe("a", { url: "u", state: "open", mergeable: "clean", checks: "pass" });
+    await t.auto.pass();
+    await t.auto.pass();
+    expect((await t.op()).auto?.enabled).toBe(true);
+    expect(t.fake.count("delivery.land")).toBe(1);
+    t.fake.world.fail.delete("delivery.land");
+    t.advance(30_001);
+    await t.auto.pass();
+    expect((await t.events()).some(e => e.kind === "landed" && e.contact === "a")).toBe(true);
+  });
+
+  test("wrong integration branch waits and disabling auto clears the wait", async () => {
+    const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") })], {
+      integrationError: new PortError("integration-wrong-branch", "integration is on topic, expected main"),
+    });
+    t.setStatus("a", status({ worktree: "/wt/a", complete: true, phase: "complete", ctl: null }));
+    t.setProbe("a", { url: "u", state: "open", mergeable: "clean", checks: "pass" });
+    await t.auto.pass();
+    expect((await t.op()).auto?.enabled).toBe(true);
+    expect(t.auto.landingWait("lab")).toContain("expected main");
+    expect((await t.events()).some(e => e.kind === "landed")).toBe(false);
+    await mutateOperation(t.home, "lab", op => ({ ...op, auto: { ...op.auto!, enabled: false } }));
+    await t.auto.pass();
+    expect(t.auto.landingWait("lab")).toBeNull();
   });
 
   test("finishes by disabling itself once every contact landed", async () => {

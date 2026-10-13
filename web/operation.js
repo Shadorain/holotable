@@ -250,6 +250,7 @@ function autoSection(p, ctx) {
     note: "Launch the queue and land finished work without a click each time.",
   });
   if (auto?.enabled) {
+    if (auto.landWait) card.append(el("div", "set-note", `Landing waiting · ${auto.landWait}`));
     const sub = el("div", "auto-sub");
     switchRow(sub, "Launch", "auto.launch", auto.launch, ctx.saveOp, {
       note: "Start queued contacts when a slot is free.",

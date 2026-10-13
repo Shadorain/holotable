@@ -1,10 +1,11 @@
 import { readEvents } from "../store/events.ts";
 import type { ActionRequest } from "../board.ts";
-import type { Settings } from "../core/types.ts";
+import type { Operation, Settings } from "../core/types.ts";
 import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
 import { appendEvent } from "../store/events.ts";
-import { listOperations, mutateOperation } from "../store/operations.ts";
+import { listOperations, mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
+import { PortError } from "../ports.ts";
 
 export interface AutoDeps {
   home: string;
@@ -13,6 +14,7 @@ export interface AutoDeps {
   extras(opId: string): Required<ProjectionExtras>;
   /** The same runner operator clicks use; auto requests carry `by: "auto"`. */
   run(req: ActionRequest): Promise<void>;
+  integrationReady(operation: Operation): Promise<void>;
   /** Internal failures (store reads, settings); action failures already pause via `auto` events. */
   warn(message: string): void;
 }
@@ -22,10 +24,12 @@ export interface AutoDeps {
  * Launches take up to 90 s, so the caller fires this without awaiting; `busy` keeps one launch per
  * operation at a time. Decision contacts and plan approval are never touched: they wait for you.
  */
-export function createAuto(deps: AutoDeps): { pass(): Promise<void> } {
+export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait(opId: string): string | null } {
   const busy = new Set<string>();
+  const landingWaits = new Map<string, { reason: string; retryAt: number }>();
 
   async function pause(opId: string, reason: string): Promise<void> {
+    landingWaits.delete(opId);
     try {
       await mutateOperation(deps.home, opId, (op) => (op.auto ? { ...op, auto: { ...op.auto, enabled: false } } : op));
       await appendEvent(deps.home, opId, { v: 1, at: deps.now().toISOString(), kind: "auto", enabled: false, reason, by: "board" });
@@ -37,6 +41,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void> } {
   async function runOp(opId: string): Promise<void> {
     const projection = await loadProjection(deps.home, opId, await deps.settings(), deps.now().getTime(), deps.extras(opId));
     const auto = projection.operation.auto;
+    if (!auto?.enabled || !auto.land) landingWaits.delete(opId);
     if (!auto?.enabled) return;
 
     if (projection.contacts.length > 0 && projection.contacts.every((c) => c.state === "landed")) {
@@ -79,14 +84,25 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void> } {
         if (c.actions.some((a) => a.id === "land" && a.enabled)) return true;
         return (c.kind === "audit" || c.kind === "conflict") && c.actions.some((a) => a.id === "done" && a.enabled);
       });
+      if (!target) landingWaits.delete(opId);
       if (target) {
         const landable = target.actions.some((a) => a.id === "land" && a.enabled);
-        try {
-          await deps.run({ op: opId, contact: target.ticket, action: landable ? "land" : "done", args: {}, by: "auto" });
-        } catch (error) {
-          // A land conflict opens a conflict mission; it is an outcome, not a failure.
-          if (!(error instanceof ActionError && error.code === "conflict-opened"))
-            await pause(opId, error instanceof Error ? error.message : String(error));
+        const wait = landingWaits.get(opId);
+        if (!landable || !wait || deps.now().getTime() >= wait.retryAt) {
+          try {
+            if (landable) await deps.integrationReady(await readOperation(deps.home, opId));
+            landingWaits.delete(opId);
+            await deps.run({ op: opId, contact: target.ticket, action: landable ? "land" : "done", args: {}, by: "auto" });
+          } catch (error) {
+            if ((error instanceof PortError || error instanceof ActionError) &&
+                (error.code === "integration-dirty" || error.code === "integration-wrong-branch")) {
+              // Readiness can change between preflight and merge. Never retry a blocked merge each poll.
+              landingWaits.set(opId, { reason: `${target.ticket}: ${error.message}`, retryAt: deps.now().getTime() + 30_000 });
+            } else if (!(error instanceof ActionError && error.code === "conflict-opened")) {
+              await pause(opId, error instanceof Error ? error.message : String(error));
+              return;
+            }
+          }
         }
       }
     }
@@ -138,8 +154,11 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void> } {
   }
 
   return {
+    landingWait: (opId) => landingWaits.get(opId)?.reason ?? null,
     async pass(): Promise<void> {
       const rows = await listOperations(deps.home);
+      const ids = new Set(rows.map(row => row.id));
+      for (const id of landingWaits.keys()) if (!ids.has(id)) landingWaits.delete(id);
       for (const row of rows) {
         if (busy.has(row.id)) continue;
         busy.add(row.id);

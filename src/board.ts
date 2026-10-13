@@ -281,6 +281,7 @@ export interface BoardHooks {
   /** Extra projection inputs (statuses, owners, probes, board-wide load) supplied by the watcher. */
   extras?: (opId: string) => ProjectionExtras;
   recoveryWaits?: (opId: string) => Readonly<Record<string, RecoveryWait>>;
+  autoLandWait?: (opId: string) => string | null;
   refresh?: BoardService["refresh"];
   action?: BoardService["action"];
   settle?: BoardService["settle"];
@@ -320,7 +321,9 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
   async function projection(opId: string): Promise<Projection> {
     const known = await listOperations(home);
     if (!known.some((row) => row.id === opId)) throw new HttpError(404, `No open operation "${opId}"`);
-    return loadProjection(home, opId, await readSettings(home), now(), hooks.extras?.(opId), hooks.recoveryWaits?.(opId));
+    const p = await loadProjection(home, opId, await readSettings(home), now(), hooks.extras?.(opId), hooks.recoveryWaits?.(opId));
+    if (p.operation.auto?.enabled) p.operation.auto.landWait = hooks.autoLandWait?.(opId) ?? null;
+    return p;
   }
   async function knownOperation(opId: string): Promise<void> {
     const known = await listOperations(home);

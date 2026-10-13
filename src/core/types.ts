@@ -507,7 +507,7 @@ export interface Projection {
     frontend: Frontend;
     tracker: Tracker;
     fleet: Fleet;
-    auto: (AutoMode & { plansSupported: boolean }) | null;
+    auto: (AutoMode & { plansSupported: boolean; landWait?: string | null }) | null;
     recover: boolean;
     delivery: Delivery;
     pause: boolean;

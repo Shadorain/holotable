@@ -65,6 +65,7 @@ const POLL_INTERVAL_MS = 3000;
 let polling = false;
 let pollTimer = null;
 let confirmTimer = null;
+let opDocPending = null;
 
 const api = (path, options = {}) => {
   const headers = new Headers(options.headers || {});
@@ -533,6 +534,7 @@ function render() {
     if (state.planView === "map") renderPlan(p, selected);
     else if (state.planView === "op") {
       const doc = state.opDoc;
+      if (!doc) loadOpDoc().then(render);
       if (state.projects === null) {
         state.projects = [];
         loadProjects().then(render);
@@ -790,13 +792,21 @@ function renderPlan(p, selected) {
 }
 async function loadOpDoc() {
   if (!state.opId) return;
-  try {
-    const res = await api(`/api/operation?op=${encodeURIComponent(state.opId)}`);
-    if (res.ok) state.opDoc = await res.json();
-    else state.opDoc = { error: `HTTP ${res.status}` };
-  } catch (e) {
-    state.opDoc = { error: e instanceof Error ? e.message : String(e) };
-  }
+  const id = state.opId;
+  if (opDocPending?.id === id) return opDocPending.promise;
+  const promise = (async () => {
+    let doc;
+    try {
+      const res = await api(`/api/operation?op=${encodeURIComponent(id)}`);
+      doc = res.ok ? await res.json() : { error: `HTTP ${res.status}` };
+    } catch (e) {
+      doc = { error: e instanceof Error ? e.message : String(e) };
+    }
+    if (state.opId === id) state.opDoc = doc;
+  })();
+  opDocPending = { id, promise };
+  await promise;
+  if (opDocPending?.promise === promise) opDocPending = null;
 }
 
 async function saveOpField(field, value, done) {

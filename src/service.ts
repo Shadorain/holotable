@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { resolvePorts } from "./adapters/registry.ts";
+import { assertIntegrationReady } from "./adapters/git-merge.ts";
 import { createBoardService } from "./board.ts";
 import type { Access, Operation, Settings } from "./core/types.ts";
 import { agentDir } from "./paths.ts";
@@ -142,6 +143,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     settings: settingsFn,
     extras: watcher.extras,
     run: action,
+    integrationReady: (op) => assertIntegrationReady(run, op.integration, op.base),
     warn,
   });
   const recover = createRecover({
@@ -163,6 +165,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
       service: createBoardService(home, {
         extras: watcher.extras,
         recoveryWaits: (id) => recover.deferred(id),
+        autoLandWait: (id) => auto.landingWait(id),
         refresh: (id) => watcher.pass(id, true),
         action,
         settle: (id) => watcher.pass(id),
