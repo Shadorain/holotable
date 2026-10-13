@@ -10,7 +10,7 @@ import { renderMarkdown } from "./markdown.js";
 import { endSection } from "./endop.js";
 import { addContactButton } from "./addcontact.js";
 import { notesPanel } from "./notes.js";
-import { statePill } from "./ui.js";
+import { kindPill, openTicket, statePill } from "./ui.js";
 
 const titleCase = (kind) => `${kind[0].toUpperCase()}${kind.slice(1)}`;
 
@@ -21,8 +21,9 @@ const WORKSPACE_SOURCE = {
   none: "not decided by holotable",
 };
 
-// Brief editing state keyed by operation id so a rebuild cannot eat a draft.
+// Brief editing and zone filter, keyed by operation so a poll cannot eat them.
 const briefUi = new Map();
+const zoneFilter = new Map();
 const briefState = (opId) => {
   let s = briefUi.get(opId);
   if (!s) {
@@ -31,10 +32,19 @@ const briefState = (opId) => {
   }
   return s;
 };
-/** Digest for region(): rebuild when brief UI state changes. */
-export function opUiKey(opId) {
+function selectedZone(opId, zones) {
+  const id = zoneFilter.get(opId);
+  if (!id) return null;
+  if (zones && !zones.some((z) => z.id === id)) {
+    zoneFilter.delete(opId);
+    return null;
+  }
+  return id;
+}
+/** Digest for region(): rebuild when brief UI or the zone filter changes. */
+export function opUiKey(opId, zones) {
   const s = briefUi.get(opId);
-  return s ? String(s.editing) : "";
+  return `${s?.editing ? "1" : "0"}:${selectedZone(opId, zones) ?? ""}`;
 }
 
 function docSection(title) {
@@ -294,12 +304,37 @@ function recoverSection(p, ctx) {
 function zonesContactsSection(p, ctx) {
   const box = docSection("Zones and contacts");
   const zones = p.operation.zones;
+  const opId = p.operation.id;
+  const active = selectedZone(opId, zones);
 
   const zoneRow = el("div", "zone-chips");
+  const all = el("button", "tag zone-chip");
+  all.type = "button";
+  all.dataset.key = "op/zone/all";
+  all.setAttribute("aria-pressed", String(!active));
+  all.textContent = "All";
+  all.title = "Show every zone";
+  all.addEventListener("click", () => {
+    if (!zoneFilter.has(opId)) return;
+    zoneFilter.delete(opId);
+    ctx.rerender();
+  });
+  zoneRow.append(all);
   for (const z of zones) {
     const count = p.contacts.filter((c) => c.zone === z.id).length;
-    const chip = el("span", "tag zone-chip", `${z.label} · ${count}`);
-    chip.title = z.id;
+    const on = active === z.id;
+    const chip = el("button", "tag zone-chip");
+    chip.type = "button";
+    chip.dataset.key = `op/zone/${z.id}`;
+    chip.dataset.zone = z.id;
+    chip.setAttribute("aria-pressed", String(on));
+    chip.textContent = `${z.label} · ${count}`;
+    chip.title = on ? "Show every zone" : `Show only ${z.label}`;
+    chip.addEventListener("click", () => {
+      if (zoneFilter.get(opId) === z.id) zoneFilter.delete(opId);
+      else zoneFilter.set(opId, z.id);
+      ctx.rerender();
+    });
     zoneRow.append(chip);
   }
   if (zones.length) box.append(zoneRow);
@@ -336,20 +371,27 @@ function zonesContactsSection(p, ctx) {
   zform.append(zlabel.root, zbtn);
   box.append(zform, zerr);
 
-  // Contacts table.
+  // Contacts table. Ticket opens the tracker issue, not the delivery pull request.
   const table = el("div", "ctable");
   const headRow = el("div", "ctable-row ctable-head");
   for (const h of ["Ticket", "Title", "Zone", "Kind", "State", "Waits for"]) headRow.append(el("span", "", h));
   table.append(headRow);
   const zoneLabel = (id) => zones.find((z) => z.id === id)?.label ?? id;
-  for (const c of p.contacts) {
+  const shown = active ? p.contacts.filter((c) => c.zone === active) : p.contacts;
+  for (const c of shown) {
     const row = el("div", "ctable-row");
     const tk = el("button", "linkish mono", c.ticket);
     tk.type = "button";
-    tk.dataset.id = c.ticket;
     tk.dataset.key = `op/contact/${c.ticket}`;
-    tk.title = c.title ?? c.ticket;
-    row.append(tk, el("span", "ctable-title", c.title ?? "—"), el("span", "", zoneLabel(c.zone)), el("span", "", c.kind));
+    tk.title = p.operation.tracker === "none" ? "This operation has no tracker" : `Open ${c.ticket} at its tracker`;
+    tk.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void openTicket(c, p.operation.tracker, (text) => ctx.toast(text, "error"), ctx.ticketUrl);
+    });
+    const kind = el("span", "");
+    kind.append(kindPill(c.kind));
+    row.append(tk, el("span", "ctable-title", c.title ?? "—"), el("span", "", zoneLabel(c.zone)), kind);
     const st = el("span", "");
     st.append(statePill(c.state));
     row.append(st);
@@ -358,6 +400,7 @@ function zonesContactsSection(p, ctx) {
     table.append(row);
   }
   if (!p.contacts.length) table.append(el("div", "empty-line", "No contacts yet."));
+  else if (!shown.length) table.append(el("div", "empty-line", "No contacts in this zone."));
   box.append(table);
 
   const addRow = el("div", "list-tools");

@@ -166,6 +166,8 @@ export interface BoardService {
   addContact(opId: string, input: NewContact): Promise<{ ticket: string; adopted: boolean }>;
   /** Ticket search for the Add contact dialog: op (or project for the create form) names the tracker. */
   trackerSearch(input: { op?: string | null; project?: string | null; q: string }): Promise<TrackerSearchResult>;
+  /** Issue URL for a contact. Null when the operation has no tracker or the tracker has no issue link. Never a pull request. */
+  trackerIssue(opId: string, ticket: string): Promise<{ url: string | null }>;
   /** End-of-operation surface, present once the service wires wind-down deps. */
   end?: {
     preview(opId: string): Promise<AbortPreview>;
@@ -513,6 +515,27 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       if (hits === "timeout") return { tracker, hits: [], error: "timed out after 8 s" };
       if (hits === null) return { tracker, hits: [], error: "tracker answered nothing" };
       return { tracker, hits: taken ? hits.map((h) => (taken.has(normalizeTicket(tracker, h.ticket)) ? { ...h, taken: true as const } : h)) : hits };
+    },
+    async trackerIssue(opId, ticket) {
+      const operation = await readOperation(home, opId).catch(() => {
+        throw new HttpError(404, `No open operation "${opId}"`);
+      });
+      if (!operation.contacts.some((contact) => contact.ticket === ticket))
+        throw new HttpError(404, `No contact "${ticket}"`);
+      if (operation.tracker === "none") return { url: null };
+      const port = hooks.tracker ? await hooks.tracker(operation.tracker) : null;
+      if (!port) return { url: null };
+      const timedOut = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000));
+      let sampled: { url: string | null } | null = null;
+      try {
+        sampled = await Promise.race([port.sample(ticket, operation.repo), timedOut]);
+      } catch {
+        sampled = null;
+      }
+      const url = sampled?.url;
+      if (typeof url !== "string" || !/^https?:\/\//i.test(url) || /\/pull\/\d+(?:[/?#]|$)/i.test(url))
+        return { url: null };
+      return { url };
     },
     async createOperation(spec) {
       return asBadRequest(() => createFromSpec(home, new Date(now()), spec));

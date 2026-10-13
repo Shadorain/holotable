@@ -33,6 +33,30 @@ describe("linearTracker", () => {
     expect(calls[0].cwd).toBe("/repo");
   });
 
+  test("builds the workspace issue URL when lin omits url", async () => {
+    const { run, calls } = fakeRun((call) => {
+      if (call.args[0] === "me") {
+        return { stdout: JSON.stringify({ viewer: { organization: { urlKey: "charidel" } } }), stderr: "", code: 0 };
+      }
+      return { stdout: JSON.stringify({ issue: { identifier: "CHR-173", state: { name: "Todo" } } }), stderr: "", code: 0 };
+    });
+    expect(await linearTracker(run).sample("chr-173", "/repo")).toEqual({
+      state: "Todo",
+      url: "https://linear.app/charidel/issue/CHR-173",
+    });
+    expect(calls.map((call) => call.args[0])).toEqual(["issues", "me"]);
+  });
+
+  test("does not invent a pull request from a numeric ticket", async () => {
+    const { run, calls } = fakeRun({
+      stdout: JSON.stringify({ issue: { identifier: "173", state: { name: "Todo" } } }),
+      stderr: "",
+      code: 0,
+    });
+    expect(await linearTracker(run).sample("173", "/repo")).toEqual({ state: "Todo", url: null });
+    expect(calls.some((call) => call.args[0] === "me")).toBe(false);
+  });
+
   test("null on non-zero exit, bad JSON, or missing fields", async () => {
     expect(await linearTracker(fakeRun({ stdout: "err", stderr: "", code: 1 }).run).sample("CHR-1", "/r")).toBeNull();
     expect(await linearTracker(fakeRun({ stdout: "not json", stderr: "", code: 0 }).run).sample("CHR-1", "/r")).toBeNull();
@@ -67,6 +91,15 @@ describe("githubTracker", () => {
     expect(await githubTracker(fakeRun({ stdout: "", stderr: "", code: 1 }).run).sample("#7", "/r")).toBeNull();
     expect(await githubTracker(fakeRun({ stdout: "{}", stderr: "", code: 0 }).run).sample("#7", "/r")).toBeNull();
     expect(await githubTracker(fakeRun({ stdout: "{}", stderr: "", code: 0 }).run).sample("bogus", "/r")).toBeNull();
+  });
+
+  test("a pull request URL is not the ticket link", async () => {
+    const { run } = fakeRun({
+      stdout: JSON.stringify({ state: "OPEN", url: "https://github.com/acme/widgets/pull/42" }),
+      stderr: "",
+      code: 0,
+    });
+    expect(await githubTracker(run).sample("#42", "/repo")).toEqual({ state: "open", url: null });
   });
 });
 

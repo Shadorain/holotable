@@ -57,6 +57,55 @@ export function safeLink(url, text = url) {
   return a;
 }
 
+const PULL_URL = /\/pull\/\d+(?:[/?#]|$)/i;
+
+/** Tracker issue URL only. A pull-request URL is delivery, never the ticket. */
+export function trackerIssueUrl(contact, tracker) {
+  if (!tracker || tracker === "none") return null;
+  const url = contact?.tracker?.url;
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url) || PULL_URL.test(url)) return null;
+  return url;
+}
+
+/** Opens the tracker issue. Never the delivery PR, and never a URL built from the ticket number. */
+export async function openTicket(contact, tracker, notify, lookup) {
+  let url = trackerIssueUrl(contact, tracker);
+  let popup = null;
+  if (!url && tracker && tracker !== "none" && typeof lookup === "function") {
+    popup = window.open("", "_blank");
+    if (popup) popup.opener = null;
+    try {
+      const fetched = await lookup(contact.ticket);
+      if (typeof fetched === "string" && /^https?:\/\//i.test(fetched) && !PULL_URL.test(fetched)) url = fetched;
+    } catch {
+      url = null;
+    }
+  }
+  if (url) {
+    if (popup) popup.location.href = url;
+    else window.open(url, "_blank", "noopener");
+    return true;
+  }
+  popup?.close();
+  const ticket = contact?.ticket ?? "Ticket";
+  if (typeof notify === "function") {
+    notify(tracker === "none" ? `${ticket}: this operation has no tracker` : `${ticket} has no tracker link`);
+  }
+  return false;
+}
+
+const KIND_LABEL = {
+  implement: "Implement",
+  audit: "Audit",
+  decision: "Decision",
+  conflict: "Conflict",
+};
+
+export function kindPill(kind) {
+  const known = Object.hasOwn(KIND_LABEL, kind);
+  return el("span", `pill kind-pill${known ? ` k-${kind}` : ""}`, KIND_LABEL[kind] ?? kind);
+}
+
 // Icon per contact state, inside the pill. Kept monochrome: colour carries the state.
 const STATE_ICON = {
   ready: "clock", blocked: "lock", decision: "message-circle-question", planning: "pen-line",

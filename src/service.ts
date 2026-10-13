@@ -174,7 +174,10 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
             throw error;
           }
         },
-        tracker: async (kind) => portsFor({ tracker: kind } as Operation, await settingsFn()).tracker,
+        tracker: async (kind) => portsFor(
+          { tracker: kind, fleet: "none", frontend: "none", delivery: "none" } as Operation,
+          await settingsFn(),
+        ).tracker,
         usage: createUsage({ home }),
         end: ender,
         drafts: {

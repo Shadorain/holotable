@@ -845,3 +845,20 @@ textarea.plan-edit.seed-edit { width: 100%; background: var(--well); border: 1px
 .contact-desc-edit { min-height: 90px; max-height: 240px; }
 /* ---- decision plan note ---- */
 .set-note.small { font-size: 11px; }
+
+/* ---- operation zone filter and contact kind ---- */
+button.zone-chip {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+button.zone-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 18%, var(--well));
+}
+.kind-pill { --s: var(--muted); }
+.kind-pill.k-implement { --s: var(--accent); }
+.kind-pill.k-audit { --s: var(--info); }
+.kind-pill.k-decision { --s: var(--warn); }
+.kind-pill.k-conflict { --s: var(--bad); }

@@ -97,6 +97,12 @@ Blocked cards use dependency chips as their sole prerequisite list, omitting dup
 and launch-refusal lists. Connectivity dots keep accessible labels and themed live/offline colors.
 The demand-driven Load tooltip renders measurements only.
 
+Operation-table zone filters are browser state keyed by operation and cleared when a zone is
+removed. Ticket navigation rejects PR URLs and resolves missing tracker URLs on demand through
+`GET /api/tracker/issue?op=&ticket=`. Linear uses the authenticated workspace key from `lin me`
+when an issue omits its URL. Tracker-only service wiring supplies valid unused port kinds;
+queued contacts need not enter the watcher's sampling loop to obtain a link.
+
 ## Ports
 
 |Port|Adapters|Role|

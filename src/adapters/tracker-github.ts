@@ -1,8 +1,15 @@
 import { isRecord } from "../core/validate.ts";
 import type { Run, TrackerHit, TrackerPort } from "../ports.ts";
 
-// Tickets are `owner/repo#N` or bare `#N`; a bare number runs gh in the
-// contact's cwd so the checkout's remote resolves the repository.
+// Tickets are `owner/repo#N` or bare `#N`. A `/pull/N` URL is a delivery PR,
+// not the issue — never substitute one, and never build one from the number.
+const PULL_URL = /\/pull\/\d+(?:[/?#]|$)/i;
+
+function issueUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0 || PULL_URL.test(value)) return null;
+  return value;
+}
+
 export function githubTracker(run: Run): TrackerPort {
   return {
     id: "github",
@@ -20,7 +27,7 @@ export function githubTracker(run: Run): TrackerPort {
           return null;
         return {
           state: issue.state.toLowerCase(),
-          url: typeof issue.url === "string" ? issue.url : null,
+          url: issueUrl(issue.url),
         };
       } catch {
         return null;
@@ -44,7 +51,7 @@ export function githubTracker(run: Run): TrackerPort {
             ticket: `#${row.number}`,
             title: row.title,
             state: typeof row.state === "string" && row.state.length ? row.state.toLowerCase() : null,
-            url: typeof row.url === "string" ? row.url : null,
+            url: issueUrl(row.url),
           });
         }
         return hits;

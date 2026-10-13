@@ -178,6 +178,11 @@ The page has three views over one projection. Each shows only what it is for; de
 
 The card has three tabs (`[` and `]` switch): **Overview** (progress, what happens next, actions, what it waits for and unblocks, conflict links), **Details** (origin, kind, tracker, delivery, workers, branch, worktree, terminal) and **History** (every event for this contact, with who caused it).
 
+On the Operation page, zone pills filter the contacts table; click again or **All** to clear.
+Filters survive polls per operation, and contact kinds use themed colored pills.
+Ticket clicks there (or Cmd/Ctrl+click elsewhere) open the tracker issue, never a delivery PR.
+PR links remain under the card's Delivery details; local contacts have no tracker link.
+
 Destructive actions (Reap) need a second click. Disabled actions explain other refusals under the buttons; blocked contacts list prerequisites once, as navigable chips. Mission connectivity is a colored dot, with its status available on hover. Load shows measurements without instructional text. Results and failures appear as toasts; failures stay until dismissed. Keys are listed under [Views and keys](#views-and-keys). The page stacks below about 760 px.
 
 The gear at the right of the header opens a settings drawer for board-wide settings; settings for one operation live on its Operation page. Every control saves on change or blur; a rejected value shows the server's message inline. Selects, switches and checkboxes use the page's controls; decision choices use native radio buttons. Dropdowns support arrows, Home/End and type-ahead, and a poll never closes an open one.

@@ -7,7 +7,7 @@ import { orderedTickets, renderList } from "./list.js";
 import { drawLinks, renderHistory, renderMap } from "./plan.js";
 import { createRadar } from "./radar.js";
 import { createSettingsDrawer } from "./settings.js";
-import { CONFIRM, el, fmtMs, KEY_DIR, nearestInDirection } from "./ui.js";
+import { CONFIRM, el, fmtMs, KEY_DIR, nearestInDirection, openTicket } from "./ui.js";
 import { dropdown, popoverOpenWithin } from "./components.js";
 import { renderNewOperation } from "./newop.js";
 import { opUiKey, renderOperation } from "./operation.js";
@@ -117,7 +117,7 @@ function select(ticket, fromKey = false) {
 
 // Table view centre: one radar instance for the session; update() replaces its data, never its canvas.
 const radar = createRadar($("stage"), {
-  onSelect: (ticket, event) => (event && (event.metaKey || event.ctrlKey) ? openProvider(ticket) : select(ticket)),
+  onSelect: (ticket, event) => (event && (event.metaKey || event.ctrlKey) ? openTicketAtTracker(ticket) : select(ticket)),
 });
 const syncRadar = () => radar.setActive(state.view === "table" && document.visibilityState === "visible");
 
@@ -540,10 +540,10 @@ function render() {
         projects: state.projects,
         op: p.operation.id,
         doc,
-        ui: opUiKey(p.operation.id),
+        ui: opUiKey(p.operation.id, p.operation.zones),
         auto: p.operation.auto,
         zones: p.operation.zones,
-        contacts: p.contacts.map((c) => [c.ticket, c.title, c.description, c.zone, c.kind, c.state, c.blockedBy]),
+        contacts: p.contacts.map((c) => [c.ticket, c.title, c.description, c.zone, c.kind, c.state, c.blockedBy, c.tracker?.url ?? null]),
         notes: p.notes,
         notesKey: notesKey(p.operation.id),
         busy: [...ctx.busy],
@@ -562,6 +562,7 @@ function render() {
           projects: state.projects ?? [],
           openProject,
           ended: opEnded,
+          ticketUrl: lookupTicketUrl,
         };
         renderOperation(root, p, doc, c);
       });
@@ -982,13 +983,24 @@ function addContact(p) {
   });
 }
 
-/** Cmd/Ctrl+click on a ticket opens it at its provider: the tracker issue, else its pull request. */
-function openProvider(ticket) {
-  const c = state.projection?.contacts.find((x) => x.ticket === ticket);
-  const url = c?.tracker?.url ?? c?.delivery?.url ?? null;
-  if (url && /^https?:\/\//.test(url)) window.open(url, "_blank", "noopener");
-  else if (state.projection?.operation.tracker === "none") toast(`${ticket}: this operation has no tracker, and no PR yet.`, "error");
-  else toast(`${ticket} has no tracker or PR link yet (it appears once the tracker has been checked).`, "error");
+/** Cmd/Ctrl+click opens the tracker issue. A missing sample URL is resolved; delivery PRs stay on the card. */
+function openTicketAtTracker(ticket) {
+  const projection = state.projection;
+  const contact = projection?.contacts.find((item) => item.ticket === ticket);
+  if (!contact || !projection) return;
+  void openTicket(contact, projection.operation.tracker, (text) => toast(text, "error"), lookupTicketUrl);
+}
+
+const resolvedTicketUrls = new Map();
+async function lookupTicketUrl(ticket) {
+  const key = `${state.opId}/${ticket}`;
+  if (resolvedTicketUrls.has(key)) return resolvedTicketUrls.get(key);
+  const res = await api(`/api/tracker/issue?op=${encodeURIComponent(state.opId)}&ticket=${encodeURIComponent(ticket)}`);
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return null;
+  const url = typeof data?.url === "string" ? data.url : null;
+  if (url) resolvedTicketUrls.set(key, url);
+  return url;
 }
 // Capture phase, so the modified click opens the link instead of selecting or pressing anything.
 document.addEventListener(
@@ -1000,7 +1012,7 @@ document.addEventListener(
     if (!ticket || !state.projection?.contacts.some((c) => c.ticket === ticket)) return;
     event.preventDefault();
     event.stopPropagation();
-    openProvider(ticket);
+    openTicketAtTracker(ticket);
   },
   true,
 );

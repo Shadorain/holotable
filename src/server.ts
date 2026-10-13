@@ -446,6 +446,12 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
           JSON.stringify(await service.trackerSearch({ op: url.searchParams.get("op"), project: url.searchParams.get("project"), q })),
         );
       }
+      if (method === "GET" && pathname === "/api/tracker/issue") {
+        const op = url.searchParams.get("op");
+        const ticket = url.searchParams.get("ticket");
+        if (!op || !ticket) return fail(res, 400, "op and ticket are required");
+        return respond(res, 200, JSON.stringify(await service.trackerIssue(op, ticket)));
+      }
       if (method === "POST" && pathname === "/api/zones") {
         const body = await readBody(req);
         const id = await service.addZone(requireString(body, "op"), requireString(body, "label").trim());
