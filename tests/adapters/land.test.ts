@@ -251,6 +251,25 @@ describe("githubPrDelivery.land", () => {
     expect(dirty.stdout.trim()).toBe("");
   });
 
+  test("squash-only repo merges with --squash", async () => {
+    const ghCalls: string[][] = [];
+    const { run } = realRun((args) => {
+      ghCalls.push(args);
+      if (args[0] === "pr" && args[1] === "view") return { stdout: prJson(), stderr: "", code: 0 };
+      if (args[0] === "repo") return { stdout: JSON.stringify({ mergeCommitAllowed: false, squashMergeAllowed: true, rebaseMergeAllowed: false }), stderr: "", code: 0 };
+      return { stdout: "", stderr: "", code: 0 };
+    });
+    const { repo } = await prSetup(run);
+    const result = await githubPrDelivery(run).land({
+      operation: makeOperation(repo),
+      contact,
+      sourceBranch: "feat",
+      status,
+    });
+    expect(result).toEqual({ outcome: "landed", via: "pr" });
+    expect(ghCalls.filter((a) => a[1] === "merge")).toEqual([["pr", "merge", "7", "--squash"]]);
+  });
+
   test("pr-base-mismatch refuses before any merge", async () => {
     const calls: Call[] = [];
     const { run } = realRun((args) => {

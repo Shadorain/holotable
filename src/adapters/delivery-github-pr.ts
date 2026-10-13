@@ -155,9 +155,25 @@ export function githubPrDelivery(run: Run): DeliveryPort {
           baseSha: probeResult.baseSha,
         };
 
+      // Repo merge-method settings govern the flag: only-allowed methods on GitHub
+      // reject the wrong flag ("Merge commits are not allowed") on a mergeable PR.
+      let method = "--merge";
+      const allowed = await run(
+        "gh",
+        ["repo", "view", "--json", "mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed"],
+        integration,
+      );
+      if (allowed.code === 0) {
+        try {
+          const methods = JSON.parse(allowed.stdout) as Record<string, boolean>;
+          if (methods.squashMergeAllowed) method = "--squash";
+          else if (methods.rebaseMergeAllowed) method = "--rebase";
+        } catch { /* unparseable settings: keep the merge default */ }
+      }
+
       const merged = await run(
         "gh",
-        ["pr", "merge", number, "--merge"],
+        ["pr", "merge", number, method],
         integration,
       );
       if (merged.code !== 0)
