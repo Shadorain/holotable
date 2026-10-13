@@ -56,7 +56,7 @@ Install `omp-mission` too, restart OMP, then open a session in the repo you want
 1. **Open the board.** In OMP, run `/holotable` and open one of its URLs. The Getting started card checks OMP, the mission extension and the integrations you use, with fixes for anything missing.
 2. **Add your project.** Projects → New project. Pick the session's repo; review the detected base branch, tracker, frontend and delivery. To launch missions, choose Orca, Herdr or a custom terminal frontend.
 3. **Create an operation.** Choose the project, name the campaign and add contacts. Or paste a Linear document/project URL, issue links, a markdown plan or a rough goal into **What**, then press **Draft it**. An OMP pane reads the sources and repository and writes the seed; review it before **Create**.
-4. **Run the work.** Launch a ready contact. Approve its plan and gates in the mission pane, then land completed work from the board. Dependencies keep blocked contacts queued and visible.
+4. **Run the work.** Launch a ready contact. Approve its native plan from the card's Plan tab, then approve Pause gates and land completed work from the board. Dependencies keep blocked contacts queued and visible.
 
 Start with **Settings → Agents → 2** on a small or heat-constrained machine. Auto mode and recovery are off by default; enable them per operation only when you want their documented behavior.
 
@@ -324,7 +324,7 @@ Picker → Archive. Closed and aborted operations, kept out of the picker: a lis
 
 ### Plan review (in the contact card)
 
-A contact with a pending plan shows a "Plan" tab (primary action "Review plan"). The tab renders the plan as markdown. Edit opens a textarea; Save sends `plan-save` with the current revision for stale detection. If the mission rewrote the plan while you edited you can Overwrite or Reload. Refine opens a composer (Ctrl+Enter sends) whose text goes to the mission as feedback. Approve focuses the mission pane, where you pick "Approve and compact context". The board does not approve plans itself until OMP offers an API (`auto.plans`, above).
+A contact with a pending plan shows a "Plan" tab (primary action "Review plan"). Edit and Save update the plan file with revision checks; Refine sends feedback through OMP's native plan review. **Approve plan** resolves that review with compacted context through the mission socket when advertised. Otherwise **Approve in pane** opens the mission; use `/plan-review`, or update and relaunch older OMP sessions. Native approval requires OMP 18.10.4 or newer.
 
 ### Settings drawer
 
@@ -416,7 +416,7 @@ The card and confirmation dialog show native radio options with keyboard arrow n
 **Ask an agent** (`decide-agent`) opens a lane-less `omp` pane in the operation's integration checkout — read-only, briefed with the question, options, brief, notes and earlier decisions — that writes `decisions/<ticket>.json` under the operation directory and stops. The watcher lands the contact with `by: "agent"` and closes the pane; an unreadable answer is recorded once and left for you to fix or close, and a pane that exits without answering fails as `pane closed before deciding`. The pane counts toward `cap` like a live mission. With `auto.decide` on, auto mode lands each ready decision on its `recommended` option (`by: "recommended"`); without one it opens the agent pane itself, still respecting `auto.maxLive` and `cap`.
 
 ## Auto mode
-Per operation (`/holotable set auto on`, or the auto card on the Operation page): `auto.launch` launches queued contacts in order — decisions, blocked contacts and plans awaiting approval are skipped and wait for you — up to `auto.maxLive` and the global `cap`; `auto.land` lands each contact that reaches `complete`; `auto.decide` resolves decisions — instantly from `recommended`, otherwise through the agent pane — under the same two limits. Everything auto mode does is an `operator` event with `by: "auto"` (`decided` keeps its own `by`); history credits it, and the cleanup after a land, to the board. A dirty integration checkout or the wrong base branch blocks landing without switching Auto off: the Operation card shows the reason, other automation remains enabled, and readiness is rechecked every 30 seconds. Your uncommitted changes are never stashed, discarded or committed by the board. Once the checkout is clean and on the base branch, landing resumes automatically. Other failed launches or lands switch Auto off and record why; re-enable it after fixing the cause. `auto.plans` (off by default) will approve plans once OMP lets an extension do it; until then each launched mission waits at plan approval in its pane (the card's Plan tab shows it and focuses the pane), and the switch says so. See [docs/omp-plan-approval.md](docs/omp-plan-approval.md). With `pause` on, missions also stop at Pause gates.
+Per operation (`/holotable set auto on`, or the auto card on the Operation page): `auto.launch` launches ready contacts up to `auto.maxLive` and the global `cap`; `auto.land` lands completed contacts; `auto.decide` resolves decisions using their recommended answer or an agent pane. Actions are credited to auto mode in history. Overlapping uncommitted paths or the wrong base branch defer landing without switching Auto off; readiness is rechecked every 30 seconds while other automation continues. Your uncommitted changes are never stashed, discarded or committed by the board. Other failed launches or lands switch Auto off and record why. `auto.plans` (off by default) approves advertised native plan reviews with compacted context on OMP 18.10.4 or newer. Older running panes must be updated and relaunched; absence of a pending review is not an unsupported-runtime warning. See [docs/omp-plan-approval.md](docs/omp-plan-approval.md). Pause gates still wait for you.
 
 **Landing never fights your checkout.** A land is refused only when the merge would write a path that already has uncommitted changes — the same rule `git merge` itself applies — and the refusal names the paths. Unrelated edits, notes and local config stay untouched and never block. The header shows `integration dirty · n` whenever the integration checkout has uncommitted paths, before any land is attempted; clicking it opens the Operation page.
 
@@ -459,7 +459,7 @@ Everything in the Board view's Metrics is computed from `events.jsonl` alone (th
 
 ## Playground
 
-`bun run demo [--port 4747] [--host 0.0.0.0] [--home /tmp/holotable-playground]` serves the real board over simulated ports, so every button works: Launch a contact and a fake mission walks plan (approve it from the card's Plan tab, which stands in for the pane), execute, a Pause gate (click Approve), review, complete; Land it (every third contact conflicts the first time and opens a conflict mission); Reap, Relaunch, Focus, Mark done, edit notes, add contacts, abort an operation. Only the plan tab's Approve stands in for the pane; a plain Focus changes nothing. Nothing touches Orca or any CLI. `--home` runs a second copy in its own directory. It prints one URL per interface.
+`bun run demo [--port 4747] [--host 0.0.0.0] [--home /tmp/holotable-playground]` serves the real board over simulated ports. Launch walks through plan (**Approve plan** on the card or opt-in `auto.plans`), execute, a Pause gate, review and complete. Plan edits, refinement and stale-revision approval refusals use the simulated socket contract. Land can open a conflict mission; Reap, Relaunch, Focus, notes, decisions, contacts and abort also work. Nothing touches Orca or any CLI. `--home` runs an isolated copy and prints its URLs.
 
 The simulated frontend lists its panes, so a pane can vanish: the `status` contact in the `mission` operation is seeded with a closed pane (offline, not reaped), and Reap closes any other. **Relaunch** brings a session back at resume hold (card shows Continue; Continue resumes at the stage it left); `autopilot` has `recover` on, and `set recover on` on `mission` makes the board relaunch and continue that closed pane by itself. Settings survive restarts (`<home>/settings.json` is kept and applied); demo data does not.
 
@@ -468,7 +468,7 @@ Simulated decision panes write their answer about five seconds after opening (th
 ## Safety model
 
 - The board launches and watches missions; it never runs them. This process never attaches a mission and never calls `control()`. Every mutation is an operator click, forwarded to the owning session's control socket, which runs the same code the slash command runs.
-- Resume hold, plan mode, Pause gates and the ownership lock apply inside the mission and cannot be routed around. Plan approval always happens in the mission's pane. Recovery (off unless you switch it on per operation) only sends `Continue` to a board-launched session at resume hold, never over failed verification, and only relaunches panes that died; see [Recovery](#recovery).
+- Resume hold, plan mode, Pause gates and ownership apply inside the mission. Plan approval resolves OMP's native review through the mission socket, only on an operator click or opt-in `auto.plans`. Recovery never approves plans or gates; see [Recovery](#recovery).
 - The board page can approve gates. Access follows Settings → Server (Tailscale by default); every API call requires the URL-fragment token, plus Host and Origin checks. Keep the full URL private.
 - Land happens on the integration checkout, never in a mission checkout; a conflict becomes a new mission rather than a second copy of the ticket. Linear issues and pull requests are only touched by an operator click (`gh pr merge` on Land) or by auto mode the operator switched on for that operation.
 - Queue stays visible: blocked work never launches and never disappears.
@@ -495,7 +495,7 @@ Ending an operation moves its directory to `archive/<id>-<timestamp>` and adds `
 - [Architecture](docs/architecture.md): layers, ports, lifecycle, events and safety invariants.
 - [Mission contract](docs/contract.md): status files and control sockets.
 - [Testing](docs/testing.md): regression coverage and runtime smokes.
-- [Plan approval API](docs/omp-plan-approval.md): the OMP extension API for answering plan review, what the board sends, and what is still unreleased.
+- [Plan approval API](docs/omp-plan-approval.md): released native review APIs, socket revision checks and runtime requirements.
 
 <details>
 <summary>More views</summary>
@@ -512,7 +512,7 @@ Ending an operation moves its directory to `archive/<id>-<timestamp>` and adds `
 
 ## Roadmap
 
-[PLAN.md](PLAN.md) tracks work that is not built yet. Plan approval from the board needs an OMP release that includes the extension API merged in oh-my-pi (see the doc above); until then plans are approved in the pane.
+[PLAN.md](PLAN.md) tracks work that is not built yet.
 
 ## Development
 

@@ -98,7 +98,7 @@ export function gettingStarted(setup, ctx) {
     stepRow(
       n.launched > 0,
       "Launch a mission",
-      "On the Board, Launch opens an omp pane in a fresh worktree. Approve its plan in that pane; the board watches the rest and asks you when it needs something.",
+      "On the Board, Launch opens an omp pane in a fresh worktree. Review and approve its native plan from the contact's Plan tab; the board watches the rest and asks you when it needs something.",
       button("Open the Board", "layout-list", ctx.openBoard),
     ),
   );

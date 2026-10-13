@@ -61,7 +61,6 @@ function item(contact, selected, ctx) {
   meta.append(statePill(contact.state), el("span", "mono", contact.ticket), el("span", "item-detail", contact.detail));
   main.append(el("div", "item-title", contact.title ?? contact.ticket), meta);
   row.append(main);
-  // One-click path for the obvious next step; plan approval waits in the mission pane, so Focus there.
   const next = primaryAction(contact) ?? (contact.attention ? contact.actions.find((a) => a.id === "focus" && a.enabled) : null);
   if (next) row.append(actionButton(contact, next, ctx, "small"));
   return row;

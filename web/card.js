@@ -1,7 +1,4 @@
 // The contact card: what this contact is, what happens next, what the operator can do.
-// A contact whose mission has a pending plan (`contact.plan`) gains a "Plan" tab:
-// read it, edit the file (plan-save), ask the mission to revise it (plan-refine), or
-// go approve it in the pane (focus). The board never approves a plan itself.
 import { icon } from "./icons.js";
 import { renderMarkdown } from "./markdown.js";
 import { modelDropdown } from "./models.js";
@@ -488,10 +485,14 @@ function planTab(contact, data, ctx, projection) {
   });
   row.append(edit, refineBtn);
 
-  const approve = planButton("check", "Approve in pane", "primary");
-  approve.disabled = !editable(focus);
-  if (!editable(focus)) approve.title = why(focus, "no pane to focus");
-  approve.addEventListener("click", () => ctx.run(contact.ticket, "focus", { purpose: "plan-approval" }));
+  const planApproval = contact.actions.find((a) => a.id === "plan-approve");
+  const canApprove = editable(planApproval);
+  const approve = planButton("check", canApprove ? "Approve plan" : "Approve in pane", "primary");
+  approve.disabled = canApprove ? ctx.busy.has(`${contact.ticket}/*`) : !editable(focus);
+  if (!canApprove) approve.title = "No native plan review is available. Open /plan-review in the mission pane; older OMP sessions need updating and relaunching.";
+  approve.addEventListener("click", () => canApprove
+    ? ctx.run(contact.ticket, "plan-approve", { revision: data.revision })
+    : ctx.run(contact.ticket, "focus", { purpose: "plan-approval" }));
   row.append(approve);
   // Dropping an unwanted plan is decided here too; Reap keeps its two-click confirm.
   const reap = contact.actions.find((a) => a.id === "reap");
@@ -502,7 +503,9 @@ function planTab(contact, data, ctx, projection) {
   }
   box.append(row);
   box.append(
-    el("div", "set-note plan-note", "Approval happens in the mission pane: focus it and pick “Approve and compact context”. Edits saved here are already in the file it reviews."),
+    el("div", "set-note plan-note", canApprove
+      ? "Approve plan starts the mission with compacted context. Saved edits are included; Refine returns feedback to native plan mode."
+      : "No native review is ready. Open /plan-review in the mission pane. If it runs older OMP, update to 18.10.4 or newer and relaunch it."),
   );
   return box;
 }

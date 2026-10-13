@@ -280,12 +280,9 @@ function autoSection(p, ctx) {
     switchRow(judge, "Decide", "auto.decide", Boolean(auto.decide), ctx.saveOp, {
       note: "Decision contacts take their recommended answer; without one, an omp pane investigates, records a choice with its reasoning, and closes. You can change any decision later.",
     });
-    const plans = switchRow(judge, "Approve plans", "auto.plans", Boolean(auto.plans), ctx.saveOp, {
-      note: auto.plansSupported
-        ? "Plans waiting for approval are approved without you."
-        : "Waiting on OMP: it has no way yet for the board to approve a plan, so plans still wait in their pane. This switch takes effect as soon as omp supports it.",
+    switchRow(judge, "Approve plans", "auto.plans", Boolean(auto.plans), ctx.saveOp, {
+      note: "Approve native plan reviews automatically with compacted context. Requires OMP 18.10.4 or newer in each mission pane; older running panes must be relaunched. Pause gates still wait for you.",
     });
-    if (!auto.plansSupported) plans.row.classList.add("pending-support");
     card.append(judge);
   }
   box.append(card);

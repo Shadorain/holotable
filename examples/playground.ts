@@ -129,7 +129,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       m.stage = stage;
       m.stageStart = now();
     };
-    // Every plan waits for approval in its pane, as real missions do (Focus stands in for that here).
+    // Native plan approval and Pause gates are separate operator actions.
     // Pause gates are separate: without --pause a mission goes straight from execute to review.
     if (m.stage === "execute" && age > EXECUTE_S) go(m.noPause ? "review" : "gate");
     else if (m.stage === "review" && age > REVIEW_S) go("complete");
@@ -142,7 +142,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
     const next = m.resumeHold
       ? "Session reopened under resume hold: continue it to pick up where it left off"
       : {
-          plan: "Review the plan below — edit, refine, or approve it in the pane",
+          plan: "Review the plan below — edit, refine, or approve it",
           execute: "Workers are running",
           gate: "/mission approve — verification passed, approve to continue",
           review: "Reviewer is reading the diff",
@@ -162,7 +162,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       hold,
       gate: m.stage === "gate" && !m.resumeHold ? { kind: "pause", id: m.gate } : null,
       next,
-      actions: m.resumeHold ? ["continue"] : m.stage === "gate" ? ["approve", "continue"] : m.stage === "execute" ? ["dispatch"] : [],
+      actions: m.resumeHold ? ["continue"] : m.stage === "plan" ? ["plan-approve"] : m.stage === "gate" ? ["approve", "continue"] : m.stage === "execute" ? ["dispatch"] : [],
       workers: m.resumeHold ? { live: 0, total: 3 } : m.stage === "execute" ? { live: 2, total: 3 } : m.stage === "plan" ? null : { live: 0, total: 3 },
       delivery: m.stage === "complete" ? { url: `https://github.example/demo/pull/${100 + (hash(m.ticket) % 50)}`, branch: m.branch } : null,
       complete: m.stage === "complete",
@@ -228,6 +228,11 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
           m.planFeedback.push(String(args.message ?? ""));
           m.planText += `\n\n## Feedback\n\n${m.planFeedback.map((f) => `- ${f}`).join("\n")}`;
           m.planRev += 1;
+          m.stageStart = now();
+        } else if (op === "plan-approve") {
+          if (m.stage !== "plan") throw new PortError("rejected", "No pending plan to approve");
+          if (args.revision !== `rev-${m.planRev}`) throw new PortError("stale", "Plan moved on; reload before approving");
+          m.stage = "execute";
           m.stageStart = now();
         } else if (op === "approve") {
           if (m.stage !== "gate") throw new PortError("rejected", "No Pause gate is armed: nothing to approve");
@@ -469,7 +474,7 @@ async function main(): Promise<void> {
     delivery: "local-merge",
     recover: true,
     seed: JSON.stringify({
-      brief: "# Autopilot\n\nAuto mode drives this operation: it launches the queue and lands finished missions. Each plan still waits for you: open the contact's Plan tab and approve it in the pane.",
+      brief: "# Autopilot\n\nAuto mode launches the queue and lands finished missions. Approve each plan from the contact's Plan tab, or opt in to Approve plans. Pause gates still wait for you.",
       zones: [{ id: "pipe", label: "PIPELINE" }],
       contacts: [
         { ticket: "dry-a", title: "Backfill stats", zone: "pipe", kind: "implement" },

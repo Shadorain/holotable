@@ -40,6 +40,3 @@ The generic build (slices 0-11) has landed. This file keeps only what is not bui
 - Export events as JSONL. No PDF.
 - Sound, 3D table, galaxy map, admiral override. No.
 
-## Waiting on OMP
-
-- Auto-approve plans: the switch and board logic exist; OMP needs an extension API for plan review and omp-mission a `plan-approve` socket op. See `docs/omp-plan-approval.md`.
