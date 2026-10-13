@@ -1,4 +1,4 @@
-import { foldEvents, liveCount } from "../core/fold.ts";
+import { foldEvents } from "../core/fold.ts";
 import { unmetBlockers } from "../core/graph.ts";
 import type {
   Contact,
@@ -73,6 +73,20 @@ function clearStaleVanished(op: Operation, folded: Derived, state: OpState): voi
       state.vanished.delete(ticket);
     }
   }
+}
+
+/**
+ * Panes whose omp can still be running. The cap protects memory, so a pane whose owner is dead holds no
+ * slot: counting it would keep Relaunch and Recovery from replacing the very pane that is blocking them.
+ */
+function openCount(op: Operation, folded: Derived, state: OpState): number {
+  let n = state.decisionPanes.size;
+  for (const contact of op.contacts) {
+    if (!contact.lane?.terminal || folded.contacts[contact.ticket]?.reaped) continue;
+    if (state.vanished.has(contact.ticket) || state.owners[contact.ticket] === "offline") continue;
+    n += 1;
+  }
+  return n;
 }
 
 function sampleKey(fields: SampleFields): string {
@@ -155,6 +169,9 @@ export function createWatcher(deps: WatcherDeps): Watcher {
 
     let owner: Owner = "none";
     if (status?.ctl) owner = (await guard(`ping ${ticket}`, () => ports.fleet.ping(status))) ? "live" : "offline";
+    // A session that exits cleanly publishes ctl: null. For a lane whose socket the board has seen, that is
+    // a dead owner like any other, not "no control socket", or Recovery would never see the closed pane.
+    else if (status && (seen.up || derived?.socketEver)) owner = "offline";
     state.owners[ticket] = owner;
 
     if (status && status.phase !== seen.phase) {
@@ -230,8 +247,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       if (seeds(contact.ticket).blocked && unmetBlockers(op, folded, contact.ticket).length === 0)
         await appendEvent(deps.home, op.id, { v: 1, at: deps.now().toISOString(), kind: "unblocked", contact: contact.ticket });
     }
-    state.open =
-      liveCount(op, folded) - [...state.vanished].filter((ticket) => !folded.contacts[ticket]?.reaped).length + state.decisionPanes.size;
+    state.open = openCount(op, folded, state);
   }
 
   /** A terminal the frontend stopped listing is gone however alive its last status looked. */
@@ -339,8 +355,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         : new Set<string>();
       const folded = foldEvents(read.events);
       clearStaleVanished(read.op, folded, state);
-      state.open =
-        liveCount(read.op, folded) - [...state.vanished].filter((ticket) => !folded.contacts[ticket]?.reaped).length + state.decisionPanes.size;
+      state.open = openCount(read.op, folded, state);
       loaded.push({ ...read, state });
     }
     const omp = loaded.reduce((sum, item) => sum + item.state.open, 0);

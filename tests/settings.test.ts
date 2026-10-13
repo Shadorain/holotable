@@ -177,6 +177,63 @@ describe("setSettingKey", () => {
     expect(() => setSettingKey(DEFAULT_SETTINGS, "cap", "65")).toThrow("cap must be an integer from 1 to 64");
   });
 });
+describe("AI settings", () => {
+
+  test("validateSettings parses and trims ai string fields and normalizes empty to null", () => {
+    const s = validateSettings({
+      ai: {
+        model: "  anthropic/claude-3-5-sonnet  ",
+        thinking: "  high  ",
+        draft: "",
+        decision: "  openai/gpt-4o  ",
+        mission: null,
+      },
+    });
+    expect(s.ai).toEqual({
+      model: "anthropic/claude-3-5-sonnet",
+      thinking: "high",
+      draft: null,
+      decision: "openai/gpt-4o",
+      mission: null,
+    });
+  });
+
+  test("validateSettings rejects non-record ai and invalid field types", () => {
+    expect(() => validateSettings({ ai: "nope" })).toThrow("ai must be a JSON object");
+    expect(() => validateSettings({ ai: { model: 123 } })).toThrow("ai.model must be a string or null");
+    expect(() => validateSettings({ ai: { thinking: "ultra" } })).toThrow("ai.thinking must be one of: off, minimal, low, medium, high, xhigh, max, auto");
+  });
+
+  test("setSettingKey updates and clears ai fields", () => {
+    let s = setSettingKey(DEFAULT_SETTINGS, "ai.model", "openai/gpt-4o");
+    expect(s.ai.model).toBe("openai/gpt-4o");
+
+    s = setSettingKey(s, "ai.thinking", "low");
+    expect(s.ai.thinking).toBe("low");
+
+    s = setSettingKey(s, "ai.thinking", "");
+    expect(s.ai.thinking).toBeNull();
+
+    s = setSettingKey(s, "ai.model", null);
+    expect(s.ai.model).toBeNull();
+
+    s = setSettingKey(s, "ai.draft", "none");
+    expect(s.ai.draft).toBeNull();
+  });
+
+  test("round trips ai settings to disk", async () => {
+    const home = tempHome();
+    const withAi = setSettingKey(
+      setSettingKey(DEFAULT_SETTINGS, "ai.model", "anthropic/claude-3-5-sonnet"),
+      "ai.thinking",
+      "medium",
+    );
+    await writeSettings(home, withAi);
+    const read = await readSettings(home);
+    expect(read.ai.model).toBe("anthropic/claude-3-5-sonnet");
+    expect(read.ai.thinking).toBe("medium");
+  });
+});
 
 describe("display/format", () => {
   test("displaySettingsPath abbreviates the home dir", () => {

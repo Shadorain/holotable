@@ -31,9 +31,11 @@ import {
   type Operation,
   type Project,
   type Projection,
+  type ModelsResult,
   type Settings,
   type Tracker,
 } from "./core/types.ts";
+import { createModelCatalog } from "./models.ts";
 import { createDraftDir, draftEntry, draftPrompt, listDrafts, MAX_DRAFT_INPUT, newDraftId, readDraftDoc, recordDraftTerminal, removeDraft } from "./store/drafts.ts";
 import { validateProject } from "./core/validate-project.ts";
 import { normalizeTicket } from "./core/validate-operation.ts";
@@ -147,7 +149,7 @@ export interface BoardService {
   settle?(opId: string): Promise<void>;
   settings(): Promise<SettingsView>;
   /** Same keys and validation as `/holotable config`; bad values are a 400. */
-  setSetting(key: string, value: string): Promise<SettingsView>;
+  setSetting(key: string, value: string | null): Promise<SettingsView>;
   operationConfig(opId: string): Promise<OperationConfig>;
   /** Same fields and validation as `/holotable set`, plus `project` and the `inherit` value; bad values are a 400. */
   setOperationField(opId: string, field: string, value: string): Promise<OperationConfig>;
@@ -189,7 +191,7 @@ export interface BoardService {
   /** Write notes; a revision that no longer matches is a 409. */
   setNotes(opId: string, text: string, base: string): Promise<{ text: string; revision: string }>;
   /** Open a temporary draft pane for the agent to type into; refused without a pane frontend. */
-  createDraft?(input: { text: string; project?: string; repo?: string }): Promise<{ id: string }>;
+  createDraft?(input: { text: string; project?: string; repo?: string; model?: string | null }): Promise<{ id: string }>;
   /** One draft's state plus its seed/error when ready or invalid; "missing" when gone. */
   draft(id: string): Promise<DraftInfo>;
   /** Close a draft pane and delete its directory. */
@@ -205,6 +207,8 @@ export interface BoardService {
   repos(): Promise<RepoRow[]>;
   /** Detect project fields and reasons for a repo path. */
   detect(repo: string): Promise<DetectionResult>;
+  /** Model catalog from real omp models CLI; cached ~30s. */
+  models(): Promise<ModelsResult>;
 }
 export interface ProjectRow {
   id: string;
@@ -308,6 +312,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
   const now = hooks.now ?? Date.now;
   let setupCache: { timestamp: number; result: SetupReport } | null = null;
   let reposCache: { timestamp: number; result: RepoRow[] } | null = null;
+  const modelCatalog = createModelCatalog(hooks.run ?? createRun());
   async function projection(opId: string): Promise<Projection> {
     const known = await listOperations(home);
     if (!known.some((row) => row.id === opId)) throw new HttpError(404, `No open operation "${opId}"`);
@@ -643,10 +648,17 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       });
       try {
         await frontend.ensureRepo(repo);
+        const selectedModel = input.model !== undefined
+          ? input.model
+          : (settings.ai.draft ?? settings.ai.model);
+        const argv = ["omp"];
+        if (selectedModel) argv.push("--model", selectedModel);
+        if (settings.ai.thinking) argv.push("--thinking", settings.ai.thinking);
+        argv.push(draftPrompt(home, id));
         const terminal = await frontend.openTerminal({
           worktree: repo,
           title: `draft ${id}`,
-          argv: ["omp", draftPrompt(home, id)],
+          argv,
           env: { OMP_HOLOTABLE_CHILD: "1" },
         });
         await recordDraftTerminal(home, id, terminal);
@@ -724,5 +736,6 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
           },
         }
       : {}),
+    models: () => modelCatalog.getModels(),
   };
 }

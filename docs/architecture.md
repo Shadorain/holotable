@@ -62,6 +62,37 @@ Decision cards and confirmation dialogs use native radio groups with no implicit
 `board.json` binds discovery to the home it was written in (realpath). A copied `board.json`/`token` pair cannot make another home's CLI manage this board; symlinked homes resolve to the same owner.
 
 
+## AI preferences and review UI
+
+`settings.ai` stores nullable `model`, `thinking`, `draft`, `decision` and `mission` preferences.
+New draft and decision panes receive `--model` and `--thinking`; mission panes receive them
+through `Fleet.launch`. A call's explicit model wins over its per-use default and global default;
+explicit `null` bypasses both and omits `--model`. Omitted values inherit, ultimately leaving OMP
+in charge. A lane stores only an explicit model override (`string | null`), preserving it across
+replacement panes; inherited lanes use the current defaults. No existing session is reconfigured,
+and `plan-refine` stays on its current socket owner/model.
+
+`POST /api/drafts` accepts optional `model`; `launch` and `decide-agent` accept `args.model`.
+The server rejects non-string, non-null overrides. Browser action picks are keyed by operation
+and ticket and cleared after success, so identical ticket ids in different operations cannot
+share an override.
+
+`GET /api/models` runs `omp models --json --no-extensions` through the injected `Run`, on demand.
+`src/models.ts` coalesces concurrent requests and caches results for 30 seconds; both the catalog
+wait and actual command are bounded at 10 seconds. Opening a browser picker triggers the first
+request; mounting a form or card does not. The browser shares the catalog and renders at most
+60 matching options at once, searching the whole catalog. Errors remain visible and retryable.
+Catalog prices are estimates, not spend caps; a listed provider may still need authentication.
+Fallback and subagent-role model selection remain OMP-owned.
+
+Contacts keep a short `title` and a separate optional `description` containing complete instructions.
+Map and list cards show the title; the selected card displays the full markdown description
+directly, without clamping or expand/collapse controls. A double click opens the task card;
+double-click intent is handled on `click.detail` before selection replaces the map nodes.
+Description-only changes participate in rendering signatures. The new-operation brief is full-width
+with markdown preview and a wide focus editor; draft completion updates unedited preview/focus
+views without replacing the operator's edits.
+
 ## Ports
 
 |Port|Adapters|Role|
@@ -88,6 +119,24 @@ Repo detection (`src/adapters/detector.ts`, all through the injected `Run`): `GE
 
 Agent drafts (`store/drafts.ts`, `drafts/<id>/`): `POST /api/drafts {text, project?|repo?}` opens a terminal through the frontend running `omp` with a prompt to read the text or link and write `seed.json` there; `GET /api/drafts?id=` reports `running`, `ready` (with the validated seed), `invalid` (with the error) or `missing`; `POST /api/drafts/close` closes the pane and deletes the directory. Refused with 409 when the effective frontend is `none`. The board never runs a model itself; the form only fills fields from the seed.
 
+Draft instructions support both source import and idea development. Linear document URLs resolve
+through `lin docs get <trailing-id> --json`, followed by issue/relationship reads. The draft pane
+inspects the selected repository read-only, preserves explicit dependencies and independent lanes,
+and records scope, acceptance checks and ownership boundaries in the brief. Each contact has a
+concise title and a self-contained description with its task scope and acceptance criteria. For
+tracker `none`, it generates local slugs; the fleet launches `/mission -- <description>` (using
+the title only when no description was supplied). Tracked launches keep the real ticket and pass
+the description as additional mission instructions. The campaign brief is not injected into
+implementation missions. Drafting never creates or updates external tickets; an idea that needs
+new unticketed work must use a local project or receive real tickets first. Drafts remain
+proposals: the operator reviews the seed before creating an operation, and mission plan approval
+is a separate step in the launched pane.
+Saved contact order governs auto-launch priority among currently eligible contacts. Zones,
+map positions and narrative ordering do not introduce dependencies; `blockedBy` and decision
+contacts carry hard constraints.
+
+
+
 Decision panes (`store/decisions.ts`, inside the operation directory — unlike drafts, which live under the home): `decide-agent` opens a lane-less `omp` terminal in the operation's `integration` checkout with a prompt that lists the question, `options` and `recommended` (free text when there are none) and asks it to write `decisions/<ticket>.json` (`{choice, rationale?}`) under that operation directory, then stop. The open pane is recorded in `decision-panes/<ticket>.json` (`terminal: null` until `openTerminal` returns). The watcher lists terminals per pass: a listed pane with no answer file yet is still working; a readable answer records `decided {choice, rationale?, by: "agent"}`, lands the contact (`via: "manual"`), deletes the record and closes the pane (`terminal-missing` when it already exited); a listed pane whose answer is invalid records one `operator {op: "decide-agent", ok: false}` and is left open for the operator to fix or close; a gone pane with no answer records the same failure once (`pane closed before deciding`) and deletes the record. The same shape covers crashes and restarts: a pane written on disk but absent from `listTerminals` fails on the next pass.
 
 First-run setup (`GET /api/setup`): checks prerequisites (OMP CLI, OMP Mission extension, and CLIs for the frontends/trackers in use) by running them in parallel through `ports.ts::Run` with a 5s timeout. Cached for 30s. Failures return `ok: false` with a `fix` message instead of 500s. Also returns store counts (projects, operations, contacts, launched contacts).
@@ -101,7 +150,7 @@ Browser lifecycle: the next board poll is scheduled three seconds after the curr
 5. After every watcher pass, `runtime/auto.ts` looks at each open operation with `auto.enabled`: it lands contacts that are `complete` (when `auto.land`), resolves undecided decisions — `by: "recommended"` when a recommended option exists, otherwise a `decide-agent` pane that counts as one live lane — until `auto.maxLive` or the operation cap is hit (when `auto.decide`), then launches queued `implement`/`audit` contacts in queue order under the same two limits (when `auto.launch`). Actions it takes are recorded as `operator` events with `by: "auto"`. A failed launch or land pauses auto mode for that operation (`auto` event with the reason); plans at `plan-approval` and unmet blockers are always left for the operator.
 6. `runtime/cleanup.ts` runs after a clean land (and `done`), when `settings.cleanup` is on: it closes the terminal (`reaped` event; a terminal that is already gone counts as reaped) and removes the worktree only when `git status --porcelain` is empty (`removed` event). Any failure — a dirty worktree included — appends an `operator {op: "cleanup", ok: false}` event and never fails the land. The watcher stops reading and pinging landed+reaped contacts, so a landed mission stops counting against the live cap.
 7. Ending an operation (page `close`/`abort`, `/holotable close`, `POST /api/close|abort`) runs `runtime/end.ts::endOperation`: auto mode off, `winddown.ts` closes every recorded terminal (`reaped`; `terminal-missing` counts) and removes every non-external worktree (`removed`; abort deletes dirty worktrees), failures are `operator` events that never stop it, then `closed` is appended, `store/archive.ts::writeReport` writes `report.json` next to the operation's files and `archiveOperation` moves the directory under `archive/`. Abort's `GET /api/abort-preview` lists the terminals and worktrees (each `git status --porcelain`-checked) before the confirm. `core/report.ts::buildReport` is pure: an archive without `report.json` gets one rebuilt on read, never written back. Archive routes: `GET /api/archive` (newest first) and `GET /api/archive/report?key=`; the key must name a real archive entry, so traversal cannot leave `archive/`.
-8. After every watcher pass, `runtime/recover.ts` looks at each open operation with `recover: true` (default off, never inherited from a project). It never acts for an operation with the switch off. Per contact: (a) a session at `hold: "resume"` whose owner is live, with `status.ctl !== null`, `verify !== "failed"` and `continue` among `status.actions`, gets a `continue` through the normal action runner with `by: "recover"`; attempts for one contact are at least 30 s apart, derived from the events so a board restart keeps the pacing (the ownership lock of a crashed session stays stale ~30 s). (b) A contact that is `offline`, has a lane terminal, is not `complete`, has no `reaped` event after its latest `launched` (an operator Reap means "leave it"), and either lost its terminal from a frontend that lists terminals (`vanished`) or has had `socket-down` for 60 s or more with the terminal still listed, gets a `relaunch` with `by: "recover"`. Relaunches run fire-and-forget (one in flight per contact, in memory) so the watcher loop never waits on the 90 s socket poll; none is attempted while the relaunch action is disabled (cap full), so a refusal never costs crash-loop budget. At most 3 `by: "recover"` relaunches per contact in 30 min; the next candidate records one `operator {op: "relaunch", ok: false, by: "recover", error: "gave up: 3 relaunches in 30 min"}` and stops until an operator Relaunch (any `relaunch` event without `by`) resets the count. `runtime/launcher.ts::relaunchContact` is the relaunch: close the recorded terminal if the frontend still lists it, open a new one in `lane.worktree` with the same fleet launch command and environment, record it on the lane and as a fresh `launched` (which clears `reaped`), then wait for the control socket. The new child attaches the worktree's saved mission under resume hold (`OMP_MISSION_AUTOSTART` is ignored when a mission exists), so (a) or the operator's Continue finishes the job. Recovery never approves a gate or plan, never continues on failed verification, never touches a session without a control socket, never relaunches a reaped contact and never exceeds the cap.
+8. After every watcher pass, `runtime/recover.ts` looks at each open operation with `recover: true` (default off, never inherited from a project). It never acts for an operation with the switch off. Per contact: (a) a session at `hold: "resume"` whose owner is live, with `status.ctl !== null`, `verify !== "failed"` and `continue` among `status.actions`, gets a `continue` through the normal action runner with `by: "recover"`; attempts for one contact are at least 30 s apart, derived from the events so a board restart keeps the pacing (the ownership lock of a crashed session stays stale ~30 s). (b) A contact that is `offline`, has a lane terminal, is not `complete`, has no `reaped` event after its latest `launched` (an operator Reap means "leave it"), and either lost its terminal from a frontend that lists terminals (`vanished`) or has had `socket-down` for 60 s or more with the terminal still listed, gets a `relaunch` with `by: "recover"`. Relaunches run fire-and-forget and one at a time across contacts (the service cgroup caps threads, and the frontend CLI fails with EAGAIN when several start together; a queued contact is not queued twice), so the watcher loop never waits on the 90 s socket poll so the watcher loop never waits on the 90 s socket poll; none is attempted while the relaunch action is disabled (cap full), so a refusal never costs crash-loop budget. At most 3 `by: "recover"` relaunches per contact in 30 min; the next candidate records one `operator {op: "relaunch", ok: false, by: "recover", error: "gave up: 3 relaunches in 30 min"}` and stops until an operator Relaunch (any `relaunch` event without `by`) resets the count. `runtime/launcher.ts::relaunchContact` is the relaunch: close the recorded terminal if the frontend still lists it, open a new one in `lane.worktree` with the same fleet launch command and environment, record it on the lane and as a fresh `launched` (which clears `reaped`), then wait for the control socket. The new child attaches the worktree's saved mission under resume hold (`OMP_MISSION_AUTOSTART` is ignored when a mission exists), so (a) or the operator's Continue finishes the job. Recovery never approves a gate or plan, never continues on failed verification, never touches a session without a control socket, never relaunches a reaped contact and never exceeds the cap.
 ## Invariants
 
 - Events are append-only and every stat is derived from them; there is no second copy of mission JSON and the board never parses it.
@@ -110,7 +159,7 @@ Browser lifecycle: the next board poll is scheduled three seconds after the curr
 - Launch is resumable: each step's result is written to `contact.lane` immediately, so a crash never orphans a worktree or a terminal.
 - A blocker counts only when it has a `landed` event.
 - Land happens on the integration checkout, only when it is clean and on the base branch; a conflict aborts the merge and opens a conflict mission.
-- The live-`omp` cap (default 8, maximum 64) counts terminals across all open operations.
+- The live-`omp` cap (default 8, maximum 64) counts panes whose session can still be running, across all open operations. A pane whose owner is offline (session exited, died or hung) or whose terminal vanished holds no slot, so Relaunch and Recovery can replace it.
 
 ## Events
 

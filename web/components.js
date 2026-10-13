@@ -47,7 +47,7 @@ export function dropdown(opts) {
   let removeListeners = null;
   let typeahead = "";
   let typeTimer = 0;
-
+  let searchFilter = "";
   const root = el("span", `cmp-dd${opts.className ? ` ${opts.className}` : ""}`);
   root.dataset.cmp = "";
   const btn = el("button", "cmp-dd-btn");
@@ -66,12 +66,13 @@ export function dropdown(opts) {
 
   // Footer rows (opts.footers: [{label, icon?, className?, onPick}]) sit after every option and are pickable.
   const footers = opts.footers ?? [];
+  const matches = (o) => !searchFilter || (o.label && o.label.toLowerCase().includes(searchFilter)) || String(o.value ?? "").toLowerCase().includes(searchFilter) || (o.meta && o.meta.toLowerCase().includes(searchFilter));
   const enabled = () => {
-    const ids = options.map((o, i) => (o.disabled ? -1 : i)).filter((i) => i >= 0);
+    const ids = options.map((o, i) => (o.group || o.disabled || !matches(o) ? -1 : i)).filter((i) => i >= 0).slice(0, opts.maxOptions ?? options.length);
     for (let k = 0; k < footers.length; k += 1) ids.push(options.length + k);
     return ids;
   };
-  const currentIndex = () => (value === null ? -1 : options.findIndex((o) => o.value === value));
+  const currentIndex = () => options.findIndex((o) => !o.group && o.value === value);
 
   function renderButton() {
     const item = options.find((o) => o.value === value);
@@ -98,23 +99,40 @@ export function dropdown(opts) {
   function renderList() {
     const list = pop.querySelector("[role=listbox]");
     list.replaceChildren();
-    for (const [i, o] of options.entries()) {
+    let shown = 0;
+    for (let i = 0; i < options.length; i++) {
+      const o = options[i];
       if (o.group) {
-        // A section label (e.g. a project), not a choice: keyboard and type-ahead skip it.
+        // A section label: check if any following option before the next group matches
+        if (searchFilter) {
+          let hasMatch = false;
+          for (let j = i + 1; j < options.length && !options[j].group; j++) {
+            if (matches(options[j])) { hasMatch = true; break; }
+          }
+          if (!hasMatch) continue;
+        }
         list.append(el("div", "cmp-dd-group", o.label));
         continue;
       }
-      const row = el("div", `cmp-dd-opt${o.disabled ? " off" : ""}${o.indent ? " indent" : ""}`, o.label);
+      if (!matches(o)) continue;
+      if (shown >= (opts.maxOptions ?? options.length)) continue;
+      shown++;
+      const row = el("div", `cmp-dd-opt${o.disabled ? " off" : ""}${o.indent ? " indent" : ""}`);
       row.id = `${uid}-o${i}`;
       row.setAttribute("role", "option");
       row.dataset.index = String(i);
       row.setAttribute("aria-selected", String(o.value === value));
       if (o.disabled) row.setAttribute("aria-disabled", "true");
       if (o.hint) row.title = o.hint;
+      row.append(el("span", "cmp-dd-opt-label", o.label));
+      if (o.meta) row.append(el("span", "cmp-dd-meta", o.meta));
       row.addEventListener("pointerenter", () => {
         if (!o.disabled) setActive(i);
       });
       list.append(row);
+    }
+    if (opts.maxOptions && options.filter((o) => !o.group && matches(o)).length > shown) {
+      list.append(el("div", "cmp-dd-empty", "Search to find more models"));
     }
     for (const [k, f] of footers.entries()) {
       const index = options.length + k;
@@ -153,6 +171,40 @@ export function dropdown(opts) {
     if (pop || btn.disabled) return;
     pop = el("div", "cmp-dd-pop");
     pop.setAttribute("data-popover", "");
+    let searchInput = null;
+    if (opts.searchable) {
+      const wrap = el("div", "cmp-dd-search-wrap");
+      searchInput = el("input", "cmp-dd-search");
+      searchInput.type = "text";
+      searchInput.placeholder = opts.searchPlaceholder ?? "Search…";
+      searchInput.setAttribute("aria-label", opts.searchPlaceholder ?? "Search options");
+      searchInput.addEventListener("input", () => {
+        searchFilter = searchInput.value.trim().toLowerCase();
+        renderList();
+        const valid = enabled();
+        if (!valid.includes(active)) setActive(valid[0] ?? -1);
+      });
+      searchInput.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          step(1);
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          step(-1);
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          close({ pick: true });
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          close();
+        } else if (e.key === "Tab") {
+          close({ focus: false });
+        }
+      });
+      wrap.append(searchInput);
+      pop.append(wrap);
+    }
     const list = el("div", "cmp-dd-list");
     list.setAttribute("role", "listbox");
     list.id = `${uid}-list`;
@@ -168,7 +220,9 @@ export function dropdown(opts) {
     active = at ?? (currentIndex() >= 0 ? currentIndex() : enabled()[0] ?? -1);
     renderList();
     position();
+    if (searchInput) queueMicrotask(() => searchInput.focus());
     btn.setAttribute("aria-expanded", "true");
+    opts.onOpen?.();
     const onDocDown = (e) => {
       if (!pop.contains(e.target) && !root.contains(e.target)) close();
     };
@@ -187,6 +241,7 @@ export function dropdown(opts) {
   function close({ focus = true, pick = false } = {}) {
     if (!pop) return;
     const wasActive = active;
+    searchFilter = "";
     const gone = pop;
     pop = null;
     gone.remove();
@@ -199,7 +254,7 @@ export function dropdown(opts) {
       if (wasActive >= options.length) footers[wasActive - options.length]?.onPick();
       else {
         const o = options[wasActive];
-        if (o && !o.disabled && (o.value !== value || opts.reselect)) {
+        if (o && !o.group && !o.disabled && (o.value !== value || opts.reselect)) {
           value = o.value;
           renderButton();
           opts.onChange?.(o.value);
@@ -215,7 +270,7 @@ export function dropdown(opts) {
     typeTimer = setTimeout(() => {
       typeahead = "";
     }, 500);
-    const wrap = options.findIndex((o) => !o.disabled && o.label.toLowerCase().startsWith(typeahead));
+    const wrap = options.findIndex((o) => !o.group && !o.disabled && matches(o) && o.label.toLowerCase().startsWith(typeahead));
     if (wrap >= 0) setActive(wrap);
   }
 

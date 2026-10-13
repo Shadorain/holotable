@@ -289,6 +289,7 @@ function contactView(
   return {
     ticket: contact.ticket,
     title: contact.title,
+    description: contact.description ?? null,
     zone: contact.zone,
     kind: contact.kind,
     group,

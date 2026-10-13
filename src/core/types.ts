@@ -60,6 +60,8 @@ export interface Lane {
   branch: string | null;
   frontend: Frontend | "external";
   terminal: TerminalRef | null;
+  /** Explicit launch model override; null resets to OMP default. */
+  model?: string | null;
 }
 export interface Zone {
   id: string;
@@ -68,6 +70,7 @@ export interface Zone {
 export interface Contact {
   ticket: string;
   title: string | null;
+  description?: string | null;
   zone: string;
   kind: Kind;
   blockedBy: string[];
@@ -248,6 +251,44 @@ export type Theme = (typeof THEMES)[number];
 export const ACCESS_MODES = ["local", "tailscale", "network"] as const;
 export type Access = (typeof ACCESS_MODES)[number];
 
+export const THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "auto",
+] as const;
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+export interface AiSettings {
+  model: string | null;
+  thinking: string | null;
+  draft: string | null;
+  decision: string | null;
+  mission: string | null;
+}
+
+export interface ModelCost {
+  input: number;
+  output: number;
+}
+
+export interface ModelEntry {
+  selector: string;
+  name: string;
+  provider: string;
+  cost?: ModelCost;
+  reasoning?: boolean;
+}
+
+export interface ModelsResult {
+  models: ModelEntry[];
+  error?: string;
+}
+
 export interface Settings {
   access: Access;
   port: number;
@@ -261,6 +302,7 @@ export interface Settings {
   custom?: { terminal?: string; focus?: string; close?: string };
   /** After a contact lands, close its pane and remove its worktree. */
   cleanup: boolean;
+  ai: AiSettings;
 }
 
 // ---- fleet contract (C5) ----
@@ -413,6 +455,7 @@ export interface HistoryEntry {
 export interface ContactView {
   ticket: string;
   title: string | null;
+  description?: string | null;
   zone: string;
   /** For a conflict contact, the ticket whose merge it resolves; null otherwise. */
   conflictOf: string | null;

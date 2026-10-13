@@ -25,7 +25,7 @@ export function removeAll(bucket: string[]): void {
 }
 
 export function contact(ticket: string, over: Partial<Contact> = {}): Contact {
-  return { ticket, title: null, zone: "ops", kind: "implement", blockedBy: [], conflictOf: null, lane: null, ...over };
+  return { ticket, title: null, description: null, zone: "ops", kind: "implement", blockedBy: [], conflictOf: null, lane: null, ...over };
 }
 export const terminal = (handle = "t1"): TerminalRef => ({ handle, incarnationId: `${handle}-inc` });
 export function lane(worktree: string, handle: string | null = "t1", branch: string | null = null): Contact["lane"] {

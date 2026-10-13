@@ -105,16 +105,38 @@ export const HELP = `/holotable: campaign board over omp-mission missions.
   /holotable use <id>
   /holotable zone <label>              (id derived from the label)
   /holotable set <${SET_FIELDS.join("|")}> <value>
-  /holotable add <ticket> --zone <id> [--kind K] [--blocked-by A,B] [--title text] [--worktree <path>]
+  /holotable add <ticket> --zone <id> [--kind K] [--blocked-by A,B] [--title text] [--description text] [--worktree <path>]
   /holotable close <id> <landed|abandoned|decision|failed>
   /holotable config [key value]
 Launch, land and approve are board clicks only.`;
 
 export function tokenize(input: string): string[] {
   const out: string[] = [];
-  const re = /"((?:[^"\\]|\\.)*)"|(\S+)/g;
-  for (let m = re.exec(input); m; m = re.exec(input))
-    out.push(m[1] !== undefined ? m[1].replace(/\\(.)/g, "$1") : (m[2] as string));
+  const re = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|(\S+)/gs;
+  for (let m = re.exec(input); m; m = re.exec(input)) {
+    if (m[1] !== undefined) {
+      out.push(
+        m[1]
+          .replace(/\\(u[0-9a-fA-F]{4}|[\\"/bfnrt])/g, (_, c) => {
+            switch (c) {
+              case "n": return "\n";
+              case "r": return "\r";
+              case "t": return "\t";
+              case "b": return "\b";
+              case "f": return "\f";
+              case '"': return '"';
+              case "\\": return "\\";
+              case "/": return "/";
+              default: return String.fromCharCode(Number.parseInt(c.slice(1), 16));
+            }
+          })
+      );
+    } else if (m[2] !== undefined) {
+      out.push(m[2].replace(/\\(['\\])/g, "$1"));
+    } else {
+      out.push(m[3] as string);
+    }
+  }
   return out;
 }
 
@@ -234,6 +256,7 @@ export async function createFromSpec(
     zones: seed.zones ?? [],
     contacts: ((seed.contacts ?? []) as unknown[]).map((item) => ({
       title: null,
+      description: null,
       kind: "implement",
       blockedBy: [],
       ...(typeof item === "object" && item !== null ? item : {}),
@@ -549,8 +572,8 @@ async function cmdSet(tokens: string[], env: CommandEnv): Promise<CommandOutcome
 
 async function cmdAdd(tokens: string[], env: CommandEnv): Promise<CommandOutcome> {
   const usage =
-    "/holotable add <ticket> --zone <id> [--kind K] [--blocked-by A,B] [--title text] [--worktree <path>] [--option X ...] [--recommended X]";
-  const parsed = parseArgs(tokens, ["zone", "kind", "blocked-by", "title", "worktree", "option", "recommended"], [], usage);
+    "/holotable add <ticket> --zone <id> [--kind K] [--blocked-by A,B] [--title text] [--description text] [--worktree <path>] [--option X ...] [--recommended X]";
+  const parsed = parseArgs(tokens, ["zone", "kind", "blocked-by", "title", "description", "worktree", "option", "recommended"], [], usage);
   const [rawTicket] = parsed.positional;
   const zone = flag(parsed, "zone");
   if (!rawTicket || parsed.positional.length !== 1 || !zone) throw new Error(`Usage: ${usage}`);
@@ -565,6 +588,7 @@ async function cmdAdd(tokens: string[], env: CommandEnv): Promise<CommandOutcome
     zone,
     kind,
     title: flag(parsed, "title") ?? null,
+    description: flag(parsed, "description") ?? null,
     blockedBy: (flag(parsed, "blocked-by") ?? "").split(",").map((t) => t.trim()).filter(Boolean),
     ...(parsed.all.has("option") ? { options: parsed.all.get("option")! } : {}),
     ...(flag(parsed, "recommended") !== undefined ? { recommended: flag(parsed, "recommended") } : {}),

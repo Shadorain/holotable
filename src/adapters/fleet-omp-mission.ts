@@ -207,12 +207,21 @@ export function ompMissionFleet(options: MissionFleetOptions): FleetPort {
         const more = paths.length > MAX_CONFLICT_PATHS ? ` and ${paths.length - MAX_CONFLICT_PATHS} more` : "";
         message = `/mission${pause} -- Resolve the merge conflicts in ${paths.slice(0, MAX_CONFLICT_PATHS).join(", ")}${more} of ${contact.conflictOf}. Edit only those files. Do not merge, push or open a PR.`;
       } else if (operation.tracker === "none") {
-        message = `/mission${pause} -- ${(contact.title ?? contact.ticket).replace(/\s+/g, " ").trim()}`;
+        const text = (contact.description && contact.description.trim().length > 0)
+          ? contact.description
+          : (contact.title ?? contact.ticket);
+        message = `/mission${pause} -- ${text.replace(/\s+/g, " ").trim()}`;
       } else {
         message = `/mission ${contact.ticket}${pause}`;
       }
+      const argv = ["omp", "--config", i.overlay];
+      // Mission extras parse option-looking words as flags, even inside task prose.
+      if (operation.tracker !== "none" && contact.kind !== "conflict" && contact.description?.trim())
+        argv.push("--append-system-prompt", `Additional scope for mission ${contact.ticket}:\n\n${contact.description}`);
+      if (i.model) argv.push("--model", i.model);
+      if (i.thinking) argv.push("--thinking", i.thinking);
       return {
-        argv: ["omp", "--config", i.overlay],
+        argv,
         env: {
           OMP_MISSION_AUTOSTART: message,
           OMP_HOLOTABLE_CHILD: "1",

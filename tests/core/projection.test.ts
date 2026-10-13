@@ -359,3 +359,4 @@ test("history credits auto mode and post-land cleanup to the board, an explicit 
   const reapedByHand = [ev(0, "b", "reaped"), ev(1, "b", "operator", { op: "reap", ok: true })];
   expect(project(input(op, { events: reapedByHand })).log[0]?.actor).toBe("operator");
 });
+

@@ -442,9 +442,9 @@ details.group > summary .count { margin-left: auto; }
 .node.dim { opacity: 0.35; }
 .node.done { background: transparent; }
 .node-top { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.node-top .mono { white-space: nowrap; }
 .node-title { font-weight: 600; margin-top: 4px; }
-.node-detail { color: var(--muted); font-size: 12px; margin-top: 2px; }
-.node-origin { color: var(--dim); font-size: 11px; margin-top: 6px; }
+.node-cue { color: var(--muted); font-size: 11px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .history-panel { grid-area: history; flex-direction: column; padding: 12px 14px; overflow: hidden; }
 .history-controls { display: grid; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .history-controls input { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 6px 9px; }
@@ -563,7 +563,7 @@ dialog.help dd { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
 .opnew-actions { margin-top: 12px; }
 
 /* ---- brief editing ---- */
-textarea.plan-edit.brief-edit { width: 100%; min-height: 120px; background: var(--well); border: 1px solid var(--line); border-radius: 6px; padding: 10px; font: inherit; color: inherit; resize: vertical; }
+textarea.plan-edit.brief-edit { width: 100%; min-height: 260px; height: 280px; background: var(--well); border: 1px solid var(--line); border-radius: 6px; padding: 10px; font: inherit; color: inherit; resize: vertical; }
 textarea.plan-edit.seed-edit { width: 100%; background: var(--well); border: 1px solid var(--line); border-radius: 6px; padding: 10px; font: inherit; color: inherit; resize: vertical; }
 
 /* ---- plan tab inside card (review) ---- */
@@ -780,3 +780,65 @@ textarea.plan-edit.seed-edit { width: 100%; background: var(--well); border: 1px
 .pf-adjust { margin-bottom: 10px; }
 .seed-summary { margin: 6px 0; }
 .seed-details summary { cursor: pointer; color: var(--muted); margin: 4px 0; }
+
+/* ---- what / drafting ---- */
+.what-panel {
+  display: flex; flex-direction: column; gap: 12px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+}
+.draft-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.draft-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.draft-status { color: var(--muted); font-size: 13px; flex: 1; min-width: 0; padding-top: 2px; }
+
+/* ---- brief review ---- */
+.brief-wrap { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 8px; }
+.brief-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.brief-toggle { display: flex; gap: 0; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
+.brief-toggle .btn { border: 0; border-radius: 0; padding: 6px 12px; font-size: 12.5px; }
+.brief-toggle .btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+.brief-preview {
+  min-height: 260px; max-height: 400px; overflow-y: auto;
+  background: var(--well); border: 1px solid var(--line); border-radius: 6px; padding: 16px;
+  color: var(--text);
+}
+.brief-modal-body { display: flex; flex-direction: column; gap: 12px; }
+.modal.brief-focus { width: min(1000px, 100%); }
+.brief-modal-toggle { display: flex; gap: 0; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; width: fit-content; }
+.brief-modal-toggle .btn { border: 0; border-radius: 0; padding: 6px 12px; }
+.brief-modal-toggle .btn.active { background: var(--accent); color: white; }
+.brief-modal-edit { width: 100%; min-height: 380px; height: 45vh; resize: none; }
+.brief-modal-preview { flex: 1; max-height: 45vh; overflow-y: auto; }
+
+/* ---- model dropdowns ---- */
+.dd-model .cmp-dd-btn { padding: 6px 10px; min-width: 0; width: auto; font-size: 12.5px; }
+.dd-model-wide .cmp-dd-btn { width: 100%; min-width: 200px; }
+.action-model-dd .cmp-dd-btn { padding: 6px 10px; font-size: 12px; min-width: 120px; }
+
+/* ---- searchable dropdown ---- */
+.cmp-dd-search-wrap { padding: 4px 4px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.cmp-dd-search {
+  width: 100%; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 4px;
+  background: var(--panel); color: var(--text); font-size: 12.5px;
+}
+.cmp-dd-search:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.cmp-dd-meta { font-size: 11px; color: var(--dim); margin-left: auto; text-align: right; }
+
+/* ---- card description & decision description ---- */
+.card-desc { margin: 10px 0 4px; color: var(--text); font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.card-desc p { margin: 0 0 8px; }
+.card-desc p:last-child { margin-bottom: 0; }
+.card-desc ul, .card-desc ol { margin: 4px 0 8px 18px; padding: 0; }
+.card-desc li { margin: 2px 0; }
+.card-desc code { font-family: ui-monospace, monospace; font-size: 12px; padding: 1px 4px; background: var(--well); border-radius: 3px; }
+.card-desc pre { margin: 6px 0 8px; padding: 8px 10px; background: var(--well); border: 1px solid var(--line-2); border-radius: 6px; overflow-x: auto; font-family: ui-monospace, monospace; font-size: 12px; }
+
+.decide-desc { margin: -4px 0 12px; color: var(--text); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.decide-desc p { margin: 0 0 6px; }
+.decide-desc p:last-child { margin-bottom: 0; }
+.decide-desc ul, .decide-desc ol { margin: 4px 0 6px 18px; padding: 0; }
+.decide-desc li { margin: 2px 0; }
+.decide-desc code { font-family: ui-monospace, monospace; font-size: 11.5px; padding: 1px 4px; background: var(--well); border-radius: 3px; }
+
+.contact-desc-edit { min-height: 90px; max-height: 240px; }
+/* ---- decision plan note ---- */
+.set-note.small { font-size: 11px; }

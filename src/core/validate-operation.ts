@@ -251,6 +251,12 @@ export function validateOperationDoc(
         : typeof c.title === "string"
           ? c.title
           : fail(`${at}.title must be a string or null`);
+    const description =
+      c.description === undefined || c.description === null
+        ? null
+        : typeof c.description === "string"
+          ? c.description
+          : fail(`${at}.description must be a string or null`);
     if (typeof c.zone !== "string" || !zoneIds.has(c.zone))
       return fail(`${at}.zone must name an existing zone`);
     if (!Array.isArray(c.blockedBy))
@@ -299,7 +305,13 @@ export function validateOperationDoc(
           return fail(`${at}.lane.terminal.incarnationId must be a non-empty string`);
         terminal = { handle: t.handle, incarnationId: t.incarnationId };
       }
-      lane = { worktree: l.worktree, branch, frontend: laneFrontend, terminal };
+      let model: string | null | undefined;
+      if ("model" in l && l.model !== undefined) {
+        if (l.model !== null && typeof l.model !== "string")
+          return fail(`${at}.lane.model must be a string or null`);
+        model = l.model;
+      }
+      lane = { worktree: l.worktree, branch, frontend: laneFrontend, terminal, ...(model !== undefined ? { model } : {}) };
     } else if ("terminal" in c) {
       return fail(`${at}.lane.terminal requires lane`);
     }
@@ -321,7 +333,7 @@ export function validateOperationDoc(
       if (!options || !options.includes(c.recommended)) return fail(`${at}.recommended must be one of options`);
       recommended = c.recommended;
     }
-    contacts.push({ ticket, title, zone: c.zone, kind, blockedBy, conflictOf, lane, ...(options ? { options } : {}), ...(recommended ? { recommended } : {}) });
+    contacts.push({ ticket, title, description, zone: c.zone, kind, blockedBy, conflictOf, lane, ...(options ? { options } : {}), ...(recommended ? { recommended } : {}) });
   }
 
   for (const [i, c] of contacts.entries()) {

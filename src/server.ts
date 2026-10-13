@@ -391,11 +391,14 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         const body = await readBody(req);
         const text = requireString(body, "text");
         for (const key of ["project", "repo"]) if (body[key] !== undefined && typeof body[key] !== "string") return fail(res, 400, `${key} must be a string`);
+        if (body.model !== undefined && body.model !== null && typeof body.model !== "string")
+          return fail(res, 400, "model must be a string or null");
         try {
           const created = await service.createDraft({
             text,
             ...(typeof body.project === "string" ? { project: body.project } : {}),
             ...(typeof body.repo === "string" ? { repo: body.repo } : {}),
+            ...(body.model !== undefined ? { model: body.model as string | null } : {}),
           });
           return respond(res, 200, JSON.stringify(created));
         } catch (error) {
@@ -457,6 +460,8 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         if (kind !== undefined && typeof kind !== "string") return fail(res, 400, "kind must be a string");
         const title = body.title;
         if (title !== undefined && title !== null && typeof title !== "string") return fail(res, 400, "title must be a string or null");
+        const description = body.description;
+        if (description !== undefined && description !== null && typeof description !== "string") return fail(res, 400, "description must be a string or null");
         const options = body.options;
         if (options !== undefined && (!Array.isArray(options) || options.some((t) => typeof t !== "string")))
           return fail(res, 400, "options must be an array of strings");
@@ -468,6 +473,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
             zone: requireString(body, "zone"),
             ...(kind !== undefined ? { kind: kind as Kind } : {}),
             ...(title !== undefined ? { title: title as string | null } : {}),
+            ...(description !== undefined ? { description: description as string | null } : {}),
             ...(blockedBy !== undefined ? { blockedBy: blockedBy as string[] } : {}),
             ...(options !== undefined ? { options: options as string[] } : {}),
             ...(recommended !== undefined ? { recommended: recommended as string } : {}),
@@ -492,11 +498,12 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         if (!op) return fail(res, 400, "op is required");
         return respond(res, 200, JSON.stringify(await service.history(op)));
       }
+      if (method === "GET" && pathname === "/api/models") return respond(res, 200, JSON.stringify(await service.models()));
       if (method === "GET" && pathname === "/api/settings") return respond(res, 200, JSON.stringify(await service.settings()));
       if (method === "PUT" && pathname === "/api/settings") {
         const body = await readBody(req);
         const value = body.value;
-        if (typeof value !== "string") return fail(res, 400, "value must be a string");
+        if (value !== null && typeof value !== "string") return fail(res, 400, "value must be a string or null");
         const key = requireString(body, "key");
         const updated = await service.setSetting(key, value);
         if (key === "access" || key === "port") {
@@ -541,8 +548,9 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         const args = body.args;
         if (args !== undefined && (typeof args !== "object" || args === null || Array.isArray(args)))
           return fail(res, 400, "args must be an object");
+        if (args && "model" in args && args.model !== undefined && args.model !== null && typeof args.model !== "string")
+          return fail(res, 400, "args.model must be a string or null");
         if (!service.action) return fail(res, 404, "No action runtime");
-        // Never trust the client's idea of what is legal: recompute from a fresh projection.
         const projection = await service.projection(op);
         const view = projection.contacts.find((c) => c.ticket === contact);
         const offered = view?.actions.find((a) => a.id === action);

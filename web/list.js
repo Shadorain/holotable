@@ -53,7 +53,7 @@ function item(contact, selected, ctx) {
   main.dataset.id = contact.ticket;
   main.dataset.key = `sel/${contact.ticket}`;
   main.setAttribute("aria-current", contact.ticket === selected ? "true" : "false");
-  main.title = `${contact.ticket} · ${contact.detail}`;
+  main.title = `${contact.ticket}: ${contact.title ?? ""}${contact.detail ? ` · ${contact.detail}` : ""}`;
   const meta = el("div", "item-meta");
   meta.append(statePill(contact.state), el("span", "mono", contact.ticket), el("span", "item-detail", contact.detail));
   main.append(el("div", "item-title", contact.title ?? contact.ticket), meta);

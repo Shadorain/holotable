@@ -3,6 +3,7 @@ import type { Run } from "./ports.ts";
 /** Longest first: worktree creation can fetch and install; everything else should answer fast. */
 function timeoutFor(command: string, args: string[]): number {
   if (command === "orca" && args[0] === "worktree" && args[1] === "create") return 300_000;
+  if (command === "omp" && args[0] === "models") return 10_000;
   if (command === "orca" || command === "herdr") return 130_000;
   if (command === "gh" || command === "git") return 60_000;
   return 30_000;

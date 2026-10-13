@@ -39,6 +39,7 @@ function makeOperation(home: string, id: string, extra: Partial<Operation> = {})
       {
         ticket: "alpha",
         title: null,
+        description: null,
         zone: "ops",
         kind: "decision",
         blockedBy: [],

@@ -75,7 +75,7 @@ export async function launchContact(
   deps: LauncherDeps,
   opId: string,
   ticket: string,
-  extra: { conflictPaths?: string[] } = {},
+  extra: { conflictPaths?: string[]; model?: string | null } = {},
 ): Promise<void> {
   const settings = await deps.settings();
   const projection = await loadProjection(deps.home, opId, settings, deps.now().getTime(), deps.extras(opId));
@@ -130,12 +130,18 @@ export async function launchContact(
   if (!terminal) {
     try {
       const overlay = await ensureLaunchOverlay(deps.home);
+      const explicitModelOverride = extra.model !== undefined ? extra.model : lane.model;
+      const selectedModel = explicitModelOverride !== undefined
+        ? explicitModelOverride
+        : (settings.ai.mission ?? settings.ai.model);
       const { argv, env } = ports.fleet.launch({
         operation,
         contact,
         worktree: lane.worktree,
         overlay,
         ...(conflictPaths.length ? { conflictPaths } : {}),
+        model: selectedModel,
+        thinking: settings.ai.thinking,
       });
       terminal = await ports.frontend.openTerminal({
         worktree: lane.worktree,
@@ -144,7 +150,11 @@ export async function launchContact(
         env,
       });
       try {
-        lane = { ...lane, terminal };
+        lane = {
+          ...lane,
+          terminal,
+          ...(explicitModelOverride !== undefined ? { model: explicitModelOverride } : {}),
+        };
         await setLane(lane);
         await appendEvent(deps.home, opId, {
           v: 1,
@@ -197,8 +207,20 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
       if (!(error instanceof PortError && error.code === "terminal-missing")) throw error;
     }
   }
-  const overlay = await ensureLaunchOverlay(deps.home);
-  const { argv, env } = ports.fleet.launch({ operation, contact, worktree: lane.worktree, overlay });
+  // A saved mission past its plan resumes outside plan mode, where `continue` is allowed; one still planning reopens in it.
+  const saved = await ports.fleet.read({ worktree: lane.worktree }).catch(() => null);
+  const overlay = await ensureLaunchOverlay(deps.home, saved && saved.phase !== "plan" ? "resume" : "plan");
+  const selectedModel = lane.model !== undefined
+    ? lane.model
+    : (settings.ai.mission ?? settings.ai.model);
+  const { argv, env } = ports.fleet.launch({
+    operation,
+    contact,
+    worktree: lane.worktree,
+    overlay,
+    model: selectedModel,
+    thinking: settings.ai.thinking,
+  });
   const opened = await ports.frontend.openTerminal({
     worktree: lane.worktree,
     title: `${ticket} ${operation.name}`,

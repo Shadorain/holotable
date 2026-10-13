@@ -2,11 +2,11 @@ import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Operation } from "../../src/core/types.ts";
+import { PortError } from "../../src/ports.ts";
 import { createActionRunner } from "../../src/runtime/actions.ts";
 import { ActionError } from "../../src/runtime/errors.ts";
 import type { LanderDeps } from "../../src/runtime/lander.ts";
 import { launchContact } from "../../src/runtime/launcher.ts";
-import { PortError } from "../../src/ports.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings.ts";
 import { appendEvent, readEvents } from "../../src/store/events.ts";
 import { readOperation } from "../../src/store/operations.ts";
@@ -198,4 +198,37 @@ test("a frontend that no longer knows the terminal still reaps", async () => {
 test("an unknown action is refused", async () => {
   const t = await setup();
   expect((await t.reject(t.act({ op: "lab", contact: "a", action: "teleport", args: {} }))).status).toBe(404);
+});
+test("explicit model override is persisted for the mission's replacement pane", async () => {
+  const t = await setup({}, {
+    settings: async () => ({
+      ...DEFAULT_SETTINGS,
+      ai: { ...DEFAULT_SETTINGS.ai, model: "global-model", mission: "mission-default", thinking: "high" },
+    }),
+  });
+  t.readyChild();
+  await t.act({ op: "lab", contact: "a", action: "launch", args: { model: "override-model" } });
+  const op = await readOperation(t.home, "lab");
+  expect(op.contacts[0].lane?.model).toBe("override-model");
+});
+
+test("explicit OMP default is persisted without becoming an inherited model", async () => {
+  const t = await setup({}, {
+    settings: async () => ({
+      ...DEFAULT_SETTINGS,
+      ai: { ...DEFAULT_SETTINGS.ai, model: "global-model", mission: "mission-default" },
+    }),
+  });
+  t.readyChild();
+  await t.act({ op: "lab", contact: "a", action: "launch", args: { model: null } });
+  const op = await readOperation(t.home, "lab");
+  expect(op.contacts[0].lane?.model).toBeNull();
+});
+
+test("malformed model argument in launch and decide-agent is rejected with 400", async () => {
+  const t = await setup();
+  const badLaunch = await t.reject(t.act({ op: "lab", contact: "a", action: "launch", args: { model: 123 } }));
+  expect(badLaunch).toMatchObject({ status: 400, code: "bad-request" });
+  const badDecide = await t.reject(t.act({ op: "lab", contact: "n", action: "decide-agent", args: { model: true } }));
+  expect(badDecide).toMatchObject({ status: 400, code: "bad-request" });
 });

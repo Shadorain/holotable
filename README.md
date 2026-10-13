@@ -55,10 +55,34 @@ Install `omp-mission` too, restart OMP, then open a session in the repo you want
 
 1. **Open the board.** In OMP, run `/holotable` and open one of its URLs. The Getting started card checks OMP, the mission extension and the integrations you use, with fixes for anything missing.
 2. **Add your project.** Projects → New project. Pick the session's repo; review the detected base branch, tracker, frontend and delivery. To launch missions, choose Orca, Herdr or a custom terminal frontend.
-3. **Create an operation.** Choose the project, name the campaign and add contacts. Or use **Draft with an agent**: paste a Linear project URL, issue links or a markdown plan, then press Draft it. An OMP pane writes the seed; review it in the form before Create.
+3. **Create an operation.** Choose the project, name the campaign and add contacts. Or paste a Linear document/project URL, issue links, a markdown plan or a rough goal into **What**, then press **Draft it**. An OMP pane reads the sources and repository and writes the seed; review it before **Create**.
 4. **Run the work.** Launch a ready contact. Approve its plan and gates in the mission pane, then land completed work from the board. Dependencies keep blocked contacts queued and visible.
 
 Start with **Settings → Agents → 2** on a small or heat-constrained machine. Auto mode and recovery are off by default; enable them per operation only when you want their documented behavior.
+
+### Draft a plan or an idea
+
+**Existing execution plan:** select the matching project, paste the document URL into **What**
+and click **Draft it**. Linear documents are read with `lin docs get`; referenced issues and
+relations supply live status and blockers. The agent is instructed to preserve parallel lanes,
+explicit prerequisites, decisions, ownership boundaries and acceptance gates, not turn every
+suggested ordering into a dependency. Review zones, contacts, `blockedBy` and the brief before
+**Create**. Pasting a link without drafting does not import it.
+
+**No tickets yet:** use a project with **Tracker → none** (for a new repo, open **Adjust**).
+You can make a separate local project for the same repository rather than change a tracked
+project's existing operations. Describe the goal, constraints and what success looks like in
+**What**, then **Draft it**. The agent inspects the repo and proposes local mission ids, workstreams,
+dependencies, acceptance checks and decision contacts for unresolved choices. No external tickets
+are needed or created. Contacts have short titles and self-contained descriptions that carry
+scope and acceptance checks; the brief records the campaign plan for review.
+
+Drafting does not execute work or approve mission plans. After **Create**, each launched mission
+develops its own detailed plan; approval and Pause gates stay in its OMP pane. With Linear/GitHub
+tracking, drafts use real fetched tickets only. New unticketed work needs a local project or
+tickets you create first. Check the draft: agent-generated dependencies and scope still need
+operator review.
+
 
 ### Integration setup
 
@@ -90,7 +114,11 @@ flowchart LR
   Board -->|Status files and control sockets| Mission
 ```
 
-The optional status row follows OMP's theme and omits zero counts. `holotable_state` reads the board; `holotable_queue` proposes or edits queued contacts. Neither tool launches, lands or approves work. Model selection, provider routing, verification and review remain in OMP and the mission.
+The optional status row follows OMP's theme and omits zero counts. `holotable_state` reads the board; `holotable_queue` proposes or edits queued contacts. Neither tool launches, lands or approves work. Holotable can request a model for a new agent pane; model execution, provider routing, verification and review remain in OMP and the mission.
+
+After updating the checkout, run `holotable restart` and start fresh OMP sessions before using
+queue tools. Existing sessions can retain the old contact schema; refreshing the browser alone
+does not reload those tools. Existing operations do not need to be closed or recreated.
 
 The CLI is the cross-platform management interface. On Linux, the default home uses a resource-bounded **systemd user service** when available. Custom homes and other platforms use a detached Bun process. Your campaigns live outside the plugin checkout, under `~/.omp/agent/holotable` by default; updates do not replace them. See [Resource budgets](#resource-budgets).
 
@@ -146,7 +174,7 @@ The page has three views over one projection. Each shows only what it is for; de
 
 - **Table** (`1`): the radar and the selected contact's card. Zones are sectors; rings are lifecycle stages from the outside in (queued, planning, active, complete), so distance from the centre is progress. Contacts that need you pulse and are listed as chips across the top; selecting one draws its dependency chain. Move between orbs with **WASD**, **HJKL** or the arrow keys: each press goes to the nearest contact in that direction. One canvas: static when idle, about 30 fps with live missions or attention. Animation stops on other views, in a hidden tab, or with reduced motion.
 - **Board** (`2`): the contact list, the card, and the operation panel (progress, notes, metrics, time in phase and wiring, each foldable). The list is ordered by what needs you: **Needs you**, **In flight**, **Queue**, and a collapsed **Landed**; each row is one line of title and one line of state, with its obvious next action (Approve, Land, Launch, Mark decided, or Focus when plan approval waits in the mission pane).
-- **Plan** (`3`): the whole operation. A dependency map with one column per zone, every contact with its state, next step and where it came from, arrows for what waits on what (green once landed, red dashed for conflict missions); and the full, searchable history, filterable by who acted (you, the model, the mission, the board). Selecting a contact focuses its chain and narrows the history to it; the same direction keys move across the map.
+- **Plan** (`3`): compact dependency cards with state, ticket, a short title and a blocker cue, arranged by zone. Arrows show what waits on what (green once landed, red dashed for conflicts). Click to trace a chain and filter its history; double-click to open the full card. Its description is shown directly below the title, with no expand/collapse control.
 
 The card has three tabs (`[` and `]` switch): **Overview** (progress, what happens next, actions, what it waits for and unblocks, conflict links), **Details** (origin, kind, tracker, delivery, workers, branch, worktree, terminal) and **History** (every event for this contact, with who caused it).
 
@@ -175,7 +203,7 @@ Once activated, the row shows the selected operation and nonzero live, queued an
 |`use <id>`|select an operation|
 |`zone <label>`|add a zone (its id is derived from the label)|
 |`set <field> <value>`|change `name`, `base`, `integration`, `pause`, `tracker`, `fleet`, `frontend`, `delivery`, `worktreeRoot` (`default` clears it), `recover` (`on`/`off`, see [Recovery](#recovery)) or the auto-mode fields `auto` (`on`/`off`), `auto.launch`, `auto.land`, `auto.decide`, `auto.maxLive`; in a project, `inherit` drops the override (not for `auto*` or `recover`: those belong to the operation)|
-|`add <ticket> --zone <id> [--kind] [--blocked-by A,B] [--title] [--worktree <path>] [--option X…] [--recommended X]`|add a contact; `--worktree` adopts an existing checkout; `--option`/`--recommended` build a decision contact (see [Decisions](#decisions))|
+|`add <ticket> --zone <id> [--kind] [--blocked-by A,B] [--title] [--description <text>] [--worktree <path>] [--option X…] [--recommended X]`|add a contact with a short title and separate full instructions; `--worktree` adopts an existing checkout; `--option`/`--recommended` build a decision contact (see [Decisions](#decisions))|
 |`close <id> <landed\|abandoned\|decision\|failed>`|end the operation through the same path as the page: wind-down, `closed` event, report, archive|
 |`config [key value]`|show or set board settings|
 
@@ -184,10 +212,18 @@ Once activated, the row shows the selected operation and nonzero live, queued an
 ```json
 {
   "zones": [{ "id": "api", "label": "API" }],
-  "contacts": [{ "ticket": "CHR-1", "zone": "api", "title": "Schema" }, { "ticket": "CHR-2", "zone": "api", "blockedBy": ["CHR-1"] }],
+  "contacts": [
+    { "ticket": "CHR-1", "zone": "api", "title": "Build database schema", "description": "Implement the schema migration with tenant-scoped constraints and persistence tests." },
+    { "ticket": "CHR-2", "zone": "api", "title": "Build typed HTTP client", "description": "Generate the typed client for the new schema and verify its error handling.", "blockedBy": ["CHR-1"] }
+  ],
   "notes": "## Ship\n- [ ] Staging\n- [ ] Announce"
 }
 ```
+
+Keep `title` to a short label, typically 3–8 words. Put scope, restrictions and acceptance criteria
+in `description`; the card shows it in full. Local missions use the description as their task.
+Tracked missions keep their ticket identity and receive the description as additional instructions.
+Title-only local seeds still use their title as the task.
 
 A `"brief"` string seeds the operation's brief (same as `--brief`); `--brief <file>` overrides a `brief` key in the seed. `"notes"` seeds the scratch pad.
 
@@ -202,6 +238,9 @@ Start an automatic campaign from OMP with `/holotable new release --repo /path/t
 |`access`|`tailscale`|who may open the board: `local` binds loopback only, `tailscale` binds everywhere but accepts only loopback and Tailscale peers (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), `network` accepts any address on your LAN. The token is required in every mode|
 |`port`|`4848`|bind port; `0` picks a free one. A taken port falls back to one of the next ten|
 |`cap`|`8`|live `omp` ceiling, 1-64; above 8, or when the sessions would need most of this machine's memory, the page warns (each idle omp holds about 600 MB)|
+|`ai.model`|`null`|default model selector for new agent panes; unset leaves selection to OMP|
+|`ai.thinking`|`null`|reasoning effort for new panes: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `auto`; unset leaves it to OMP|
+|`ai.draft` / `ai.decision` / `ai.mission`|`null`|per-use model defaults; unset inherits `ai.model`, then OMP|
 |`pollMs`|`5000`|status read and owner ping interval|
 |`sampleMs`|`60000`|tracker and delivery sampling interval|
 |`theme`|`holo`|page theme: `holo`, `omp` (omp-grill's palette), `slate`|
@@ -243,7 +282,15 @@ A markdown scratch pad per operation (`notes.md`), on the Operation page and in 
 
 ### New operation
 
-Picker → New operation. Project first (or standalone, with repo, base, integration and wiring fields, and an option to save them as a project), then name, id and brief. **Draft with an agent** takes pasted markdown or a link (a Linear project, an issue list, a doc): the board opens an `omp` pane in the project's repo through its frontend, the agent writes `drafts/<id>/seed.json`, and the form fills zones, contacts, notes and brief from it for you to review. Nothing is created until you press Create. Drafting needs a terminal frontend; with `none` it says so.
+Picker → New operation. Choose the project, paste a source or rough goal into **What**, then **Draft it**. The drafting toolbar has a per-run model picker and a separate progress message. Review the generated name, brief, zones, contacts and notes before **Create**; drafting needs a terminal frontend and creates no operation by itself.
+
+The brief has a full-width editor, markdown **Preview**, and **Review in focus** for a wide review
+window with edit/preview and Save/Cancel. Draft completion fills both review views and preserves
+brief text you have edited yourself.
+
+Dependencies control eligibility, not map columns or prose numbering. Auto launch takes the first
+ready contact in the saved queue; independent missions may run together, while hard prerequisites
+and undecided decisions keep dependent contacts blocked.
 
 ### Archive
 
@@ -255,7 +302,7 @@ A contact with a pending plan shows a "Plan" tab (primary action "Review plan").
 
 ### Settings drawer
 
-Board-wide only: Appearance (theme), Agents (cap), Polling (shown in seconds or milliseconds, your pick; stored in ms), Server (who can open the board — this machine, Tailscale devices or the network — plus the port and the URLs it currently answers on; changes rebind the running board), After landing (cleanup), Defaults for new operations, Custom frontend templates (only when something uses the `custom` frontend), and Help (keyboard shortcuts).
+Board-wide only: Appearance (theme), Agents (cap), AI & Models (default model, reasoning effort and per-use defaults), Polling (seconds or milliseconds; stored in ms), Server (access, port and current URLs; changes rebind the board), After landing (cleanup), Defaults for new operations, Custom frontend templates (when used), and Help.
 
 ### Model tools
 
@@ -299,7 +346,7 @@ Requirements: the launched `omp` must load `omp-mission` (install it as an OMP e
 
 The contact card shows the fleet buttons the mission itself offers (`Approve`, `Continue`, `Review`, `Dispatch`, and a `Mode` select: auto, pause, force) and `Focus`. `Continue` appears only when the mission is actually stuck: a resume hold, or failed verification; with Recovery on, a plain resume hold is left to the board. Each button is one request to the owning session's control socket, sent as an operator action; the board never computes whether a transition is legal, so resume hold, plan mode and Pause gates apply exactly as when typing the slash command in the pane. `Approve` carries the id of the gate it was rendered for, and a gate that moved on fails as `stale`. A gone owner fails as `owner-offline` and changes nothing. Every action except `Focus` is recorded as an `operator` event, success or failure. A model turn in the board's own session can only read and queue: it has no tool that approves, continues or launches.
 
-`Relaunch` appears on a contact whose session is `offline` while its lane still has a terminal (a pane that closed, or a session that died or hung inside one). It closes the old pane if the frontend still lists it, opens a new one in the same worktree with the same launch command, and waits for the control socket. The new session re-attaches the saved mission under resume hold, so the card then shows `Continue`; nothing resumes until you press it (or [recovery](#recovery) does). It is disabled with the reason `cap <open>/<cap> omp` when the cap is full, and is not offered for a finished mission, a lane with no terminal, an `external` lane, or a `none` frontend. After **Reap**, Relaunch is the only way back.
+`Relaunch` appears on a contact whose session is `offline` while its lane still has a terminal (a pane that closed, a session that exited or died, or one that hung inside its pane). It closes the old pane if the frontend still lists it, opens a new one in the same worktree with the same launch command, and waits for the control socket. A mission that is already past its plan reopens **outside plan mode** (a resumed mission cannot continue while the session is in plan mode); one still waiting on a plan reopens in it and plans again. The new session re-attaches the saved mission under resume hold, so the card then shows `Continue`; nothing resumes until you press it (or [recovery](#recovery) does). A dead session holds no slot against the cap, so Relaunch replaces its own pane; it is disabled with the reason `cap <open>/<cap> omp` only when other live sessions fill the cap, and is not offered for a finished mission, a lane with no terminal, an `external` lane, or a `none` frontend. After **Reap**, Relaunch is the only way back.
 
 ## Blocked queue
 
@@ -329,7 +376,7 @@ Per operation (`/holotable set auto on`, or the auto card on the Operation page)
 Per operation, off by default and never inherited from a project: `/holotable set recover on` (or `new <id> --recover`, `POST /api/operation-config {op, field: "recover", value: "on"}`, or `recover: true` in `POST /api/operations`). Switching it is recorded in history as yours. With it on, the board keeps missions running through a closed or crashed pane without you watching:
 
 - **Resume.** A board-launched session sitting at resume hold with a live owner gets `Continue`, at most once every 30 s per contact (a crashed session's ownership lock stays stale for about 30 s, so the first try may fail with `ELOCKED`; failures are recorded and retried). The pacing is read from the events, so a board restart keeps it.
-- **Relaunch.** A contact is relaunched when its pane vanished from a frontend that lists terminals, or when its session has been down for 60 s while the pane is still listed (omp crashed or hung inside it: the old pane is closed first). Relaunches run in the background and respect the global `cap`; at the cap nothing is attempted and nothing is recorded.
+- **Relaunch.** A contact is relaunched when its pane vanished from a frontend that lists terminals, or when its session has been down for 60 s while the pane is still listed (omp exited, crashed or hung inside it: the old pane is closed first). A session that exited cleanly counts: its status file says so, and a lane whose socket the board has seen is offline from then on. Relaunches run in the background, one at a time (a whole operation dying at once does not start eight frontend CLIs together), and respect the global `cap`; at the cap nothing is attempted and nothing is recorded.
 - **Give-up.** At most 3 recovery relaunches per contact in 30 minutes. The next candidate records one `gave up: 3 relaunches in 30 min` event and recovery leaves that contact alone until you press Relaunch yourself, which resets the count.
 
 Everything recovery does is an `operator` event with `by: "recover"`; history credits it to the board. Recovery never:
@@ -389,7 +436,7 @@ Ending an operation moves its directory to `archive/<id>-<timestamp>` and adds `
 - [Architecture](docs/architecture.md): layers, ports, lifecycle, events and safety invariants.
 - [Mission contract](docs/contract.md): status files and control sockets.
 - [Testing](docs/testing.md): regression coverage and runtime smokes.
-- [Plan approval API](docs/omp-plan-approval.md): why plan approval remains in the mission pane.
+- [Plan approval API](docs/omp-plan-approval.md): the OMP extension API for answering plan review, what the board sends, and what is still unreleased.
 
 <details>
 <summary>More views</summary>
@@ -406,7 +453,7 @@ Ending an operation moves its directory to `archive/<id>-<timestamp>` and adds `
 
 ## Roadmap
 
-[PLAN.md](PLAN.md) tracks work that is not built yet. Native plan approval automation depends on an OMP extension API; Holotable does not bypass that boundary.
+[PLAN.md](PLAN.md) tracks work that is not built yet. Plan approval from the board needs an OMP release that includes the extension API merged in oh-my-pi (see the doc above); until then plans are approved in the pane.
 
 ## Development
 

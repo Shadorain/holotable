@@ -85,6 +85,8 @@ export interface FleetPort {
     /** YAML overlay that puts the new session into plan mode at startup. */
     overlay: string;
     conflictPaths?: string[];
+    model?: string | null;
+    thinking?: string | null;
   }): { argv: string[]; env: Record<string, string> };
   read(i: { worktree: string }): Promise<ContactStatus | null>;
   ping(status: ContactStatus): Promise<boolean>;

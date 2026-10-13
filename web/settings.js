@@ -2,9 +2,10 @@
 // only board-wide settings — the operation's own fields live on the operation page
 // (Plan view → Operation). Every control saves on change/blur through PUT /api/settings;
 // a 400 shows its message under the field, a save toasts.
-import { closePopoversWithin, el, numberField, segmented, textField } from "./components.js";
+import { closePopoversWithin, dropdown, el, numberField, segmented, textField } from "./components.js";
 import { enumRow, field, numberRow, switchRow, textRow } from "./fields.js";
 import { icon } from "./icons.js";
+import { modelDropdown } from "./models.js";
 import { PORT_OPTIONS } from "./projectform.js";
 import { errorText, fetchJson, sectionBox, titleCase } from "./ui.js";
 
@@ -33,7 +34,7 @@ const CUSTOM_TEMPLATES = [
   ],
 ];
 
-export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGuide, startTour }) {
+export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGuide, startTour, settingsChanged }) {
   const scrim = document.getElementById("scrim");
   const drawer = document.getElementById("settings");
   const body = drawer.querySelector(".settings-body");
@@ -47,6 +48,7 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
       const res = await api("/api/settings", { method: "PUT", body: JSON.stringify({ key, value: String(value) }) });
       const data = await fetchJson(res);
       settings = data;
+      settingsChanged?.(data.settings);
       foot.textContent = `Saved to ${settings.path}`;
       if (key === "theme") applyTheme(settings.settings.theme);
       toast("Saved", "ok");
@@ -170,6 +172,100 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
             f.setError(error);
           } else s.cap = Number(nf.input.value);
         });
+      });
+    }
+
+
+    // ---- AI & Models ----
+    sec = section("AI & Models");
+    sec.append(el("div", "set-note sec-note", "Controls apply to new agent panes; existing sessions keep their model."));
+    sec.append(el("div", "set-note sec-note", "Search OMP's model catalog; a provider may still need sign-in. Prices are input/output dollars per million tokens, not spend limits. Plan refinement uses the model already running in its mission pane."));
+
+    const ai = s.ai ?? (s.ai = {});
+
+    // Default Model
+    {
+      let f;
+      const dd = modelDropdown({
+        api,
+        value: ai.model ?? "",
+        label: "Default AI model",
+        allowInherit: false,
+        allowOmpDefault: true,
+        placeholder: "OMP default",
+        className: "dd-model-wide",
+        onChange: (v) => {
+          f.setError(null);
+          saveSetting("ai.model", String(v ?? ""), (err) => {
+            if (err) f.setError(err);
+            else s.ai.model = v || null;
+          });
+        },
+      });
+      f = field(sec, "Default model", dd.root, {
+        note: "Used when a per-use default isn't set. Changing this does not change existing sessions.",
+      });
+    }
+
+    // Thinking effort
+    {
+      let f;
+      const options = [
+        { value: "", label: "OMP default" },
+        { value: "off", label: "Off" },
+        { value: "minimal", label: "Minimal" },
+        { value: "low", label: "Low" },
+        { value: "medium", label: "Medium" },
+        { value: "high", label: "High" },
+        { value: "xhigh", label: "Extra high" },
+        { value: "max", label: "Maximum" },
+        { value: "auto", label: "Auto" },
+      ];
+      const dd = dropdown({
+        label: "Thinking effort",
+        options,
+        value: ai.thinking ?? "",
+        onChange: (v) => {
+          f.setError(null);
+          saveSetting("ai.thinking", String(v ?? ""), (err) => {
+            if (err) f.setError(err);
+            else s.ai.thinking = v || null;
+          });
+        },
+      });
+      f = field(sec, "Thinking effort", dd.root, {
+        note: "Reasoning effort for supported models. OMP default omits the flag.",
+      });
+    }
+
+    // Per-use defaults
+    const useDefaults = [
+      { key: "draft", label: "Drafting model" },
+      { key: "decision", label: "Decision agent model" },
+      { key: "mission", label: "Mission model" },
+    ];
+    for (const def of useDefaults) {
+      let f;
+      const dd = modelDropdown({
+        api,
+        label: def.label,
+        value: ai[def.key] ?? null,
+        allowInherit: true,
+        inheritLabel: "Inherit default",
+        allowOmpDefault: false,
+        placeholder: "Inherit default",
+        className: "dd-model-wide",
+        onChange: (v) => {
+          f.setError(null);
+          const toSave = v === null ? "" : String(v);
+          saveSetting(`ai.${def.key}`, toSave, (err) => {
+            if (err) f.setError(err);
+            else s.ai[def.key] = v === null || v === "" ? null : v;
+          });
+        },
+      });
+      f = field(sec, def.label, dd.root, {
+        note: `Used when this agent starts. Inherit uses the default model above.`,
       });
     }
 

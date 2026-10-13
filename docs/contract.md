@@ -57,7 +57,7 @@ Newline-delimited JSON, one request per connection, one response line. Max line 
 - Server codes: `bad-request`, `stale` (approve carried a `args.gate` that is not the current gate id), `busy`, `rejected` (the same `control()`/`decision()` path the slash command uses threw), `no-session`.
 - Client-side only: `owner-offline` (ENOENT, ECONNREFUSED, connect/ping timeout 3 s). Operation timeout 150 s.
 
-The board UI exposes `approve`, `continue`, `review`, `dispatch`, `mode` (`args {mode: "auto"|"pause"|"force"}`), and the plan-review pair `plan-edit` (`args {text, base}` — `base` is the plan revision the editor saw; a mismatch is `stale`) and `plan-refine` (`args {message}` — the owner rewrites the plan from the feedback). The socket also accepts `resend`, `release`, `reap` (`args {beadId}`) and `clear` for the CLI and tests. Judgment ops (`bind_graph`, `record_verification`, `record_delivery`, `accept_repairs`, `reject_finding`) are never reachable. Resume hold, plan mode, Pause gates and the ownership lock are enforced by the mission code the socket calls into; the socket adds no bypass. Plan approval itself stays in the mission pane: OMP has no extension API to answer its plan-review dialog, so the board edits and refines the plan text but never approves it.
+The board UI exposes `approve`, `continue`, `review`, `dispatch`, `mode` (`args {mode: "auto"|"pause"|"force"}`), and the plan-review pair `plan-edit` (`args {text, base}` — `base` is the plan revision the editor saw; a mismatch is `stale`) and `plan-refine` (`args {message}` — the owner rewrites the plan from the feedback). The socket also accepts `resend`, `release`, `reap` (`args {beadId}`) and `clear` for the CLI and tests. Judgment ops (`bind_graph`, `record_verification`, `record_delivery`, `accept_repairs`, `reject_finding`) are never reachable. Resume hold, plan mode, Pause gates and the ownership lock are enforced by the mission code the socket calls into; the socket adds no bypass. Plan approval: when the session advertises `plan-approve` (`args {revision}`, a stale revision is `stale`; see `omp-plan-approval.md`) the board sends it; otherwise it stays in the mission pane: OMP has no extension API to answer its plan-review dialog, so the board edits and refines the plan text but never approves it.
 
 Client quirk (Bun): a client that calls `socket.end(payload)` half-closes, and Bun then drops the server's reply. Clients must `write` the request and wait for the reply line.
 
@@ -73,6 +73,18 @@ env OMP_HOLOTABLE_CHILD=1 \
     omp --config <overlay.yml>
 ```
 
-where `overlay.yml` is `plan:\n  defaultOnStartup: true\n`. Autostart creates the plan; it never approves it. Approval stays in the pane.
+where `overlay.yml` is `plan:\n  defaultOnStartup: true\n`. Autostart creates the plan; it never approves it. Approval stays in the pane unless the session advertises `plan-approve`. A relaunch of a mission whose saved status is past `plan` uses an overlay with `defaultOnStartup: false` (`launch/resume.yml`): omp-mission refuses `continue` while the session is in plan mode.
+
+Holotable may also pass `--model <selector>` and `--thinking <effort>` when opening a new pane.
+An explicit null model override omits `--model`; otherwise a per-use default inherits the global
+default before leaving selection to OMP. Explicit mission overrides are kept on the lane for
+replacement panes. These flags do not change autostart, plan approval, gates or socket ownership.
+Plan refinement still uses the existing mission session and cannot change its model.
 
 `OMP_MISSION_AUTOSTART` carries the `/mission` arguments verbatim (a leading `/mission` is stripped). The `OMP_MISSION_*` overrides replace `git config mission.baseBranch`, which is shared across all worktrees of a repository and would collide between operations.
+
+Contact titles are short board labels; optional descriptions hold complete task instructions.
+Local launches use the description, falling back to the title for title-only seeds. Tracked
+launches retain the ticket and include the description as additional instructions. Decision
+panes receive both the short question title and its full description. These fields do not alter
+Pause, dependency gates, ownership or delivery mode.

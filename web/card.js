@@ -4,6 +4,7 @@
 // go approve it in the pane (focus). The board never approves a plan itself.
 import { icon } from "./icons.js";
 import { renderMarkdown } from "./markdown.js";
+import { modelDropdown } from "./models.js";
 import { ago } from "./plan.js";
 import { actionButton, clock, el, isWired, safeLink, statePill } from "./ui.js";
 
@@ -35,7 +36,11 @@ function header(contact, zoneLabel) {
   line.append(el("span", "mono", contact.ticket));
   if (zoneLabel) line.append(el("span", "tag", zoneLabel));
   if (contact.kind !== "implement") line.append(el("span", "tag", contact.kind));
-  head.append(line, el("h2", "card-title", contact.title ?? contact.ticket));
+  head.append(line);
+
+  const titleText = contact.title ?? contact.ticket;
+  const titleEl = el("h2", "card-title", titleText);
+  head.append(titleEl);
   const status = el("div", "card-status");
   status.append(statePill(contact.state));
   const owner = OWNER_COPY[contact.owner];
@@ -44,6 +49,13 @@ function header(contact, zoneLabel) {
     status.append(dot);
   }
   head.append(status);
+
+  const desc = contact.description ?? null;
+  if (desc && desc.trim()) {
+    const descEl = el("div", "card-desc");
+    descEl.append(renderMarkdown(desc));
+    head.append(descEl);
+  }
   return head;
 }
 
@@ -74,7 +86,24 @@ function reviewPlanButton(contact, cls = "") {
   return btn;
 }
 
+const launchModels = new Map();
+export function getLaunchModel(opId, ticket) {
+  return launchModels.get(`${opId}/${ticket}`);
+}
+export function clearLaunchModel(opId, ticket) {
+  launchModels.delete(`${opId}/${ticket}`);
+}
+
+const decideModels = new Map();
+export function getDecideModel(opId, ticket) {
+  return decideModels.get(`${opId}/${ticket}`);
+}
+export function clearDecideModel(opId, ticket) {
+  decideModels.delete(`${opId}/${ticket}`);
+}
+
 function actionBar(contact, ctx) {
+  const modelKey = `${ctx.opId}/${contact.ticket}`;
   // plan-save/plan-refine render inside the Plan tab, never the action bar.
   const wired = contact.actions.filter((a) => isWired(a) && !a.id.startsWith("plan-"));
   const wrap = el("div", "");
@@ -85,7 +114,43 @@ function actionBar(contact, ctx) {
   // Primary first, then the rest; Reap sits apart so it is never the button under your thumb.
   const rank = (a) => (a.primary ? 0 : a.enabled ? 1 : 2);
   const ordered = [...wired].sort((a, b) => rank(a) - rank(b));
-  for (const a of ordered) (a.id === "reap" ? aside : main).append(actionButton(contact, a, ctx));
+  for (const a of ordered) {
+    const target = a.id === "reap" ? aside : main;
+    target.append(actionButton(contact, a, ctx));
+    if (a.id === "launch" && a.enabled && ctx.api) {
+      const dd = modelDropdown({
+        api: ctx.api,
+        value: launchModels.has(modelKey) ? launchModels.get(modelKey) ?? "" : null,
+        label: `Model for ${contact.ticket}`,
+        allowInherit: true,
+        inheritLabel: "Default model",
+        defaultModel: ctx.ai?.mission ?? ctx.ai?.model ?? null,
+        placeholder: "Model",
+        className: "action-model-dd",
+        onChange: (v) => {
+          if (v === null) launchModels.delete(modelKey);
+          else launchModels.set(modelKey, v === "" ? null : v);
+        },
+      });
+      target.append(dd.root);
+    } else if (a.id === "decide-agent" && a.enabled && ctx.api) {
+      const dd = modelDropdown({
+        api: ctx.api,
+        value: decideModels.has(modelKey) ? decideModels.get(modelKey) ?? "" : null,
+        label: `Model for decision agent on ${contact.ticket}`,
+        allowInherit: true,
+        inheritLabel: "Default model",
+        defaultModel: ctx.ai?.decision ?? ctx.ai?.model ?? null,
+        placeholder: "Model",
+        className: "action-model-dd",
+        onChange: (v) => {
+          if (v === null) decideModels.delete(modelKey);
+          else decideModels.set(modelKey, v === "" ? null : v);
+        },
+      });
+      target.append(dd.root);
+    }
+  }
   if (contact.plan) main.prepend(reviewPlanButton(contact));
   box.append(main, aside);
   wrap.append(box);
@@ -347,6 +412,7 @@ function planTab(contact, data, ctx, projection) {
   if (ui.mode === "refine") {
     const wrap = el("div", "plan-compose");
     wrap.append(el("div", "kicker", "Ask the mission to revise"));
+    wrap.append(el("div", "set-note", "Refinements use this mission's active session and model."));
     const area = el("textarea", "");
     area.value = ui.refine;
     area.rows = 4;

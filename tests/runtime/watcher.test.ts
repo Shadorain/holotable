@@ -70,6 +70,20 @@ test("owner loss records socket-down once; a new generation is down then up", as
   expect((await kinds("CHR-1")).slice(-2)).toEqual(["socket-down", "socket-up"]);
 });
 
+test("a clean session exit (status ctl: null) after a seen socket is an offline owner", async () => {
+  const { watcher, fake, kinds } = await setup();
+  await watcher.pass();
+  fake.world.statuses.set("/wt/a", status({ ctl: null }));
+  await watcher.pass();
+  expect(watcher.extras("lab").owners["CHR-1"]).toBe("offline");
+  expect(await kinds("CHR-1")).toContain("socket-down");
+  // A lane that never had a socket stays "none": there is nothing to have lost.
+  expect(watcher.extras("lab").owners["CHR-3"]).toBe("none");
+  // The dead pane no longer holds a slot against the cap, so Relaunch and Recovery can replace it.
+  await watcher.pass();
+  expect(watcher.extras("lab").load.open).toBe(1);
+});
+
 test("samples are appended only when a watched field changes", async () => {
   const { watcher, fake, kinds } = await setup({ sampleMs: 10_000 });
   fake.world.tracker.set("CHR-1", { state: "In Progress", url: "https://l/a" });

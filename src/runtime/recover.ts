@@ -28,6 +28,16 @@ const OFFLINE_RELAUNCH_MS = 60 * 1000;
 export function createRecover(deps: RecoverDeps): { pass(): Promise<void> } {
   // Relaunch waits on a control socket for up to 90 s; one attempt per contact at a time.
   const busy = new Set<string>();
+  // Each relaunch spawns the frontend CLI and a pane; a whole operation dying at once must not run them all
+  // together (the board's service cgroup caps threads, and the CLI fails with EAGAIN past it).
+  const queued = new Set<string>();
+  let relaunchChain: Promise<void> = Promise.resolve();
+  function enqueueRelaunch(opId: string, ticket: string): void {
+    const key = `${opId}/${ticket}`;
+    if (queued.has(key) || busy.has(key)) return;
+    queued.add(key);
+    relaunchChain = relaunchChain.then(() => act(opId, ticket, "relaunch")).finally(() => queued.delete(key));
+  }
 
   interface Recovery {
     /** Recover-driven relaunches inside the window, after the last operator relaunch reset the count. */
@@ -144,7 +154,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void> } {
       if (!contact.actions.some((a) => a.id === "relaunch" && a.enabled)) continue;
       if (state.relaunches < MAX_RELAUNCHES) {
         // Relaunch waits up to 90 s for the new socket; never hold the watcher loop for it.
-        void act(opId, contact.ticket, "relaunch");
+        enqueueRelaunch(opId, contact.ticket);
       } else if (!state.gaveUp) {
         // Crash-loop: record the give-up once; an operator Relaunch resets the count.
         await appendEvent(deps.home, opId, {

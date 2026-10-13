@@ -17,6 +17,7 @@ export async function readSettings(home: string): Promise<Settings> {
         ...DEFAULT_SETTINGS,
         worktrees: { ...DEFAULT_SETTINGS.worktrees },
         defaults: { ...DEFAULT_SETTINGS.defaults },
+        ai: { ...DEFAULT_SETTINGS.ai },
       };
     throw new Error(`Cannot read settings at ${path}: ${String(error)}`);
   }

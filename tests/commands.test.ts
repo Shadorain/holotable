@@ -2,10 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runCommand, tokenize, type CommandEnv } from "../src/commands.ts";
+import { fileURLToPath } from "node:url";
+import { runCommand, type CommandEnv } from "../src/commands.ts";
 import { archiveDir } from "../src/paths.ts";
 import { readEvents } from "../src/store/events.ts";
 import { listOperations, readOperation } from "../src/store/operations.ts";
+import { readSettings } from "../src/store/settings.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -26,8 +28,19 @@ async function withLab(extra = ""): Promise<CommandEnv> {
 }
 const kinds = async (env: CommandEnv) => (await readEvents(env.home, "lab")).map((e) => `${e.kind}${"contact" in e ? `:${e.contact}` : ""}`);
 
-test("tokenize keeps quoted labels together", () => {
-  expect(tokenize('zone a "Task force one" --x')).toEqual(["zone", "a", "Task force one", "--x"]);
+
+test("standalone CLI preserves an empty value when clearing a model preference", async () => {
+  const env = fixture();
+  await runCommand("config ai.model test/model", env);
+  const child = Bun.spawn([
+    "bun", fileURLToPath(new URL("../bin/holotable.ts", import.meta.url)),
+    "--home", env.home, "config", "ai.model", "",
+  ], {
+    env: { ...process.env, PI_CODING_AGENT_DIR: join(env.home, "agent"), OMP_HOLOTABLE_HOME: env.home },
+    stdout: "ignore", stderr: "inherit", timeout: 10_000,
+  });
+  expect(await child.exited).toBe(0);
+  expect((await readSettings(env.home)).ai.model).toBeNull();
 });
 
 test("new creates and selects an operation with settings defaults", async () => {
@@ -188,6 +201,21 @@ test("add queues, normalizes linear tickets and records blockers", async () => {
   ]);
   expect(await kinds(env)).toEqual(["queued:CHR-1", "queued:CHR-2", "blocked:CHR-2"]);
 });
+test("standalone CLI preserves task paragraphs, quotes and literal backslashes", async () => {
+  const env = await withLab();
+  const text = 'First paragraph.\n\nVerify "exact" acceptance and preserve literal \\n and \\u0041.';
+  const child = Bun.spawn([
+    "bun", fileURLToPath(new URL("../bin/holotable.ts", import.meta.url)),
+    "--home", env.home, "--current", "lab", "add", "task-1", "--zone", "ops",
+    "--title", "Short title", "--description", text,
+  ], {
+    env: { ...process.env, PI_CODING_AGENT_DIR: join(env.home, "agent"), OMP_HOLOTABLE_HOME: env.home },
+    stdout: "ignore", stderr: "inherit", timeout: 10_000,
+  });
+  expect(await child.exited).toBe(0);
+  expect((await readOperation(env.home, "lab")).contacts.find(c => c.ticket === "task-1")?.description).toBe(text);
+});
+
 
 test("add --worktree adopts an existing checkout instead of queueing", async () => {
   const env = await withLab();

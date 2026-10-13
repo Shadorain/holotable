@@ -6,6 +6,9 @@ import { dropdown, el, switcher, textField } from "./components.js";
 import { fetchJson, slug, storeErrorText } from "./ui.js";
 import { field } from "./fields.js";
 import { icon } from "./icons.js";
+import { renderMarkdown } from "./markdown.js";
+import { openModal } from "./modal.js";
+import { modelDropdown } from "./models.js";
 import { projectFields } from "./projectform.js";
 
 const NEW_REPO = "";
@@ -49,19 +52,42 @@ export function renderNewOperation(root, ctx) {
   root.append(where);
 
   // ---- 2. What ----
-  const what = section("2 · What", "A Linear project link, issue links, or the plan in markdown. An omp pane opens in the repo, reads it (with lin or gh for links) and drafts the zones, contacts, notes and brief below. Optional: you can add contacts on the board instead.");
+  const what = section("2 · What", "Paste a Linear document, ticket links, a plan or a rough goal. The agent drafts an execution plan for you to review.");
+  const whatPanel = el("div", "what-panel");
   const draftText = el("textarea", "plan-edit");
   draftText.rows = 4;
-  draftText.placeholder = "https://linear.app/acme/project/checkout-v2-1a2b3c   or paste the plan";
+  draftText.placeholder = "Paste a plan link, or describe the goal, constraints and what success looks like…";
   draftText.setAttribute("aria-label", "Link or plan for the agent");
   draftText.value = ctx.draftText ?? "";
-  const draftRow = el("div", "notes-tools");
+
+  const draftToolbar = el("div", "draft-toolbar");
+  const draftActions = el("div", "draft-actions");
   const draftBtn = el("button", "btn small primary");
   draftBtn.type = "button";
   draftBtn.append(icon("sparkles", { size: 12 }), document.createTextNode("Draft it"));
-  const draftStatus = el("span", "set-note");
-  draftRow.append(draftBtn, draftStatus);
-  what.append(draftText, draftRow);
+
+  let draftModelOverride;
+  const draftModelDd = modelDropdown({
+    api: ctx.api,
+    value: null,
+    allowInherit: true,
+    inheritLabel: "Default model",
+    label: "Model for draft",
+    placeholder: "Model",
+    className: "dd-model",
+    onChange: (v) => {
+      if (v === null) draftModelOverride = undefined;
+      else draftModelOverride = v === "" ? null : v;
+    },
+  });
+
+  draftActions.append(draftBtn, draftModelDd.root);
+  const draftStatus = el("span", "draft-status");
+  draftStatus.setAttribute("role", "status");
+  draftStatus.setAttribute("aria-live", "polite");
+  draftToolbar.append(draftActions, draftStatus);
+  whatPanel.append(draftText, draftToolbar);
+  what.append(whatPanel);
   root.append(what);
 
   // ---- 3. Review ----
@@ -78,16 +104,114 @@ export function renderNewOperation(root, ctx) {
   const recover = switcher({ label: "Keep missions running", checked: true });
   field(grid, "Keep missions running", recover.root, { note: "Reopen a pane that closes or crashes and take the mission back. Never past a gate, plan or failed verification." });
   review.append(grid);
+  const briefWrap = el("div", "brief-wrap");
   const brief = el("textarea", "plan-edit brief-edit");
   brief.placeholder = "# What this operation is about\nOptional context for you and the missions.";
   brief.setAttribute("aria-label", "Brief");
-  field(review, "Brief", brief, { note: "Markdown, shown on the Operation page." });
+
+  const briefPreview = el("div", "brief-preview");
+  let briefMode = "edit";
+  let briefUserEdited = false;
+  let syncFocusedBrief = null;
+
+  const syncBriefUI = () => {
+    brief.hidden = briefMode !== "edit";
+    briefPreview.hidden = briefMode !== "preview";
+    if (briefMode === "preview") {
+      briefPreview.replaceChildren(renderMarkdown(brief.value || "*Nothing to preview*"));
+    }
+  };
+  brief.addEventListener("input", () => { briefUserEdited = true; });
+
+  const focusBtn = el("button", "btn small");
+  focusBtn.type = "button";
+  focusBtn.append(icon("maximize-2", { size: 12 }), document.createTextNode("Review in focus"));
+  focusBtn.addEventListener("click", () => {
+    const modal = openModal({ title: "Review Brief", onClose: () => { syncFocusedBrief = null; } });
+    modal.box.classList.add("brief-focus");
+    const mBody = el("div", "brief-modal-body");
+    const mArea = el("textarea", "plan-edit brief-modal-edit");
+    mArea.value = brief.value;
+    mArea.setSelectionRange(0, 0);
+    mArea.setAttribute("aria-label", "Brief (focus view)");
+    const mPreview = el("div", "brief-preview brief-modal-preview");
+    mPreview.hidden = true;
+    let mMode = "edit";
+    let focusedBriefEdited = false;
+    mArea.addEventListener("input", () => { focusedBriefEdited = true; });
+    syncFocusedBrief = () => {
+      if (!focusedBriefEdited) mArea.value = brief.value;
+      if (mMode === "preview") mPreview.replaceChildren(renderMarkdown(mArea.value || "*Nothing to preview*"));
+    };
+    const mToggle = el("div", "btn-group brief-modal-toggle");
+    const mEdit = el("button", "btn small", "Edit");
+    const mPrev = el("button", "btn small", "Preview");
+    mEdit.type = "button"; mPrev.type = "button";
+    mEdit.classList.add("active");
+    mEdit.addEventListener("click", () => {
+      if (mMode === "edit") return;
+      mMode = "edit";
+      mEdit.classList.add("active"); mPrev.classList.remove("active");
+      mArea.hidden = false; mPreview.hidden = true;
+      mArea.focus();
+    });
+    mPrev.addEventListener("click", () => {
+      if (mMode === "preview") return;
+      mMode = "preview";
+      mPrev.classList.add("active"); mEdit.classList.remove("active");
+      mPreview.replaceChildren(renderMarkdown(mArea.value || "*Nothing to preview*"));
+      mPreview.hidden = false; mArea.hidden = true;
+    });
+    mToggle.append(mEdit, mPrev);
+    mBody.append(mToggle, mArea, mPreview);
+
+    const mSave = el("button", "btn primary", "Save and close");
+    mSave.type = "button";
+    mSave.addEventListener("click", () => {
+      brief.value = mArea.value;
+      briefUserEdited = true;
+      syncBriefUI();
+      modal.close();
+    });
+
+    const mCancel = el("button", "btn", "Cancel");
+    mCancel.type = "button";
+    mCancel.addEventListener("click", () => modal.close());
+
+    modal.step([mBody], [mCancel, mSave], mArea);
+  });
+
+  const briefToolbar = el("div", "brief-toolbar");
+  const briefToggle = el("div", "btn-group brief-toggle");
+  const bEdit = el("button", "btn small", "Edit");
+  const bPrev = el("button", "btn small", "Preview");
+  bEdit.type = "button"; bPrev.type = "button";
+  bEdit.classList.add("active");
+  bEdit.addEventListener("click", () => {
+    if (briefMode === "edit") return;
+    briefMode = "edit";
+    bEdit.classList.add("active"); bPrev.classList.remove("active");
+    syncBriefUI();
+    brief.focus();
+  });
+  bPrev.addEventListener("click", () => {
+    if (briefMode === "preview") return;
+    briefMode = "preview";
+    bPrev.classList.add("active"); bEdit.classList.remove("active");
+    syncBriefUI();
+  });
+  briefToggle.append(bEdit, bPrev);
+  briefToolbar.append(briefToggle, focusBtn);
+
+  briefWrap.append(briefToolbar, brief, briefPreview);
+  field(review, "Brief", briefWrap, { note: "Markdown, shown on the Operation page." });
+  syncBriefUI();
 
   const seedSummary = el("div", "seed-summary set-note", "No contacts yet: draft them above, or add them on the board after creating.");
   const seedDetails = el("details", "seed-details");
   seedDetails.append(el("summary", "", "Zones, contacts and notes as JSON"));
   const seed = el("textarea", "plan-edit seed-edit mono");
-  seed.placeholder = '{"zones": [{"id": "api", "label": "API"}], "contacts": [{"ticket": "CHR-1", "zone": "api"}]}';
+  seed.placeholder = '{"zones": [{"id": "api", "label": "API"}], "contacts": [{"ticket": "CHR-1", "title": "Short title", "description": "Full task description", "zone": "api"}]}';
   seed.setAttribute("aria-label", "Seed JSON");
   seed.spellcheck = false;
   const seedErr = el("div", "set-err");
@@ -203,7 +327,11 @@ export function renderNewOperation(root, ctx) {
       name.input.value = s.name;
       syncId();
     }
-    if (s.brief && !brief.value.trim()) brief.value = s.brief;
+    if (s.brief && !briefUserEdited) {
+      brief.value = s.brief;
+      syncBriefUI();
+      syncFocusedBrief?.();
+    }
     const body = { zones: s.zones ?? [], contacts: s.contacts ?? [] };
     if (s.notes) body.notes = s.notes;
     seed.value = JSON.stringify(body, null, 2);
@@ -265,7 +393,9 @@ export function renderNewOperation(root, ctx) {
         return;
       }
       draftStatus.textContent = "Opening a pane…";
-      draftId = (await fetchJson(await ctx.api("/api/drafts", { method: "POST", body: JSON.stringify({ text, project }) }))).id;
+      const body = { text, project };
+      if (draftModelOverride !== undefined) body.model = draftModelOverride;
+      draftId = (await fetchJson(await ctx.api("/api/drafts", { method: "POST", body: JSON.stringify(body) }))).id;
       draftStatus.textContent = "The agent is reading and drafting in its pane…";
       timer = setTimeout(pollDraft, 2500);
     } catch (error) {

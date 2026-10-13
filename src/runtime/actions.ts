@@ -81,7 +81,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
    * Open a lane-less agent pane that reads the repo and writes its answer to
    * decisions/<ticket>.json; the watcher lands it (or records why it could not).
    */
-  async function decideAgent(opId: string, ticket: string): Promise<void> {
+  async function decideAgent(opId: string, ticket: string, modelOverride?: string | null): Promise<void> {
     const settings = await deps.settings();
     const projection = await loadProjection(deps.home, opId, settings, deps.now().getTime(), deps.extras(opId));
     const offered = projection.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === "decide-agent");
@@ -103,10 +103,17 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         .filter((c) => c.ticket !== ticket && c.decision !== null)
         .map((c) => ({ ticket: c.ticket, decision: c.decision as NonNullable<typeof c.decision> })),
     });
+    const selectedModel = modelOverride !== undefined
+      ? modelOverride
+      : (settings.ai.decision ?? settings.ai.model);
+    const argv = ["omp"];
+    if (selectedModel) argv.push("--model", selectedModel);
+    if (settings.ai.thinking) argv.push("--thinking", settings.ai.thinking);
+    argv.push(prompt);
     const terminal = await ports.frontend.openTerminal({
       worktree: operation.integration,
       title: `decide ${ticket}`,
-      argv: ["omp", prompt],
+      argv,
       env: { OMP_HOLOTABLE_CHILD: "1" },
     });
     await writeDecisionPane(deps.home, opId, ticket, { terminal, startedAt: deps.now().toISOString() });
@@ -207,15 +214,27 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       case "redecide":
         run = () => redecide(req.op, req.contact, req.args);
         break;
-      case "decide-agent":
-        run = () => decideAgent(req.op, req.contact);
+      case "decide-agent": {
+        if (req.args.model !== undefined && req.args.model !== null && typeof req.args.model !== "string")
+          throw new ActionError(400, "bad-request", "model must be a string or null");
+        const modelArg = req.args.model === null ? null : (typeof req.args.model === "string" ? req.args.model : undefined);
+        run = () => decideAgent(req.op, req.contact, modelArg);
         break;
+      }
       case "land":
         run = () => landContact(deps, req.op, req.contact);
         break;
-      case "launch":
-        run = () => launchContact(deps, req.op, req.contact);
+      case "launch": {
+        if (req.args.model !== undefined && req.args.model !== null && typeof req.args.model !== "string")
+          throw new ActionError(400, "bad-request", "model must be a string or null");
+        const modelArg = req.args.model === null ? null : (typeof req.args.model === "string" ? req.args.model : undefined);
+        run = () =>
+          launchContact(deps, req.op, req.contact, {
+            ...(req.args.conflictPaths ? { conflictPaths: req.args.conflictPaths as string[] } : {}),
+            ...(req.args.model !== undefined ? { model: modelArg } : {}),
+          });
         break;
+      }
       case "reap":
         run = () => reap(req.op, req.contact);
         break;

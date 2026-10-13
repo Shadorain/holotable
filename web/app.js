@@ -2,7 +2,7 @@
 // Regions re-render only when their data changed, and never under an open <select>,
 // so a 3 s poll does not steal focus, close dropdowns or flicker.
 import { renderOps } from "./board.js";
-import { cardTabs, clearCardDecision, getCardDecision, planUiKey, renderCard } from "./card.js";
+import { cardTabs, clearCardDecision, clearDecideModel, clearLaunchModel, getCardDecision, getDecideModel, getLaunchModel, planUiKey, renderCard } from "./card.js";
 import { orderedTickets, renderList } from "./list.js";
 import { drawLinks, renderHistory, renderMap } from "./plan.js";
 import { createRadar } from "./radar.js";
@@ -167,6 +167,7 @@ const settingsDrawer = createSettingsDrawer({
   api,
   applyTheme,
   toast,
+  settingsChanged: (settings) => { state.settings = settings; render(); },
   openHelp: () => $("help").showModal(),
   openGuide: () => {
     showOnboarding();
@@ -181,9 +182,13 @@ const settingsDrawer = createSettingsDrawer({
 async function loadTheme() {
   try {
     const res = await api("/api/settings");
-    if (res.ok) applyTheme((await res.json()).settings.theme);
+    if (res.ok) {
+      const data = await res.json();
+      applyTheme(data.settings.theme);
+      state.settings = data.settings;
+      if (data.settings.defaults) state.defaults = { ...state.defaults, ...data.settings.defaults, ai: data.settings.ai };
+    }
   } catch {
-    // The file wins when it answers; localStorage already painted a theme.
   }
 }
 loadTheme();
@@ -229,11 +234,11 @@ async function runAction(ticket, action, args = {}, opId = state.opId) {
 }
 
 function confirmOrRun(ticket, action) {
+  const opId = state.opId;
   const key = `${ticket}/${action}`;
   // Recording a decision needs the choice (and maybe why), so it opens a dialog first.
   const contact = state.projection?.contacts.find((c) => c.ticket === ticket);
   if (contact?.kind === "decision" && (action === "done" || action === "redecide")) {
-    const opId = state.opId;
     const initialChoice = action === "done" ? getCardDecision(opId, ticket) : null;
     openDecide(contact, action, async (args) => {
       const res = await runAction(ticket, action, args, opId);
@@ -252,10 +257,22 @@ function confirmOrRun(ticket, action) {
     render();
     return;
   }
+  const args = {};
+  if (action === "launch") {
+    const model = getLaunchModel(opId, ticket);
+    if (model !== undefined) args.model = model;
+  } else if (action === "decide-agent") {
+    const model = getDecideModel(opId, ticket);
+    if (model !== undefined) args.model = model;
+  }
   state.confirming = null;
-  runAction(ticket, action);
+  runAction(ticket, action, args, opId).then((res) => {
+    if (res?.ok) {
+      if (action === "launch") clearLaunchModel(opId, ticket);
+      if (action === "decide-agent") clearDecideModel(opId, ticket);
+    }
+  });
 }
-
 // ---- rendering ----
 
 /** Rebuild a region only when its inputs changed; keep keyboard focus on the same control. */
@@ -469,6 +486,8 @@ function render() {
     }
   }
   const ctx = {
+    opId: p.operation.id,
+    ai: state.settings?.ai,
     busy: state.busy,
     confirming: state.confirming,
     run: runAction,
@@ -493,7 +512,7 @@ function render() {
   // The card's timeline reads the log, so only that contact's lines are part of its signature.
   const mine = state.cardTab === "history" && state.history ? state.history.filter((h) => h.contact === selected) : null;
   const plan = state.cardTab === "plan" ? planFor(p.operation.id, contact) : null;
-  region($("card"), { op: p.operation.id, contact, zones: p.operation.zones, rel: p.contacts.map((c) => [c.ticket, c.state, c.conflictOf, c.blockedBy]), tab: state.cardTab, mine, plan, planUi: contact ? planUiKey(p.operation.id, contact.ticket) : "", busy, c: state.confirming }, (root) =>
+  region($("card"), { op: p.operation.id, ai: state.settings?.ai, contact, zones: p.operation.zones, rel: p.contacts.map((c) => [c.ticket, c.state, c.conflictOf, c.blockedBy]), tab: state.cardTab, mine, plan, planUi: contact ? planUiKey(p.operation.id, contact.ticket) : "", busy, c: state.confirming }, (root) =>
     renderCard(root, p, contact, ctx, state.cardTab, state.cardTab === "history" ? state.history : null, plan));
   if (state.view === "table") renderRadarOverlay(p, selected);
   if (state.view === "table")
@@ -523,7 +542,7 @@ function render() {
         ui: opUiKey(p.operation.id),
         auto: p.operation.auto,
         zones: p.operation.zones,
-        contacts: p.contacts.map((c) => [c.ticket, c.title, c.zone, c.kind, c.state, c.blockedBy]),
+        contacts: p.contacts.map((c) => [c.ticket, c.title, c.description, c.zone, c.kind, c.state, c.blockedBy]),
         notes: p.notes,
         notesKey: notesKey(p.operation.id),
         busy: [...ctx.busy],
@@ -1000,14 +1019,11 @@ document.addEventListener("click", (event) => {
     return;
   }
   const pick = event.target.closest("[data-id]");
-  if (pick) select(pick.dataset.id);
-});
-// On the Plan map a click picks a contact (and its chain); a double click opens its card on the Board.
-document.addEventListener("dblclick", (event) => {
-  const node = event.target.closest?.("#planMap .node[data-ticket]");
-  if (!node) return;
-  select(node.dataset.ticket);
-  setView("board");
+  if (!pick) return;
+  // Selection rebuilds the map before the browser can dispatch dblclick to its old target.
+  const openCard = event.detail === 2 && Boolean(pick.closest("#planMap"));
+  select(pick.dataset.id);
+  if (openCard) setView("board");
 });
 
 const VIEW_KEYS = { t: "table", 1: "table", b: "board", 2: "board", p: "plan", 3: "plan" };

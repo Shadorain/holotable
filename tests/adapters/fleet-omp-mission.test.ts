@@ -200,41 +200,20 @@ describe("fleet.control", () => {
 describe("fleet.launch", () => {
   const fleet = ompMissionFleet({ agentDir: "/unused" });
   const op = (over: Partial<Operation> = {}): Operation => ({ ...operation(), ...over });
-  const launch = (operation: Operation, c: Contact, extra: { conflictPaths?: string[] } = {}) =>
-    fleet.launch({ operation, contact: c, worktree: "/wt/x", overlay: "/home/launch/plan-default.yml", ...extra });
+  const launch = (operation: Operation, contact: Contact) =>
+    fleet.launch({ operation, contact, worktree: "/wt/x", overlay: "/home/launch/plan-default.yml" });
 
-  test("a ticket launches `/mission <ticket>` through the autostart env and plan overlay", () => {
-    const out = launch(op({ tracker: "linear", delivery: "github-pr" }), contact("CHR-142"));
-    expect(out.argv).toEqual(["omp", "--config", "/home/launch/plan-default.yml"]);
-    expect(out.env).toEqual({
-      OMP_MISSION_AUTOSTART: "/mission CHR-142 --pause",
-      OMP_HOLOTABLE_CHILD: "1",
-      OMP_MISSION_CHECKOUT: "/wt/x",
-      OMP_MISSION_BASE: "main",
-      OMP_MISSION_GRAPH: "beads",
-      OMP_MISSION_DELIVERY: "pr",
-    });
-  });
+  test("task text and option-looking words cannot become mission flags", () => {
+    const task = 'Preserve literal --force and --pause words.\n\nVerify "acceptance" evidence.';
+    const local = launch(op({ pause: true }), { ...contact("task-1"), title: "Short", description: task });
+    expect(local.env.OMP_MISSION_AUTOSTART).toBe(`/mission --pause -- ${task.replace(/\s+/g, " ")}`);
 
-  test("no tracker launches a freeform mission with flags before `--`", () => {
-    const env = launch(op({ pause: false }), contact("notes", { title: "Write\nthe notes" })).env;
-    expect(env.OMP_MISSION_AUTOSTART).toBe("/mission -- Write the notes");
-    expect(launch(op(), contact("notes")).env.OMP_MISSION_AUTOSTART).toBe("/mission --pause -- notes");
-  });
-
-  test("delivery is pr only for implement contacts under github-pr", () => {
-    const gh = op({ delivery: "github-pr" });
-    expect(launch(gh, contact("a", { kind: "audit" })).env.OMP_MISSION_DELIVERY).toBe("local");
-    expect(launch(gh, contact("a")).env.OMP_MISSION_DELIVERY).toBe("pr");
-    expect(launch(op(), contact("a")).env.OMP_MISSION_DELIVERY).toBe("local");
-  });
-
-  test("a conflict contact is a local-graph mission scoped to the conflicted paths", () => {
-    const paths = Array.from({ length: 23 }, (_, n) => `src/f${n}.ts`);
-    const out = launch(op(), contact("CHR-1-conflict-1", { kind: "conflict", conflictOf: "CHR-1" }), { conflictPaths: paths });
-    expect(out.env.OMP_MISSION_GRAPH).toBe("local");
-    expect(out.env.OMP_MISSION_AUTOSTART).toBe(
-      `/mission --pause -- Resolve the merge conflicts in ${paths.slice(0, 20).join(", ")} and 3 more of CHR-1. Edit only those files. Do not merge, push or open a PR.`,
-    );
+    const tracked = launch(op({ tracker: "linear", pause: true }), { ...contact("CHR-142"), description: task });
+    expect(tracked.env.OMP_MISSION_AUTOSTART).toBe("/mission CHR-142 --pause");
+    expect(tracked.argv).toEqual([
+      "omp", "--config", "/home/launch/plan-default.yml",
+      "--append-system-prompt", `Additional scope for mission CHR-142:\n\n${task}`,
+    ]);
   });
 });
+

@@ -286,6 +286,20 @@ describe("recovery: relaunch", () => {
     expect(t.fake.count("frontend.openTerminal")).toBe(2);
   });
 
+  test("a mission past its plan relaunches outside plan mode so continue is allowed; one still planning reopens in it", async () => {
+    const overlayOf = (t: Awaited<ReturnType<typeof setup>>) =>
+      String((t.fake.calls.find((c) => c.method === "launch")?.args as { overlay?: string } | undefined)?.overlay);
+    for (const [phase, overlay] of [["graph", "resume.yml"], ["plan", "plan-default.yml"]] as const) {
+      const t = await setup();
+      t.fake.world.terminals = [];
+      t.dead("a");
+      t.fake.world.statuses.set("/wt/a", status({ phase, ctl: null }));
+      t.vanished.add("a");
+      await t.act({ op: "lab", contact: "a", action: "relaunch", args: {} });
+      expect(overlayOf(t).endsWith(`/launch/${overlay}`)).toBe(true);
+    }
+  });
+
   test("a relaunched session at resume hold is continued by the next pass", async () => {
     const t = await setup();
     t.fake.world.terminals = [];

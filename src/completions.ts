@@ -1,6 +1,5 @@
 import type { AutocompleteItem } from "@oh-my-pi/pi-tui";
-import { ACCESS_MODES, DELIVERIES, FLEETS, FRONTENDS, KINDS, THEMES, TRACKERS } from "./core/types.ts";
-
+import { ACCESS_MODES, DELIVERIES, FLEETS, FRONTENDS, KINDS, THEMES, THINKING_LEVELS, TRACKERS } from "./core/types.ts";
 export interface CompletionSnapshot {
   operations: Array<{ id: string; name: string; archived: boolean }>;
   current: { id: string; zones: string[]; tickets: string[] } | null;
@@ -53,6 +52,11 @@ const CONFIG_VALUES: Record<string, readonly string[]> = {
   "custom.terminal": [],
   "custom.focus": [],
   "custom.close": [],
+  "ai.model": [],
+  "ai.thinking": THINKING_LEVELS,
+  "ai.draft": [],
+  "ai.decision": [],
+  "ai.mission": [],
 };
 const CLOSE_OUTCOMES = ["landed", "abandoned", "decision", "failed"];
 

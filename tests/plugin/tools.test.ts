@@ -133,3 +133,19 @@ test("the model's queue changes are attributed to it, in the event log and on th
   const p = project({ operation: op, events, statuses: {}, owners: {}, probes: {}, load: { live: 0, open: 0 }, cap: 8, now: Date.now(), project: null, notesText: null });
   expect(p.contacts.find((c) => c.ticket === "b")?.origin).toMatchObject({ actor: "model", text: "queued by the model" });
 });
+
+test("queue edits preserve independent scope, and explicit null clears it", async () => {
+  const { home, queue } = await setup([contact("a", { title: "Title A", description: "Scope A" })]);
+  await queue.execute({ action: "update", ticket: "a", description: "Updated scope" });
+  expect((await readOperation(home, "lab")).contacts[0]?.title).toBe("Title A");
+
+  await queue.execute({ action: "update", ticket: "a", title: "Updated title", zone: "ship" });
+  expect((await readOperation(home, "lab")).contacts[0]?.description).toBe("Updated scope");
+  await expect(queue.execute({ action: "update", ticket: "a", description: false })).rejects.toThrow();
+  expect((await readOperation(home, "lab")).contacts[0]?.description).toBe("Updated scope");
+
+  await queue.execute({ action: "update", ticket: "a", description: null });
+  expect((await readOperation(home, "lab")).contacts[0]).toMatchObject({
+    title: "Updated title", zone: "ship", description: null,
+  });
+});

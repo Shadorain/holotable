@@ -27,7 +27,12 @@ export function openAddContact(projection, ctx) {
     return;
   }
   const tracked = op.tracker !== "none";
-  const title = textField({ label: "Title", placeholder: "What it is (optional when the tracker has one)", spellcheck: false });
+  const title = textField({ label: "Title", placeholder: "Short title (optional when the tracker has one)", spellcheck: false });
+  const description = el("textarea", "plan-edit contact-desc-edit");
+  description.rows = 4;
+  description.placeholder = "Full task scope, acceptance criteria, or context (optional)";
+  description.setAttribute("aria-label", "Description");
+  description.spellcheck = false;
   const existing = new Set(projection.contacts.map((c) => c.ticket));
   const ticket = combobox({
     label: "Ticket",
@@ -139,6 +144,7 @@ export function openAddContact(projection, ctx) {
     row("Zone", zone.root),
     row("Kind", kind.root),
   );
+  const descRow = row("Description", description, "Full task scope, acceptance criteria, or context.");
   const waits = row("Waits for", chips, "It stays queued until these land.");
   decideBox.append(row("Options", optionsText, "Two or more, for a pick-one decision."), row("Recommended", recommended.root, "Auto mode takes it when deciding is automated."));
 
@@ -156,6 +162,7 @@ export function openAddContact(projection, ctx) {
           zone: zone.value,
           kind: kind.value,
           title: title.input.value.trim() || undefined,
+          description: description.value.trim() || undefined,
           blockedBy: blockedBy.length ? blockedBy : undefined,
           ...(kind.value === "decision" && optionLines().length
             ? { options: optionLines(), ...(recommended.value ? { recommended: recommended.value } : {}) }
@@ -183,7 +190,13 @@ export function openAddContact(projection, ctx) {
         submit();
       }
     });
-  modal.step([grid, decideBox, waits, err], [modalButton("Cancel", { onClick: modal.close }), add], ticket.input);
+  description.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      submit();
+    }
+  });
+  modal.step([grid, descRow, decideBox, waits, err], [modalButton("Cancel", { onClick: modal.close }), add], ticket.input);
 }
 
 /** Small "+ Add contact" button for list and map headers. */

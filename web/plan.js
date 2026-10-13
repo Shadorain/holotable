@@ -65,13 +65,24 @@ function node(c, selected, chain) {
   box.dataset.id = c.ticket;
   box.dataset.key = `node/${c.ticket}`;
   box.dataset.ticket = c.ticket;
-  box.title = "Click: show what it waits on and unblocks · Double-click: open its card";
+  const taskText = c.title ?? c.ticket;
+  const statusNote = c.detail ? ` (${c.detail})` : "";
+  box.title = `${c.ticket}: ${taskText}${statusNote} · Click to trace, double-click to open`;
+  box.setAttribute("aria-label", `${c.ticket}: ${taskText}`);
   const top = el("div", "node-top");
   top.append(statePill(c.state), el("span", "mono", c.ticket));
-  if (c.kind !== "implement" && c.kind !== c.state) top.append(el("span", "tag", c.kind));
-  box.append(top, el("div", "node-title", c.title ?? c.ticket));
-  if (c.state !== "landed") box.append(el("div", "node-detail", c.detail));
-  if (c.origin) box.append(el("div", "node-origin", `${c.origin.text} · ${ago(c.origin.at)}`));
+  box.append(top, el("div", "node-title", taskText));
+  if (c.state !== "landed") {
+    const unlanded = c.blockedBy?.filter((b) => !b.landed).map((b) => b.ticket) ?? [];
+    if (unlanded.length > 0) {
+      const cue = unlanded.length <= 2 ? `waits on ${unlanded.join(", ")}` : `waits on ${unlanded[0]} +${unlanded.length - 1}`;
+      box.append(el("div", "node-cue", cue));
+    } else if (c.conflictOf) {
+      box.append(el("div", "node-cue", `conflict of ${c.conflictOf}`));
+    } else if (c.phase) {
+      box.append(el("div", "node-cue", c.phase));
+    }
+  }
   return box;
 }
 

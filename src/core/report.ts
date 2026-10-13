@@ -9,6 +9,7 @@ const MAX_NOTES = 4000;
 export interface ReportContact {
   ticket: string;
   title: string | null;
+  description?: string | null;
   zone: string;
   kind: string;
   final: "landed" | "aborted" | "not-launched";
@@ -66,6 +67,7 @@ export function buildReport(
     return {
       ticket: contact.ticket,
       title: contact.title,
+      description: contact.description ?? null,
       zone: contact.zone,
       kind: contact.kind,
       final: (d?.landed ?? false) ? "landed" : contact.lane ? "aborted" : "not-launched",

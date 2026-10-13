@@ -223,4 +223,5 @@ describe("auto.decide", () => {
     expect(t.fake.count("frontend.openTerminal")).toBe(0);
     expect((await t.events()).some((e) => e.kind === "decided" && "contact" in e && e.contact === "D-2" && e.by === "recommended")).toBe(true);
   });
+
 });

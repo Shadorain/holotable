@@ -110,7 +110,7 @@ ${HELP.replaceAll("/holotable", "holotable")}` });
       return print({ message: `${verb === "install" ? "Installed" : "Removed"} ${result.unitPath}${verb === "install" && !rest.includes("--now") ? "\nStart with holotable start; install --now also enables login startup." : ""}` });
     }
     default: {
-      const args = argv.map((token) => /[\s"\\]/.test(token) ? JSON.stringify(token) : token).join(" ");
+      const args = argv.map((token) => !token || /[\s"\\]/.test(token) ? JSON.stringify(token) : token).join(" ");
       const outcome = await core.runCommand(args, { cwd: process.cwd(), current });
       if (outcome.current !== undefined && !explicitCurrent) await writeSelection(home, outcome.current);
       if (verb === "new" && rest.includes("--auto")) {

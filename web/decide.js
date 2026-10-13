@@ -3,6 +3,7 @@
 // Either way the reasoning is optional and kept on the contact.
 import { el, textField } from "./components.js";
 import { icon } from "./icons.js";
+import { renderMarkdown } from "./markdown.js";
 import { modalButton, openModal } from "./modal.js";
 
 /** `contact`: ContactView; `action`: "done" | "redecide"; `run(args)` returns {ok, error}. */
@@ -31,6 +32,12 @@ export function openDecide(contact, action, run, { initialChoice = null } = {}) 
   err.hidden = true;
 
   const body = [question];
+  const desc = contact.description ?? null;
+  if (desc && desc.trim()) {
+    const descEl = el("div", "decide-desc");
+    descEl.append(renderMarkdown(desc));
+    body.push(descEl);
+  }
   let updateRecBtn = null;
   let recBtn = null;
 

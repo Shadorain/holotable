@@ -7,17 +7,28 @@ import {
   FLEETS,
   FRONTENDS,
   THEMES,
+  THINKING_LEVELS,
   TRACKERS,
   type Access,
+  type AiSettings,
   type Delivery,
   type Fleet,
   type Frontend,
   type Settings,
   type Theme,
+  type ThinkingLevel,
   type Tracker,
 } from "./core/types.ts";
 import { invalidAt, isRecord } from "./core/validate.ts";
 import { DEFAULT_WORKTREE_ROOT, worktreeRootProblem } from "./core/worktrees.ts";
+
+export const DEFAULT_AI_SETTINGS: AiSettings = {
+  model: null,
+  thinking: null,
+  draft: null,
+  decision: null,
+  mission: null,
+};
 
 export const DEFAULT_SETTINGS: Settings = {
   access: "tailscale",
@@ -29,6 +40,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cleanup: true,
   worktrees: { root: DEFAULT_WORKTREE_ROOT },
   defaults: { tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none" },
+  ai: { ...DEFAULT_AI_SETTINGS },
 };
 
 export const SETTING_KEYS = [
@@ -47,6 +59,11 @@ export const SETTING_KEYS = [
   "custom.terminal",
   "custom.focus",
   "custom.close",
+  "ai.model",
+  "ai.thinking",
+  "ai.draft",
+  "ai.decision",
+  "ai.mission",
 ] as const;
 
 /** Keys the running service only picks up after a restart. */
@@ -155,7 +172,38 @@ export function validateSettings(value: unknown, path = "settings.json"): Settin
       custom[key] = member;
     }
   }
-  const settings: Settings = { access, port, cap, pollMs, sampleMs, theme: theme as Theme, cleanup, worktrees, defaults };
+  let ai: AiSettings = { ...DEFAULT_AI_SETTINGS };
+  const aiValue = "ai" in raw ? raw.ai : undefined;
+  if (aiValue !== undefined) {
+    if (!isRecord(aiValue)) return fail("ai must be a JSON object");
+    const fields = aiValue;
+    const parseModel = (key: keyof AiSettings): string | null => {
+      const member = fields[key];
+      if (member === undefined || member === null) return null;
+      if (typeof member !== "string") return fail(`ai.${key} must be a string or null`);
+      const trimmed = member.trim();
+      return trimmed === "" ? null : trimmed;
+    };
+    const parseThinking = (): string | null => {
+      const member = fields.thinking;
+      if (member === undefined || member === null) return null;
+      if (typeof member !== "string") return fail("ai.thinking must be a string or null");
+      const trimmed = member.trim();
+      if (trimmed === "" || trimmed === "null" || trimmed === "none") return null;
+      if (!(THINKING_LEVELS as readonly string[]).includes(trimmed as ThinkingLevel))
+        return fail(`ai.thinking must be one of: ${THINKING_LEVELS.join(", ")}`);
+      return trimmed;
+    };
+    ai = {
+      model: parseModel("model"),
+      thinking: parseThinking(),
+      draft: parseModel("draft"),
+      decision: parseModel("decision"),
+      mission: parseModel("mission"),
+    };
+  }
+
+  const settings: Settings = { access, port, cap, pollMs, sampleMs, theme: theme as Theme, cleanup, worktrees, defaults, ai };
   if (custom) settings.custom = custom;
   return settings;
 }
@@ -174,6 +222,11 @@ export function formatSettings(settings: Settings): string {
     `  defaults.frontend: ${settings.defaults.frontend}`,
     `  defaults.delivery: ${settings.defaults.delivery}`,
     `  cleanup: ${settings.cleanup}`,
+    `  ai.model: ${settings.ai.model || "(unset)"}`,
+    `  ai.thinking: ${settings.ai.thinking || "(unset)"}`,
+    `  ai.draft: ${settings.ai.draft || "(unset)"}`,
+    `  ai.decision: ${settings.ai.decision || "(unset)"}`,
+    `  ai.mission: ${settings.ai.mission || "(unset)"}`,
   ];
   if (settings.custom) {
     lines.push(
@@ -185,33 +238,38 @@ export function formatSettings(settings: Settings): string {
   return `Holotable configuration:\n${lines.join("\n")}`;
 }
 
-export function setSettingKey(settings: Settings, key: string, value: string): Settings {
-  if (!(SETTING_KEYS as readonly string[]).includes(key))
+export function setSettingKey(settings: Settings, key: string, value: string | null): Settings {
+  if (!(SETTING_KEYS as readonly string[]).includes(key as (typeof SETTING_KEYS)[number]))
     throw new Error(`Unknown setting "${key}". Valid keys: ${SETTING_KEYS.join(", ")}`);
   const next: Settings = JSON.parse(JSON.stringify(settings));
   switch (key) {
     case "access": {
-      if (!(ACCESS_MODES as readonly string[]).includes(value as Access))
+      if (value === null || !(ACCESS_MODES as readonly string[]).includes(value as Access))
         throw new Error(`access must be one of: ${ACCESS_MODES.join(", ")}`);
       next.access = value as Access;
       break;
     }
     case "port":
+      if (value === null) throw new Error("port must be 0 or an integer from 1 to 65535");
       next.port = numericSetting("port", value);
       break;
     case "cap":
+      if (value === null) throw new Error("cap must be an integer from 1 to 64");
       next.cap = numericSetting("cap", value);
       break;
     case "pollMs":
+      if (value === null) throw new Error("pollMs must be an integer from 1000 to 60000");
       next.pollMs = numericSetting("pollMs", value);
       break;
     case "sampleMs":
+      if (value === null) throw new Error("sampleMs must be an integer from 10000 to 600000");
       next.sampleMs = numericSetting("sampleMs", value);
       break;
     case "theme":
       next.theme = value as Theme;
       break;
     case "worktrees.root":
+      if (value === null) throw new Error("worktrees.root must be a string");
       next.worktrees.root = value;
       break;
     case "defaults.tracker":
@@ -230,9 +288,27 @@ export function setSettingKey(settings: Settings, key: string, value: string): S
     case "defaults.delivery":
       next.defaults.delivery = value as Delivery;
       break;
+    case "ai.model":
+    case "ai.draft":
+    case "ai.decision":
+    case "ai.mission": {
+      const field = key.slice("ai.".length) as "model" | "draft" | "decision" | "mission";
+      next.ai[field] =
+        value === null || value === "" || value === "null" || value === "none" || value === "(unset)"
+          ? null
+          : value.trim();
+      break;
+    }
+    case "ai.thinking": {
+      next.ai.thinking =
+        value === null || value === "" || value === "null" || value === "none" || value === "(unset)"
+          ? null
+          : value.trim();
+      break;
+    }
     default: {
       const field = key.slice("custom.".length) as "terminal" | "focus" | "close";
-      next.custom = { ...next.custom, [field]: value } as Settings["custom"];
+      next.custom = { ...next.custom, [field]: value ?? "" } as Settings["custom"];
       break;
     }
   }

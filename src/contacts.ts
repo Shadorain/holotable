@@ -11,6 +11,7 @@ export interface NewContact {
   kind?: Kind;
   blockedBy?: string[];
   title?: string | null;
+  description?: string | null;
   /** Decision contacts only: the options the operator or agent may pick from. */
   options?: string[];
   /** Decision contacts only: the board's suggested option. */
@@ -25,6 +26,7 @@ export interface ContactPatch {
   kind?: Kind;
   blockedBy?: string[];
   title?: string | null;
+  description?: string | null;
   options?: string[];
   recommended?: string;
 }
@@ -52,6 +54,7 @@ export async function addContact(
     const contact: Contact = {
       ticket,
       title: input.title ?? null,
+      description: input.description ?? null,
       zone: input.zone,
       kind: input.kind ?? "implement",
       blockedBy: (input.blockedBy ?? []).map((t) => normalizeTicket(op.tracker, t)),
@@ -101,6 +104,7 @@ export async function updateContact(
       ...(patch.zone !== undefined ? { zone: patch.zone } : {}),
       ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
       ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.description !== undefined ? { description: patch.description } : {}),
       ...(blockedBy !== undefined ? { blockedBy } : {}),
       ...(patch.options !== undefined ? { options: patch.options } : {}),
       ...(patch.recommended !== undefined ? { recommended: patch.recommended } : {}),

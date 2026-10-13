@@ -45,6 +45,7 @@ const base = (): RawOp => ({
 const contact = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   ticket: "a",
   title: null,
+  description: null,
   zone: "z1",
   kind: "implement",
   blockedBy: [],
@@ -149,6 +150,14 @@ describe("validateOperation", () => {
     op.contacts = [contact({ ticket: "a-c-1", kind: "conflict", conflictOf: "gone" })];
     expect(bad(op)).toContain("not a contact ticket");
   });
+  test("contact description rejects malformed values", () => {
+    for (const description of [123, {}]) {
+      const op = base();
+      op.contacts = [contact({ ticket: "a", description })];
+      expect(() => validateOperation(op)).toThrow();
+    }
+  });
+
 
   test("relative lane.worktree and bare terminal are rejected", () => {
     let op = base();

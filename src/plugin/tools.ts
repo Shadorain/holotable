@@ -123,7 +123,8 @@ export function holotableToolDefs(deps: ToolDeps): { state: GenericTool; queue: 
           zone: OPT_STR,
           kind: { type: "string", enum: [...KINDS] },
           blockedBy: { type: "array", items: OPT_STR },
-          title: OPT_STR,
+          title: { ...OPT_STR, description: "Short label, not full task instructions" },
+          description: { type: ["string", "null"], description: "Full task scope and acceptance criteria; null clears it" },
           options: { type: "array", items: OPT_STR, description: "Decision contacts only: the choices to pick from" },
           recommended: { ...OPT_STR, description: "Decision contacts only: the suggested option" },
         },
@@ -138,6 +139,7 @@ export function holotableToolDefs(deps: ToolDeps): { state: GenericTool; queue: 
         const kind = optKind(params);
         const blockedBy = optStringList(params, "blockedBy");
         const title = optString(params, "title");
+        const description = params.description === null ? null : optString(params, "description");
         const options = optStringList(params, "options");
         const recommended = optString(params, "recommended");
         if (action === "add") {
@@ -149,6 +151,7 @@ export function holotableToolDefs(deps: ToolDeps): { state: GenericTool; queue: 
             ...(kind ? { kind } : {}),
             ...(blockedBy ? { blockedBy } : {}),
             ...(title !== undefined ? { title } : {}),
+            ...(description !== undefined ? { description } : {}),
             ...(options !== undefined ? { options } : {}),
             ...(recommended !== undefined ? { recommended } : {}),
           });
@@ -164,6 +167,7 @@ export function holotableToolDefs(deps: ToolDeps): { state: GenericTool; queue: 
             ...(kind ? { kind } : {}),
             ...(blockedBy ? { blockedBy } : {}),
             ...(title !== undefined ? { title } : {}),
+            ...(description !== undefined ? { description } : {}),
             ...(options !== undefined ? { options } : {}),
             ...(recommended !== undefined ? { recommended } : {}),
           },

@@ -254,11 +254,12 @@ test("POST /api/zones and /api/contacts add to the operation; bad input is a 400
   expect(await zone.json()).toEqual({ id: "second-desk" });
   // The same label again gets its own id rather than colliding.
   expect(await (await api("/api/zones", { method: "POST", body: { op: "lab", label: "Second desk" } })).json()).toEqual({ id: "second-desk-2" });
-  const added = await api("/api/contacts", { method: "POST", body: { op: "lab", ticket: "t9", zone: "second-desk", kind: "audit", title: "Audit nine" } });
+  const added = await api("/api/contacts", { method: "POST", body: { op: "lab", ticket: "t9", zone: "second-desk", kind: "audit", title: "Audit nine", description: "Audit nine full description" } });
   expect(added.status).toBe(200);
   expect(await added.json()).toEqual({ ticket: "t9" });
-  const projection = (await (await api("/api/projection?op=lab")).json()) as { contacts: Array<{ ticket: string; zone: string; kind: string }> };
-  expect(projection.contacts.find((c) => c.ticket === "t9")).toMatchObject({ zone: "second-desk", kind: "audit" });
+  const projection = (await (await api("/api/projection?op=lab")).json()) as { contacts: Array<{ ticket: string; zone: string; kind: string; title: string | null; description: string | null }> };
+  expect(projection.contacts.find((c) => c.ticket === "t9")).toMatchObject({ zone: "second-desk", kind: "audit", title: "Audit nine", description: "Audit nine full description" });
+  expect((await api("/api/contacts", { method: "POST", body: { op: "lab", ticket: "t10", zone: "second-desk", description: 123 } })).status).toBe(400);
   expect((await api("/api/contacts", { method: "POST", body: { op: "lab", ticket: "t8", zone: "ghost" } })).status).toBe(400);
   expect((await api("/api/zones", { method: "POST", body: { op: "lab", label: "" } })).status).toBe(400);
   expect((await api("/api/contacts", { method: "POST", body: { op: "ghost", ticket: "t1", zone: "ops" } })).status).toBe(404);
@@ -417,4 +418,49 @@ test("tracker search resolves the project's tracker when no operation exists yet
   const body = await (await api("/api/tracker/search?project=backyard&q=ki")).json();
   expect(body).toEqual({ tracker: "linear", hits: [{ ticket: "CHR-9", title: "Kiosk check-in", state: "Todo", url: null }] });
   expect(fake.calls.at(-1)?.args).toMatchObject({ query: "ki", cwd: "/tmp/backyard" });
+});
+test("PUT /api/settings accepts null values for nullable settings", async () => {
+  const { api } = await boot();
+  const setModel = await api("/api/settings", {
+    method: "PUT",
+    body: { key: "ai.model", value: "openai/gpt-4o" },
+  });
+  expect(setModel.status).toBe(200);
+  const setJson = (await setModel.json()) as { settings: { ai: { model: string | null } } };
+  expect(setJson.settings.ai.model).toBe("openai/gpt-4o");
+
+  const clearModel = await api("/api/settings", {
+    method: "PUT",
+    body: { key: "ai.model", value: null },
+  });
+  expect(clearModel.status).toBe(200);
+  const clearJson = (await clearModel.json()) as { settings: { ai: { model: string | null } } };
+  expect(clearJson.settings.ai.model).toBeNull();
+  const badValue = await api("/api/settings", {
+    method: "PUT",
+    body: { key: "ai.model", value: 123 },
+  });
+  expect(badValue.status).toBe(400);
+});
+
+test("POST /api/drafts validates model argument", async () => {
+  const { api } = await boot();
+
+  const badModel = await api("/api/drafts", {
+    method: "POST",
+    body: { text: "draft text", repo: "/tmp/lab", model: 999 },
+  });
+  expect(badModel.status).toBe(400);
+
+});
+
+test("POST /api/actions rejects malformed args.model", async () => {
+  const { api } = await boot({
+    action: async () => {},
+  });
+  const badAction = await api("/api/actions", {
+    method: "POST",
+    body: { op: "lab", contact: "a", action: "launch", args: { model: 42 } },
+  });
+  expect(badAction.status).toBe(400);
 });

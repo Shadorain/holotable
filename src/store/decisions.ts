@@ -112,6 +112,7 @@ export function decisionPrompt(i: {
   const out = decisionPath(i.home, i.opId, contact.ticket);
   const lines = [
     `Decide ${contact.ticket}: ${contact.title ?? contact.ticket}.`,
+    ...(contact.description ? [`Description:\n${contact.description}`] : []),
     ...(contact.options
       ? [
           `Options: ${contact.options.map((o) => `"${o}"`).join(", ")}` +

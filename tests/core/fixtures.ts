@@ -17,6 +17,7 @@ export function makeContact(
   return {
     ticket,
     title: null,
+    description: null,
     zone: "z1",
     kind: "implement",
     blockedBy: [],
