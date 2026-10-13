@@ -257,7 +257,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
 
   /** Dirty-path count of the integration checkout: the header warns before a land ever runs. */
   async function probeIntegration(op: Operation, state: OpState): Promise<void> {
-    if (!deps.run || op.delivery !== "local-merge") { state.integrationDirty = null; return; }
+    if (!deps.run || !op.integration) { state.integrationDirty = null; return; }
     const r = await guard(`integration status ${op.id}`, () => deps.run!("git", ["status", "--porcelain"], op.integration));
     if (r === undefined) return;
     state.integrationDirty = r.code === 0 ? r.stdout.split("\n").filter((l) => l.trim().length > 0).length : null;
