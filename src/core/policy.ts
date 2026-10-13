@@ -43,6 +43,7 @@ export function contactState(i: {
   if ((owner === "offline" || d.reaped) && !status.complete) return "offline";
   if (status.hold !== "none") return "hold";
   if (status.complete) return "complete";
+  if (status.actions.includes("resend")) return "hold";
   if (status.phase === "verify") return "verify";
   return "running";
 }

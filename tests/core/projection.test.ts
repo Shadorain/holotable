@@ -127,6 +127,21 @@ describe("project: state table", () => {
     expect(parked.actions.find((a) => a.id === "continue")?.enabled).toBe(true);
   });
 
+  test("a stopped worker requesting Resend needs attention, not a Running badge", () => {
+    const op = makeOp([makeContact("a", { lane: live() })], { fleet: "omp-mission", frontend: "orca" });
+    const stopped = makeStatus({ phase: "execute", hold: "none", workers: { live: 1, total: 4 }, actions: ["mode", "resend"] });
+    const waiting = viewOf(op, "a", { statuses: { a: stopped }, owners: { a: "live" } });
+    expect(waiting.state).toBe("hold");
+    expect(waiting.attention).toBe(true);
+    const dead = viewOf(op, "a", { statuses: { a: stopped }, owners: { a: "offline" } });
+    expect(dead.state).toBe("offline");
+    expect(dead.actions.find((a) => a.id === "relaunch")?.enabled).toBe(true);
+    const finished = viewOf(op, "a", { statuses: { a: { ...stopped, complete: true } }, owners: { a: "live" } });
+    expect(finished.state).toBe("complete");
+    const active = viewOf(op, "a", { statuses: { a: { ...stopped, actions: ["mode", "dispatch"] } }, owners: { a: "live" } });
+    expect(active.state).toBe("running");
+  });
+
   test("offline: lane without terminal and no status", () => {
     const op = makeOp([makeContact("a", { lane: live(false) })]);
     expect(viewOf(op, "a").state).toBe("offline");

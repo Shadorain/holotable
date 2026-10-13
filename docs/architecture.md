@@ -235,6 +235,7 @@ Contact state, first match wins:
 | status null, or unfinished mission with owner `offline` | `offline` |
 | `status.hold !== "none"` on a live owner | `hold` |
 | `status.complete` | `complete` |
+| live unfinished mission advertises `resend` (stopped worker) | `hold` |
 | `status.phase === "verify"` | `verify` |
 | otherwise | `running` |
 
