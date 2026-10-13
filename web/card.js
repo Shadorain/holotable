@@ -160,6 +160,7 @@ function actionBar(contact, ctx) {
   const reasons = el("ul", "reasons");
   for (const a of wired)
     if (!a.enabled && a.reason && (a.primary || a.id === "launch" || a.id === "land")
+      && contact.state !== "waiting"
       && !(a.id === "launch" && contact.state === "blocked" && a.reason.startsWith("blocked by ")))
       reasons.append(el("li", "", `${a.label} unavailable: ${a.reason}`));
   if (reasons.childElementCount) wrap.append(reasons);

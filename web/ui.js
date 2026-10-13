@@ -8,8 +8,8 @@ export { el };
 
 export const STATE_WORDS = {
   ready: "Ready", blocked: "Blocked", decision: "Decision", planning: "Planning",
-  running: "Running", verify: "Verify", hold: "Hold", complete: "Complete",
-  conflict: "Conflict", landed: "Landed", offline: "Offline",
+  running: "Running", verify: "Verify", review: "Review", hold: "Hold", complete: "Complete",
+  conflict: "Conflict", landed: "Landed", offline: "Offline", waiting: "Waiting",
 };
 
 export function errorText(e) {
@@ -109,8 +109,8 @@ export function kindPill(kind) {
 // Icon per contact state, inside the pill. Kept monochrome: colour carries the state.
 const STATE_ICON = {
   ready: "clock", blocked: "lock", decision: "message-circle-question", planning: "pen-line",
-  running: "activity", verify: "shield-check", hold: "pause", complete: "check",
-  conflict: "triangle-alert", landed: "git-merge", offline: "wifi-off",
+  running: "activity", verify: "shield-check", review: "eye", hold: "pause", complete: "check",
+  conflict: "triangle-alert", landed: "git-merge", offline: "wifi-off", waiting: "clock",
 };
 
 export function statePill(state) {
@@ -135,18 +135,20 @@ export function clock(iso) {
 
 // Action ids the server handles via POST /api/actions. plan-save/plan-refine are wired but
 // render inside the Plan tab, not the action bar (card.js filters them).
-const WIRED = new Set(["launch", "reap", "approve", "continue", "review", "dispatch", "mode", "focus", "done", "land", "relaunch", "redecide", "decide-agent", "plan-save", "plan-refine"]);
+const WIRED = new Set(["launch", "reap", "approve", "continue", "review", "dispatch", "resend", "release", "mode", "focus", "done", "land", "relaunch", "redecide", "decide-agent", "plan-save", "plan-refine"]);
 // Shown while the request runs; launch and land can take a while against real tools.
 const BUSY_LABEL = {
   launch: "Launching…", land: "Landing…", approve: "Approving…", continue: "Continuing…",
   review: "Requesting…", dispatch: "Dispatching…", done: "Saving…", reap: "Closing…", focus: "Focusing…", mode: "Setting…", relaunch: "Reopening…", "decide-agent": "Opening…", redecide: "Saving…",
   "plan-save": "Saving…", "plan-refine": "Refining…",
+  resend: "Resending…", release: "Releasing…",
 };
 
 // Icon per action id, drawn before the label.
 const ACTION_ICON = {
   launch: "rocket", land: "git-merge", approve: "check", continue: "skip-forward", review: "eye",
   dispatch: "send", done: "check-check", reap: "circle-x", focus: "crosshair", relaunch: "rotate-cw", "decide-agent": "bot", redecide: "pencil",
+  resend: "rotate-cw", release: "skip-forward",
 };
 // Actions that end something the operator cannot get back; they need a second click.
 export const CONFIRM = { reap: "Close terminal?" };
@@ -168,6 +170,8 @@ const ACTION_TIPS = {
   relaunch: "Reopen this mission's pane in its worktree; the mission comes back in resume hold until continued",
   review: "Ask the mission for a review round",
   dispatch: "Dispatch the next ready work to workers",
+  resend: "Retry the stopped worker through its mission controller",
+  release: "Ask the mission controller to release its blocker",
   focus: "Bring this mission's terminal to the front",
   reap: "Close this mission's terminal (click twice)",
   land: "Merge this contact's branch into the integration checkout, or merge its PR",

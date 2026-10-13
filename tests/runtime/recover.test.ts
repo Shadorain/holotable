@@ -525,6 +525,7 @@ test("memory pressure defers recovery without spending the crash-loop budget", a
   await t.settle();
   expect(await t.relaunches()).toEqual([]);
   expect(t.fake.count("frontend.openTerminal")).toBe(0);
+  expect(t.recover.deferred("lab").a?.kind).toBe("memory");
   // Headroom can disappear after the queue check; persisted refusals aren't crashes.
   for (let attempt = 0; attempt < 3; attempt++) {
     await appendEvent(t.home, "lab", {
@@ -536,4 +537,49 @@ test("memory pressure defers recovery without spending the crash-loop budget", a
   await t.recover.pass();
   await t.until(async () => (await t.relaunches()).length === 4);
   expect((await t.relaunches()).at(-1)?.ok).toBe(true);
+});
+
+test("a recovery batch reserves its last slot and starts the waiting mission after capacity returns", async () => {
+  const opts = { cap: 2, open: 1, contacts: [contact("a", { lane: lane("/wt/a", "t1") }), contact("b", { lane: lane("/wt/b", "t2") })] };
+  const t = await setup(opts);
+  t.dead("a");
+  t.dead("b");
+  t.vanished.add("a");
+  t.vanished.add("b");
+  await t.recover.pass();
+  await t.until(async () => (await t.relaunches()).length === 1);
+  expect(t.fake.count("frontend.openTerminal")).toBe(1);
+  expect(t.recover.deferred("lab").b?.kind).toBe("capacity");
+  t.live("a");
+  t.vanished.delete("a");
+  await t.recover.pass();
+  await t.until(async () => (await t.relaunches()).length === 2);
+  expect(t.fake.count("frontend.openTerminal")).toBe(2);
+  expect((await t.relaunches()).every(e => e.ok)).toBe(true);
+});
+
+test("waiting for memory is canceled by a producer quota park or operator Reap", async () => {
+  const t = await setup({ availableMemory: () => 100 * 1024 * 1024 });
+  t.dead("a");
+  t.vanished.add("a");
+  await t.recover.pass();
+  expect(t.recover.deferred("lab").a?.kind).toBe("memory");
+  t.dead("a", { hold: "quota" });
+  await t.recover.pass();
+  expect(t.recover.deferred("lab").a).toBeUndefined();
+  t.dead("a");
+  await t.recover.pass();
+  await t.act({ op: "lab", contact: "a", action: "reap", args: {} });
+  await t.recover.pass();
+  expect(t.recover.deferred("lab").a).toBeUndefined();
+  expect(t.fake.count("frontend.openTerminal")).toBe(0);
+});
+
+test("automatic Continue rechecks a producer quota park even when the watcher still shows resume", async () => {
+  const t = await setup();
+  t.live("a", resume);
+  t.fake.world.statuses.set("/wt/a", status({ ctl: SOCK, hold: "quota", actions: ["continue"] }));
+  await expect(t.act({ op: "lab", contact: "a", action: "continue", args: {}, by: "recover" }))
+    .rejects.toMatchObject({ code: "refused" });
+  expect(controls(t)).toEqual([]);
 });

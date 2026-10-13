@@ -200,6 +200,7 @@ const PAST = {
   dispatch: "dispatched", done: "marked done", reap: "terminal closed", focus: "focused", mode: "mode changed",
   "plan-save": "plan saved", "plan-refine": "refinement sent to the mission",
   relaunch: "reopened", redecide: "decision changed", "decide-agent": "agent asked to decide",
+  resend: "worker retry requested", release: "blocker release requested",
 };
 
 /** Runs one board action; resolves `{ok, error}` so callers like the plan editor can react. */

@@ -152,6 +152,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     run: action,
     warn,
     availableMemory: availableMemoryBytes,
+    settle: (id) => watcher.pass(id),
   });
   const ender = createEnder({ home, now: () => new Date(), settings: settingsFn, portsFor, run, inFlight });
 
@@ -161,6 +162,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     server = await startServer({
       service: createBoardService(home, {
         extras: watcher.extras,
+        recoveryWaits: (id) => recover.deferred(id),
         refresh: (id) => watcher.pass(id, true),
         action,
         settle: (id) => watcher.pass(id),

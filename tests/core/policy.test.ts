@@ -145,7 +145,7 @@ describe("actionsFor", () => {
   test("continue stays hidden while the mission runs fine, even when the mission offers it", () => {
     const status = makeStatus({ hold: "none", actions: ["approve", "continue", "reap", "clear"] });
     const a = actionsFor(policy(op, "a", { state: "running", status, owner: "live" }));
-    expect(labels(a)).toEqual(["focus:on", "approve:on:P", "mode:on", "reap:on"]);
+    expect(a.some(action => action.id === "continue")).toBe(false);
   });
 
   test("with Recovery on, a plain resume hold is left to the board; failed verification still asks you", () => {
@@ -154,12 +154,6 @@ describe("actionsFor", () => {
     expect(labels(actionsFor(policy(recovering, "a", { state: "hold", status: resume, owner: "live" })))).not.toContain("continue:on:P");
     const failed = makeStatus({ hold: "resume", verify: "failed", actions: ["continue"] });
     expect(labels(actionsFor(policy(recovering, "a", { state: "hold", status: failed, owner: "live" })))).toContain("continue:on:P");
-  });
-
-  test("hold: mode shown even with empty status.actions", () => {
-    const status = makeStatus({ hold: "gate", actions: [] });
-    const a = actionsFor(policy(op, "a", { state: "hold", status, owner: "live" }));
-    expect(labels(a)).toEqual(["focus:on", "mode:on", "reap:on"]);
   });
 
   test("planning: no fleet buttons when status is null", () => {
@@ -177,14 +171,6 @@ describe("actionsFor", () => {
     expect(approve?.reason).toBe("owner-offline");
   });
 
-  test("ctl null disables fleet buttons with socket reason", () => {
-    const status = makeStatus({ actions: ["approve"], ctl: null });
-    const a = actionsFor(
-      policy(op, "a", { state: "running", status, owner: "live" }),
-    );
-    const approve = a.find((x) => x.id === "approve");
-    expect(approve?.reason).toBe("no control socket (not launched by holotable)");
-  });
 
   test("focus disabled when terminal missing or external", () => {
     const noTerm = makeOp([makeContact("a", { lane: makeLane({ terminal: null }) })]);

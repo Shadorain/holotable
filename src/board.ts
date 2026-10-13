@@ -33,6 +33,7 @@ import {
   type Projection,
   type ModelsResult,
   type Settings,
+  type RecoveryWait,
   type Tracker,
 } from "./core/types.ts";
 import { createModelCatalog } from "./models.ts";
@@ -279,6 +280,7 @@ export function summarize(p: Projection, project: { id: string; name: string } |
 export interface BoardHooks {
   /** Extra projection inputs (statuses, owners, probes, board-wide load) supplied by the watcher. */
   extras?: (opId: string) => ProjectionExtras;
+  recoveryWaits?: (opId: string) => Readonly<Record<string, RecoveryWait>>;
   refresh?: BoardService["refresh"];
   action?: BoardService["action"];
   settle?: BoardService["settle"];
@@ -318,7 +320,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
   async function projection(opId: string): Promise<Projection> {
     const known = await listOperations(home);
     if (!known.some((row) => row.id === opId)) throw new HttpError(404, `No open operation "${opId}"`);
-    return loadProjection(home, opId, await readSettings(home), now(), hooks.extras?.(opId));
+    return loadProjection(home, opId, await readSettings(home), now(), hooks.extras?.(opId), hooks.recoveryWaits?.(opId));
   }
   async function knownOperation(opId: string): Promise<void> {
     const known = await listOperations(home);

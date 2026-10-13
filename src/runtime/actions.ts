@@ -137,7 +137,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
   }
 
   /** Mutations go through the owning session's socket with a freshly read status; this process never attaches. */
-  async function fleetOp(opId: string, ticket: string, op: ControlOp, args: Record<string, unknown>): Promise<void> {
+  async function fleetOp(opId: string, ticket: string, op: ControlOp, args: Record<string, unknown>, recovering = false): Promise<void> {
     const operation = await readOperation(deps.home, opId);
     const lane = operation.contacts.find((c) => c.ticket === ticket)?.lane;
     if (!lane) throw new ActionError(409, "refused", `${ticket} has no lane`);
@@ -145,6 +145,8 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     const status = await fleet.read({ worktree: lane.worktree });
     // The pane may be alive while its mission is gone; only a relaunch brings a fresh session back.
     if (!status) throw new ActionError(409, "owner-offline", `No mission status for ${ticket}; relaunch a dead pane instead`);
+    if (recovering && (status.complete || status.hold !== "resume" || status.verify === "failed" || !status.actions.includes("continue")))
+      throw new ActionError(409, "refused", "Automatic Continue requires a resumable mission without quota or failed verification");
     await fleet.control(status, op, args);
   }
 
@@ -180,7 +182,14 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       case "continue":
       case "review":
       case "dispatch":
-        run = () => fleetOp(req.op, req.contact, req.action as OperatorOp, {});
+        run = () => fleetOp(req.op, req.contact, req.action as OperatorOp, {}, req.by === "recover" && req.action === "continue");
+        break;
+      case "resend":
+      case "release":
+        run = () => fleetOp(req.op, req.contact, req.action as OperatorOp, {
+          ...(typeof req.args.beadId === "string" ? { beadId: req.args.beadId } : {}),
+          ...(typeof req.args.detail === "string" ? { detail: req.args.detail } : {}),
+        });
         break;
       case "plan-approve":
         run = () => fleetOp(req.op, req.contact, "plan-approve", req.args.revision ? { revision: req.args.revision } : {});

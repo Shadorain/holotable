@@ -45,6 +45,7 @@ export function contactState(i: {
   if (status.complete) return "complete";
   if (status.actions.includes("resend")) return "hold";
   if (status.phase === "verify") return "verify";
+  if (status.phase === "review") return "review";
   return "running";
 }
 
@@ -63,13 +64,15 @@ export function launchRefusal(i: PolicyInput): string | null {
   return null;
 }
 
-const FLEET_OPS = ["approve", "continue", "review", "dispatch", "plan-approve"] as const;
+const FLEET_OPS = ["approve", "continue", "review", "dispatch", "resend", "release", "plan-approve"] as const;
 const FLEET_OP_LABELS: Record<string, string> = {
   "plan-approve": "Approve plan",
   approve: "Approve",
   continue: "Continue",
   review: "Review",
   dispatch: "Dispatch",
+  resend: "Resend",
+  release: "Release",
 };
 
 const view = (
@@ -89,19 +92,19 @@ export function actionsFor(i: PolicyInput): ActionView[] {
     ? "operation closed"
     : i.load.open >= i.cap
       ? `cap ${i.load.open}/${i.cap} omp`
-      : null;
+      : i.recoveryWait?.kind === "memory" ? i.recoveryWait.detail : null;
   /** Getting a dead pane back: close it (when listed) and open a fresh session in the same lane. */
   const relaunch = (): ActionView =>
     view("relaunch", "Relaunch", true, capRefusal === null, capRefusal);
 
   const focus = (): ActionView => {
-    const ok = terminal !== null && contact.lane?.frontend !== "external";
+    const ok = terminal !== null && contact.lane?.frontend !== "external" && !i.terminalMissing;
     return view(
       "focus",
       "Focus",
       false,
       ok,
-      ok ? null : terminal === null ? "no terminal recorded" : "no frontend",
+      ok ? null : i.terminalMissing ? "terminal closed" : terminal === null ? "no terminal recorded" : "no frontend",
     );
   };
   const reap = (): ActionView => {
@@ -118,11 +121,16 @@ export function actionsFor(i: PolicyInput): ActionView[] {
   const fleetButtons = (): ActionView[] => {
     if (status === null) return [];
     const ctlMissing =
-      status.ctl === null ? "no control socket (not launched by holotable)" : null;
+      status.ctl === null ? "no control socket" : null;
     const buttons: ActionView[] = [];
     // Recovery handles plain resume holds; quota retries always require an operator.
     const recoverable = operation.recover === true && status.ctl !== null && status.verify !== "failed";
     const continueNeeded = status.hold === "quota" || (status.hold === "resume" && !recoverable) || status.verify === "failed";
+    const primary = status.actions.includes("approve") ? "approve"
+      : status.actions.includes("continue") && continueNeeded ? "continue"
+      : status.actions.includes("resend") ? "resend"
+      : status.actions.includes("release") ? "release"
+      : state === "review" && status.actions.includes("review") ? "review" : null;
     for (const op of status.actions) {
       if (!(FLEET_OPS as readonly string[]).includes(op)) continue;
       if (op === "continue" && !continueNeeded) continue;
@@ -131,17 +139,13 @@ export function actionsFor(i: PolicyInput): ActionView[] {
         view(
           op,
           FLEET_OP_LABELS[op] ?? op,
-          // One primary per card: approve when a gate is armed, else continue.
-          op === "approve" || (op === "continue" && !status.actions.includes("approve")),
+          op === primary,
           enabled,
           enabled ? null : (ctlMissing ?? "owner-offline"),
         ),
       );
     }
-    if (
-      buttons.length > 0 ||
-      (state === "hold" || state === "running" || state === "verify")
-    ) {
+    if (status.actions.includes("mode")) {
       const enabled = ctlMissing === null && owner === "live";
       buttons.push(
         view(
@@ -188,6 +192,7 @@ export function actionsFor(i: PolicyInput): ActionView[] {
         view("decide-agent", "Ask an agent", false, agentReason === null, agentReason),
       ];
     }
+    case "waiting":
     case "offline": {
       const relaunchable =
         terminal !== null && operation.frontend !== "none" && contact.lane?.frontend !== "external";
@@ -205,6 +210,7 @@ export function actionsFor(i: PolicyInput): ActionView[] {
     case "planning":
     case "running":
     case "verify":
+    case "review":
     case "hold":
       return [focus(), ...fleetButtons(), ...planButtons(), reap()];
     case "complete": {

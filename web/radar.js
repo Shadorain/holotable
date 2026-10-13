@@ -18,14 +18,14 @@ const RING_R = [0.78, 0.61, 0.44, 0.27];
 const STATE_RING = {
   ready: 0, blocked: 0, decision: 0,
   planning: 1,
-  running: 2, verify: 2, hold: 2, conflict: 2, offline: 2,
+  running: 2, verify: 2, review: 2, hold: 2, conflict: 2, offline: 2, waiting: 2,
   complete: 3,
 };
 // State -> CSS variable name; the palette lives in :root only.
 const STATE_VAR = {
   ready: "--accent", blocked: "--dim", decision: "--decide", planning: "--run",
-  running: "--run", verify: "--info", hold: "--warn", conflict: "--bad",
-  offline: "--dim", complete: "--ok",
+  running: "--run", verify: "--info", review: "--info", hold: "--warn", conflict: "--bad",
+  offline: "--dim", waiting: "--dim", complete: "--ok",
 };
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -107,7 +107,7 @@ export function createRadar(stage, opts) {
     }
     canvas.setAttribute(
       "aria-label",
-      `Radar: ${liveN} live, ${queueN} queued, ${needsN} need you, ${landedN} landed.`,
+      `Radar: ${liveN} started, ${queueN} queued, ${needsN} need you, ${landedN} landed.`,
     );
     if (R < 24) return;
     const zones = P.operation.zones;
@@ -520,7 +520,7 @@ export function createRadar(stage, opts) {
     // Hub counts: short stacked lines so they read at real size inside the hub; shrink only as a last resort.
     const maxW = 2 * R * HUB - 14;
     const lines = [
-      [`${liveN} live`, pal["--text"], 600],
+      [`${liveN} started`, pal["--text"], 600],
       [`${queueN} queued`, pal["--muted"], 500],
       needsN ? [`${needsN} need you`, pal["--warn"], 600] : [`${landedN} landed`, pal["--dim"], 500],
     ];

@@ -142,6 +142,46 @@ describe("project: state table", () => {
     expect(active.state).toBe("running");
   });
 
+  test("Review mirrors the mission phase and requires attention only for an offered review", () => {
+    const op = makeOp([makeContact("a", { lane: live() })]);
+    const ready = makeStatus({ phase: "review", actions: ["review", "mode"] });
+    const view = viewOf(op, "a", { statuses: { a: ready }, owners: { a: "live" } });
+    expect(view.state).toBe("review");
+    expect(view.attention).toBe(true);
+    expect(view.actions.filter(a => a.primary && a.enabled).map(a => a.id)).toEqual(["review"]);
+    const reviewing = viewOf(op, "a", { statuses: { a: { ...ready, actions: ["mode"] } }, owners: { a: "live" } });
+    expect(reviewing.state).toBe("review");
+    expect(reviewing.attention).toBe(false);
+    expect(reviewing.actions.some(a => a.id === "review")).toBe(false);
+  });
+
+  test("deferred recovery is Waiting, while live, quota and disabled-recovery states remain authoritative", () => {
+    const op = makeOp([makeContact("a", { lane: live() })], { recover: true, fleet: "omp-mission", frontend: "orca" });
+    const statuses = { a: makeStatus({ phase: "review", actions: ["review", "mode"] }) };
+    const recoveryWaits = { a: { kind: "memory" as const, detail: "Waiting for memory" } };
+    const over = { statuses, owners: { a: "offline" as const }, recoveryWaits, vanished: new Set(["a"]) };
+    const waiting = viewOf(op, "a", over);
+    expect(waiting.state).toBe("waiting");
+    expect(waiting.attention).toBe(false);
+    expect(waiting.actions.find(a => a.id === "relaunch")?.enabled).toBe(false);
+    expect(waiting.actions.find(a => a.id === "focus")?.enabled).toBe(false);
+    expect(viewOf(op, "a", { ...over, owners: { a: "live" }, vanished: new Set() }).state).toBe("review");
+    expect(viewOf({ ...op, recover: false }, "a", over).state).toBe("offline");
+    expect(viewOf(op, "a", { ...over, statuses: { a: { ...statuses.a, hold: "quota" } } }).state).toBe("offline");
+  });
+
+  test("worker retry and blocker release remain producer-gated with one primary action", () => {
+    const op = makeOp([makeContact("a", { lane: live() })]);
+    const stopped = makeStatus({ hold: "blocked", actions: ["resend", "release", "mode"] });
+    const view = viewOf(op, "a", { statuses: { a: stopped }, owners: { a: "live" } });
+    expect(view.actions.filter(a => a.primary && a.enabled).map(a => a.id)).toEqual(["resend"]);
+    expect(view.actions.find(a => a.id === "release")?.enabled).toBe(true);
+    const unoffered = viewOf(op, "a", { statuses: { a: { ...stopped, actions: [] } }, owners: { a: "live" } });
+    expect(unoffered.actions.some(a => ["resend", "release", "mode"].includes(a.id))).toBe(false);
+    const dead = viewOf(op, "a", { statuses: { a: stopped }, owners: { a: "offline" } });
+    expect(dead.actions.filter(a => ["resend", "release", "mode"].includes(a.id)).every(a => !a.enabled)).toBe(true);
+  });
+
   test("offline: lane without terminal and no status", () => {
     const op = makeOp([makeContact("a", { lane: live(false) })]);
     expect(viewOf(op, "a").state).toBe("offline");

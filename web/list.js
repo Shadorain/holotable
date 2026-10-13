@@ -3,8 +3,8 @@ import { addContactButton } from "./addcontact.js";
 import { allLanded, doneBanner } from "./endop.js";
 import { actionButton, el, primaryAction, statePill } from "./ui.js";
 
-const ATTENTION_ORDER = ["hold", "complete", "decision", "offline"];
-const FLIGHT_ORDER = ["conflict", "verify", "running", "planning"];
+const ATTENTION_ORDER = ["hold", "review", "complete", "decision", "offline"];
+const FLIGHT_ORDER = ["conflict", "verify", "review", "running", "planning"];
 const QUEUE_ORDER = ["ready", "blocked"];
 
 const rank = (order, state) => {
@@ -17,11 +17,13 @@ export function sections(projection) {
   const needs = [];
   const flight = [];
   const queue = [];
+  const waiting = [];
   const landed = [];
   for (const c of projection.contacts) {
     if (c.state === "landed") landed.push(c);
     else if (c.attention) needs.push(c);
     else if (c.group === "queue") queue.push(c);
+    else if (c.state === "waiting") waiting.push(c);
     else flight.push(c);
   }
   needs.sort((a, b) => rank(ATTENTION_ORDER, a.state) - rank(ATTENTION_ORDER, b.state));
@@ -31,6 +33,7 @@ export function sections(projection) {
     groups: [
       { id: "needs", title: "Needs you", items: needs, empty: "Nothing waiting on you." },
       { id: "flight", title: "In flight", items: flight, empty: "No missions running." },
+      ...(waiting.length ? [{ id: "waiting", title: "Waiting", items: waiting }] : []),
       { id: "queue", title: "Queue", items: queue, empty: "Queue empty." },
       { id: "landed", title: "Landed", items: landed, collapsible: true },
     ],

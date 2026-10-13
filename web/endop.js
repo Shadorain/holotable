@@ -32,7 +32,7 @@ export function abortOperation(op, ctx) {
         for (const w of dirty) paths.append(el("li", "", `${w.ticket}  ${w.path}`));
         warn.append(paths);
       }
-      item("archive", `Archive the operation (${preview.landed} landed, ${preview.live} in flight, ${preview.queued} queued). Its report stays under Plan → Archive.`);
+      item("archive", `Archive the operation (${preview.landed} landed, ${preview.live} started, ${preview.queued} queued). Its report stays under Plan → Archive.`);
       modal.step([el("p", "", "This cannot be undone."), list], [
         modalButton("Cancel", { onClick: modal.close }),
         modalButton("Continue", { kind: "danger", iconName: "octagon-x", onClick: confirmStep }),

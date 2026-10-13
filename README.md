@@ -378,7 +378,7 @@ Requirements: the launched `omp` must load `omp-mission` (install it as an OMP e
 
 ## Operator actions
 
-The contact card shows the fleet buttons the mission itself offers (`Approve`, `Continue`, `Review`, `Dispatch`, and a `Mode` select: auto, pause, force) and `Focus`. `Continue` appears only when the mission is actually stuck: a resume hold, quota park, or failed verification; with Recovery on, a plain resume hold is left to the board. Each button is one request to the owning session's control socket, sent as an operator action; the board never computes whether a transition is legal, so resume hold, plan mode and Pause gates apply exactly as when typing the slash command in the pane. `Approve` carries the id of the gate it was rendered for, and a gate that moved on fails as `stale`. A gone owner fails as `owner-offline` and changes nothing. Every action except `Focus` is recorded as an `operator` event, success or failure. A model turn in the board's own session can only read and queue: it has no tool that approves, continues or launches.
+The contact card shows the fleet buttons the mission itself offers (`Approve`, `Continue`, `Review`, `Dispatch`, `Resend`, `Release`, and a `Mode` select: auto, pause, force) and `Focus`. `Continue` appears only when the mission is actually stuck: a resume hold, quota park, or failed verification; with Recovery on, a plain resume hold is left to the board. Each button is one request to the owning session's control socket, sent as an operator action; the board never computes whether a transition is legal, so resume hold, plan mode and Pause gates apply exactly as when typing the slash command in the pane. `Approve` carries the id of the gate it was rendered for, and a gate that moved on fails as `stale`. A gone owner fails as `owner-offline` and changes nothing. Every action except `Focus` is recorded as an `operator` event, success or failure. A model turn in the board's own session can only read and queue: it has no tool that approves, continues or launches.
 
 `Relaunch` appears on a contact whose session is `offline` while its lane still has a terminal (a pane that closed, a session that exited or died, or one that hung inside its pane). It closes the old pane if the frontend still lists it, opens a new one in the same worktree with the same launch command, and waits for the control socket. A mission that is already past its plan reopens **outside plan mode** (a resumed mission cannot continue while the session is in plan mode); one still waiting on a plan reopens in it and plans again. The new session re-attaches the saved mission under resume hold, so the card then shows `Continue`; nothing resumes until you press it (or [recovery](#recovery) does). A dead session holds no slot against the cap, so Relaunch replaces its own pane; it is disabled with the reason `cap <open>/<cap> omp` only when other live sessions fill the cap, and is not offered for a finished mission, a lane with no terminal, an `external` lane, or a `none` frontend. After **Reap**, Relaunch is the only way back.
 
@@ -389,8 +389,11 @@ then releases the saved coordinator park through its socket. No process freezing
 mission/status-file edits are needed.
 
 A live mission advertising `resend` has a stopped worker and shows **Hold**, not
-**Running**. **Focus** opens its pane to inspect the failure and use `/mission resend`.
-Recovery does not resend failed workers or bypass verification.
+**Running**. Its **Resend** button asks the producer to retry; **Release** appears
+only when the producer offers it. Recovery never sends either action automatically.
+
+A mission in review shows **Review**, not **Running**. When it offers an independent
+review, **Review** is the primary operator action; recovery does not request reviews.
 
 ## Blocked queue
 
@@ -422,6 +425,15 @@ Per operation, off by default and never inherited from a project: `/holotable se
 - **Resume.** A board-launched session sitting at resume hold with a live owner gets `Continue`, at most once every 30 s per contact (a crashed session's ownership lock stays stale for about 30 s, so the first try may fail with `ELOCKED`; failures are recorded and retried). The pacing is read from the events, so a board restart keeps it.
 - **Relaunch.** A contact is relaunched when its pane vanished from a frontend that lists terminals, or when its session has been down for 60 s while the pane is still listed (omp exited, crashed or hung inside it: the old pane is closed first). A session that exited cleanly counts: its status file says so, and a lane whose socket the board has seen is offline from then on. Relaunches run in the background, one at a time (a whole operation dying at once does not start eight frontend CLIs together), and respect the global `cap`; at the cap nothing is attempted and nothing is recorded.
 - **Give-up.** At most 3 recovery relaunches per contact in 30 minutes. The next candidate records one `gave up: 3 relaunches in 30 min` event and recovery leaves that contact alone until you press Relaunch yourself, which resets the count.
+
+Saved missions deferred by Recovery show **Waiting**, with the actual session-slot
+or memory reason, rather than a misleading crash/attention alert. Recovery reserves
+capacity for queued restarts and rechecks each one before opening a pane. After a
+restart it refreshes ownership and load before admitting the next mission. Once a
+slot or sufficient memory returns, it retries automatically without spending the
+crash-loop budget on resource refusals. Idle and held panes still consume memory and
+count against the Agents cap. **Started** counts assigned missions; Load counts
+connected panes. A closed terminal's **Focus** is disabled.
 
 Everything recovery does is an `operator` event with `by: "recover"`; history credits it to the board. Recovery never:
 

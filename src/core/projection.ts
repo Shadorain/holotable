@@ -18,7 +18,7 @@ import type {
 } from "./types.ts";
 
 const MAX_LOG = 50;
-const ATTENTION_STATES: ContactState[] = ["hold", "offline", "decision"];
+const ATTENTION_STATES: ContactState[] = ["hold", "offline", "decision", "review"];
 
 /** Ticket of the newest unresolved conflict contact targeting `ticket`. */
 export function conflictOpenFor(
@@ -63,8 +63,12 @@ function computeStates(
         owner: owners[c.ticket] ?? "none",
         conflictContacts,
       });
-      if (states.get(c.ticket) !== s) changed = true;
-      states.set(c.ticket, s);
+      const wait = input.recoveryWaits?.[c.ticket];
+      const deferred = s === "offline" && op.recover && !contactDerived(derived, c.ticket).reaped &&
+        input.statuses[c.ticket]?.hold !== "quota" && wait !== undefined;
+      const state = deferred ? "waiting" : s;
+      if (states.get(c.ticket) !== state) changed = true;
+      states.set(c.ticket, state);
     }
     if (!changed) break;
   }
@@ -77,6 +81,8 @@ const OPERATOR_VERBS: Record<string, string> = {
   continue: "continued",
   review: "review requested",
   dispatch: "dispatched",
+  resend: "worker retry requested",
+  release: "blocker release requested",
   mode: "mode changed",
   "plan-save": "plan saved",
   "plan-refine": "plan refine requested",
@@ -237,6 +243,8 @@ function detailFor(state: ContactState, view: { refusal: string | null; next: st
       return view.next ?? "Mission starting";
     case "offline":
       return view.next ? `Owner offline · last: ${view.next}` : "Owner offline · showing the last snapshot";
+    case "waiting":
+      return "Waiting to reconnect";
     case "complete":
       return view.conflictOf ? `Conflicts resolved: land ${view.conflictOf}` : (view.next ?? "Delivered");
     default:
@@ -269,10 +277,12 @@ function contactView(
     cap: input.cap,
     conflictOpen,
     decisionPaneOpen,
+    recoveryWait: input.recoveryWaits?.[contact.ticket],
+    terminalMissing: input.vanished?.has(contact.ticket) ?? false,
   };
 
   const blockers = contact.blockedBy.filter((b) => !contactDerived(derived, b).landed);
-  const detail = detailFor(state, {
+  const detail = state === "waiting" ? input.recoveryWaits?.[contact.ticket]?.detail ?? "Waiting to reconnect" : detailFor(state, {
     refusal: state === "ready" || state === "blocked" ? launchRefusal(policy) : null,
     next: status?.next ?? null,
     conflictOpen,
@@ -318,7 +328,9 @@ function contactView(
     decision: d.decision,
     decisionPane: decisionPaneOpen,
     // A decision an agent is working on is not waiting on the operator.
-    attention: (ATTENTION_STATES.includes(state) && !(state === "decision" && decisionPaneOpen)) || (state === "complete" && actions.some((a) => a.primary && a.enabled)),
+    attention: (ATTENTION_STATES.includes(state) && !(state === "decision" && decisionPaneOpen) &&
+      (state !== "review" || status?.actions.includes("review") === true)) ||
+      (state === "complete" && actions.some((a) => a.primary && a.enabled)),
     actions,
   };
 }

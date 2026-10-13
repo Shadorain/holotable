@@ -253,12 +253,12 @@ details.group > summary .count { margin-left: auto; }
 /* state colours: one place, used by pills, list edges, pins and the next box */
 .s-ready { --s: var(--accent); }
 .s-running, .s-planning { --s: var(--run); }
-.s-verify { --s: var(--info); }
+.s-verify, .s-review { --s: var(--info); }
 .s-hold { --s: var(--warn); }
 .s-decision { --s: var(--decide); }
 .s-complete, .s-landed { --s: var(--ok); }
 .s-conflict { --s: var(--bad); }
-.s-blocked, .s-offline { --s: var(--dim); }
+.s-blocked, .s-offline, .s-waiting { --s: var(--dim); }
 .item[class*="s-"] { border-left-color: var(--s); }
 .pill {
   display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 11px; font-weight: 600; letter-spacing: 0.03em;

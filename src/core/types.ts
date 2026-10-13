@@ -25,11 +25,13 @@ export const CONTACT_STATES = [
   "planning",
   "running",
   "verify",
+  "review",
   "hold",
   "complete",
   "conflict",
   "landed",
   "offline",
+  "waiting",
 ] as const;
 /** Who created or changed a contact: you (slash command or board), the model's queue tool, a --from seed, or a Land conflict. */
 export const SOURCES = ["operator", "model", "seed", "conflict"] as const;
@@ -50,6 +52,11 @@ export type ControlOp = (typeof CONTROL_OPS)[number];
 export type OperatorOp = (typeof OPERATOR_OPS)[number];
 export type ContactState = (typeof CONTACT_STATES)[number];
 export type Hold = (typeof HOLDS)[number];
+
+export interface RecoveryWait {
+  kind: "capacity" | "memory";
+  detail: string;
+}
 
 export interface TerminalRef {
   handle: string;
@@ -409,6 +416,8 @@ export interface PolicyInput {
   /** Ticket of an unresolved conflict contact for `contact`, if any. */
   conflictOpen: string | null;
   decisionPaneOpen: boolean;
+  recoveryWait?: RecoveryWait;
+  terminalMissing?: boolean;
 }
 
 export interface Stats {
@@ -440,6 +449,8 @@ export interface ProjectionInput {
   load: Load;
   cap: number;
   decisionPanes?: ReadonlySet<string>;
+  recoveryWaits?: Readonly<Record<string, RecoveryWait>>;
+  vanished?: ReadonlySet<string>;
   now: number;
 }
 

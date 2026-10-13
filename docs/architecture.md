@@ -116,6 +116,12 @@ logged but excluded from its crash budget. Missing `/proc` skips memory admissio
 the cross-operation cap still applies. Existing missions and their tools are not capped
 by this check.
 
+Capacity refusals are also excluded from the crash budget. Recovery reserves slots
+and pane-memory budgets for queued launches, rechecks cancellation/ownership/resources
+at dequeue, and refreshes the watcher after successful socket actions. Its transient
+`deferred(op)` map feeds projection-only Waiting states; it stores no mission data and
+emits no events just for waiting. Reasons clear when eligibility or operation intent changes.
+
 ## Ports
 
 |Port|Adapters|Role|
@@ -237,9 +243,17 @@ Contact state, first match wins:
 | `status.complete` | `complete` |
 | live unfinished mission advertises `resend` (stopped worker) | `hold` |
 | `status.phase === "verify"` | `verify` |
+| `status.phase === "review"` | `review` |
 | otherwise | `running` |
 
 A finished mission (`status.complete`) stays `complete` when its owner is gone or its terminal was reaped, because landing needs no live owner. An unfinished quota-held mission with an offline owner is `offline` and explicitly relaunchable; its quota reason remains visible and Recovery still skips it. A live quota-held owner exposes the producer's Continue for an operator retry, even with Recovery enabled.
+
+Eligible offline missions with Recovery's explicit capacity/memory deferral render as
+`waiting`; they do not need operator attention. Reaped and quota-held missions never
+inherit this state. A Review needs attention only when the producer advertises `review`.
+Every fleet control, including Mode, is producer-advertised; Review/Resend/Release use the
+same operator socket path. Closed frontend handles cannot be focused. Automatic Continue
+re-reads producer status before sending and refuses new quota or failed-verification holds.
 
 Group: `queue` if lane is null and the contact has no `landed` event, else `live`.
 
