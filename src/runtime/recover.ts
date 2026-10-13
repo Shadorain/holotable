@@ -36,7 +36,10 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void> } {
     const key = `${opId}/${ticket}`;
     if (queued.has(key) || busy.has(key)) return;
     queued.add(key);
-    relaunchChain = relaunchChain.then(() => act(opId, ticket, "relaunch")).finally(() => queued.delete(key));
+    relaunchChain = relaunchChain.then(async () => {
+      if (deps.extras(opId).statuses[ticket]?.hold === "quota") return;
+      await act(opId, ticket, "relaunch");
+    }).finally(() => queued.delete(key));
   }
 
   interface Recovery {
@@ -121,6 +124,8 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void> } {
 
     for (const contact of projection.contacts) {
       const status = extras.statuses[contact.ticket] ?? null;
+      // Quota exhaustion is an operator hold: relaunch or continue would spend another turn on the same cap.
+      if (status?.hold === "quota") continue;
       const state = recovery(events, contact.ticket);
       if (
         status?.hold === "resume" &&

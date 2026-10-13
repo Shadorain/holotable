@@ -103,6 +103,10 @@ removed. Ticket navigation rejects PR URLs and resolves missing tracker URLs on 
 when an issue omits its URL. Tracker-only service wiring supplies valid unused port kinds;
 queued contacts need not enter the watcher's sampling loop to obtain a link.
 
+Recovery treats producer `hold: quota` as an operator hold, even when the pane is offline:
+neither Continue nor Relaunch is automatic. Serialized relaunches recheck that hold when
+their queued action begins, so a newly reported exhausted quota cannot trigger a retry storm.
+
 ## Ports
 
 |Port|Adapters|Role|

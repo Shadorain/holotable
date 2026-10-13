@@ -100,8 +100,8 @@ async function setup(opts: Opts = {}) {
     fake.world.statuses.set(s.worktree, s);
     fake.world.alive.add(SOCK.socket);
   };
-  const dead = (ticket: string) => {
-    statuses[ticket] = status({ ticket, worktree: `/wt/${ticket}`, ctl: SOCK });
+  const dead = (ticket: string, over: Partial<ContactStatus> = {}) => {
+    statuses[ticket] = status({ ticket, worktree: `/wt/${ticket}`, ctl: SOCK, ...over });
     fake.world.alive.delete(SOCK.socket);
   };
   const ev = (kind: "socket-up" | "socket-down", at: number): Promise<void> =>
@@ -128,6 +128,7 @@ describe("recovery: resume hold", () => {
     ["no control socket", { ...resume, ctl: null }, {}],
     ["recover off", { ...resume }, { recover: false }],
     ["continue not offered", { hold: "resume" as const, actions: [] }, {}],
+    ["quota hold", { hold: "quota" as const, actions: ["continue"] }, {}],
     ["not at resume hold", { hold: "gate" as const, actions: ["continue", "approve"] }, {}],
   ])("does not continue: %s", async (_name, over, opts) => {
     const t = await setup(opts);
@@ -201,6 +202,42 @@ describe("recovery: relaunch", () => {
     expect(open.env).toEqual({ FAKE_LAUNCH: "a" });
     expect(await t.relaunches()).toMatchObject([{ contact: "a", ok: true, by: "recover" }]);
     expect((await t.events()).filter((e) => e.kind === "launched")).toHaveLength(2);
+  });
+
+  test("does not relaunch a vanished pane whose last status is a quota hold", async () => {
+    const t = await setup();
+    t.fake.world.terminals = [];
+    t.dead("a", { hold: "quota" });
+    t.vanished.add("a");
+    await t.ev("socket-up", T - 5 * MIN);
+    await t.recover.pass();
+    await t.settle();
+    expect(t.fake.count("frontend.openTerminal")).toBe(0);
+    expect(await t.relaunches()).toEqual([]);
+  });
+
+  test("a relaunch queued behind another rechecks quota and does not open that pane", async () => {
+    const t = await setup({
+      contacts: [contact("a", { lane: lane("/wt/a", "t1") }), contact("b", { lane: lane("/wt/b", "t2") })],
+    });
+    t.fake.world.terminals = [];
+    t.dead("a");
+    t.dead("b");
+    t.vanished.add("a");
+    t.vanished.add("b");
+    await t.ev("socket-up", T - 5 * MIN);
+    const open = t.fake.ports.frontend.openTerminal;
+    t.fake.ports.frontend.openTerminal = async (input) => {
+      if (input && typeof input === "object" && "worktree" in input && input.worktree === "/wt/a") t.live("b", { hold: "quota" });
+      return open(input);
+    };
+    await t.recover.pass();
+    await t.settle();
+    const opened = t.fake.calls.filter((call) => call.method === "openTerminal").map((call) => {
+      const args = call.args;
+      return args && typeof args === "object" && "worktree" in args && typeof args.worktree === "string" ? args.worktree : "";
+    });
+    expect(opened).toEqual(["/wt/a"]);
   });
 
   test("relaunches after 60 s of socket-down with the pane still listed, closing the old one first", async () => {
