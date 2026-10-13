@@ -374,6 +374,12 @@ The contact card shows the fleet buttons the mission itself offers (`Approve`, `
 
 `Relaunch` appears on a contact whose session is `offline` while its lane still has a terminal (a pane that closed, a session that exited or died, or one that hung inside its pane). It closes the old pane if the frontend still lists it, opens a new one in the same worktree with the same launch command, and waits for the control socket. A mission that is already past its plan reopens **outside plan mode** (a resumed mission cannot continue while the session is in plan mode); one still waiting on a plan reopens in it and plans again. The new session re-attaches the saved mission under resume hold, so the card then shows `Continue`; nothing resumes until you press it (or [recovery](#recovery) does). A dead session holds no slot against the cap, so Relaunch replaces its own pane; it is disabled with the reason `cap <open>/<cap> omp` only when other live sessions fill the cap, and is not offered for a finished mission, a lane with no terminal, an `external` lane, or a `none` frontend. After **Reap**, Relaunch is the only way back.
 
+After quota exhaustion, a live pane stays **Hold** and offers **Continue** for an explicit retry.
+A dead pane is **Offline**, retains its last quota reason, and offers **Relaunch**. Recovery
+never clears either quota hold automatically. Relaunch loads current extension code; Continue
+then releases the saved coordinator park through its socket. No process freezing or manual
+mission/status-file edits are needed.
+
 ## Blocked queue
 
 A contact with unmet blockers stays in the queue, visible and unlaunchable (`blocked by <ticket>`), and never disappears. A blocker counts only when it has a `landed` event: a mission reaching `complete` does not unblock its dependents. `landed` is written by Land (or by **Mark done**, for decision contacts and contacts with no delivery). When a contact's last blocker lands the watcher records `unblocked` once.
@@ -408,7 +414,7 @@ Per operation, off by default and never inherited from a project: `/holotable se
 Everything recovery does is an `operator` event with `by: "recover"`; history credits it to the board. Recovery never:
 
 - continues a session whose `verify` is `failed` (continuing resets verification; that is your call),
-- continues or relaunches a quota-held mission, and does not show that park as a crash; restore funding or change its model before an explicit retry,
+- continues or relaunches a quota-held mission automatically; restore funding or change its model before an explicit retry,
 - touches a session without a control socket (a human's `omp` in the worktree),
 - approves a gate or a plan,
 - relaunches a contact you Reaped,

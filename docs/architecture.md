@@ -223,14 +223,13 @@ Contact state, first match wins:
 | lane null | `ready` |
 | a contact with `conflictOf` = this exists and is not yet `complete` or `landed` | `conflict` |
 | status null, no `socket-up` event yet, lane has a terminal | `planning` |
-| `status.hold === "quota"` | `hold` |
-| status null, or owner `offline` and the hold is not `quota` | `offline` |
-| any other `status.hold !== "none"` | `hold` |
+| status null, or unfinished mission with owner `offline` | `offline` |
+| `status.hold !== "none"` on a live owner | `hold` |
 | `status.complete` | `complete` |
 | `status.phase === "verify"` | `verify` |
 | otherwise | `running` |
 
-A finished mission (`status.complete`) stays `complete` when its owner is gone or its terminal was reaped, because landing needs no live owner. A `quota` hold also stays `hold` when the owner is gone, so Recovery does not treat it as a crash. Any other unfinished status with an offline owner or a reaped terminal is `offline`.
+A finished mission (`status.complete`) stays `complete` when its owner is gone or its terminal was reaped, because landing needs no live owner. An unfinished quota-held mission with an offline owner is `offline` and explicitly relaunchable; its quota reason remains visible and Recovery still skips it. A live quota-held owner exposes the producer's Continue for an operator retry, even with Recovery enabled.
 
 Group: `queue` if lane is null and the contact has no `landed` event, else `live`.
 

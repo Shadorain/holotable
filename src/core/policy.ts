@@ -40,9 +40,6 @@ export function contactState(i: {
     if (!d.socketEver && contact.lane.terminal !== null && d.launchFailed === null) return "planning";
     return "offline";
   }
-  // A quota park must stay visible after the pane stops answering. Treating it as
-  // offline would offer a crash relaunch and spend another turn on the same cap.
-  if (status.hold === "quota") return "hold";
   if ((owner === "offline" || d.reaped) && !status.complete) return "offline";
   if (status.hold !== "none") return "hold";
   if (status.complete) return "complete";
@@ -122,10 +119,9 @@ export function actionsFor(i: PolicyInput): ActionView[] {
     const ctlMissing =
       status.ctl === null ? "no control socket (not launched by holotable)" : null;
     const buttons: ActionView[] = [];
-    // Continue is for a mission that is actually stuck: a resume hold, or verification that failed.
-    // With Recovery on, an ordinary resume hold is the board's job, so the button stays out of the way.
+    // Recovery handles plain resume holds; quota retries always require an operator.
     const recoverable = operation.recover === true && status.ctl !== null && status.verify !== "failed";
-    const continueNeeded = (status.hold === "resume" && !recoverable) || status.verify === "failed";
+    const continueNeeded = status.hold === "quota" || (status.hold === "resume" && !recoverable) || status.verify === "failed";
     for (const op of status.actions) {
       if (!(FLEET_OPS as readonly string[]).includes(op)) continue;
       if (op === "continue" && !continueNeeded) continue;

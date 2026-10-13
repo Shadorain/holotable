@@ -114,14 +114,17 @@ describe("project: state table", () => {
     expect(v2.state).toBe("offline");
   });
 
-  test("quota hold stays parked when the owner is gone", () => {
-    const op = makeOp([makeContact("a", { lane: live() })]);
-    const v = viewOf(op, "a", {
-      statuses: { a: makeStatus({ hold: "quota", next: "Provider quota exhausted. Restore quota or change the model, then /mission continue" }) },
-      owners: { a: "offline" },
-    });
-    expect(v.state).toBe("hold");
-    expect(v.detail).toContain("quota exhausted");
+  test("a dead quota-held pane is restartable without discarding its quota reason", () => {
+    const op = makeOp([makeContact("a", { lane: live() })], { fleet: "omp-mission", frontend: "orca" });
+    const statuses = { a: makeStatus({ hold: "quota", actions: ["continue"], next: "Provider quota exhausted" }) };
+    const dead = viewOf(op, "a", { statuses, owners: { a: "offline" } });
+    expect(dead.state).toBe("offline");
+    expect(dead.detail).toContain("quota exhausted");
+    expect(dead.actions.find((a) => a.id === "relaunch")?.enabled).toBe(true);
+    expect(dead.actions.find((a) => a.id === "continue")?.enabled).not.toBe(true);
+    const parked = viewOf(op, "a", { statuses, owners: { a: "live" } });
+    expect(parked.state).toBe("hold");
+    expect(parked.actions.find((a) => a.id === "continue")?.enabled).toBe(true);
   });
 
   test("offline: lane without terminal and no status", () => {
