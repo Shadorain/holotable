@@ -8,7 +8,7 @@ import { isAllowedRemoteAddress, isTailscaleAddress, resolveBoardUrls } from "./
 import { HttpError, type BoardService, type ProjectSpec } from "./board.ts";
 import { CLOSE_OUTCOMES, type NewOperationSpec } from "./commands.ts";
 import type { Access, ClosedOutcome, Delivery, Fleet, Frontend, Kind, Settings, Tracker } from "./core/types.ts";
-import { onChanged } from "./core/notify.ts";
+import { notifyChanged, onChanged } from "./core/notify.ts";
 import type { Run } from "./ports.ts";
 import { ActionError } from "./runtime/errors.ts";
 const MAX_BODY = 5 * 1024 * 1024;
@@ -212,11 +212,8 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         }
       }
       if (!pathname.startsWith("/api/")) return fail(res, 404, "Not found");
-      // Token check: every API call carries the header; EventSource cannot set headers,
-      // so /api/stream also accepts it as a query parameter. The token already lives in
-      // the page URL fragment, so this exposes nothing the URL does not.
-      const supplied = req.headers["x-holotable-token"] ?? url.searchParams.get("token") ?? "";
-      const suppliedBytes = Buffer.from(String(supplied), "utf8");
+      const supplied = req.headers["x-holotable-token"];
+      const suppliedBytes = typeof supplied === "string" ? Buffer.from(supplied, "utf8") : Buffer.alloc(0);
       if (suppliedBytes.length !== tokenBytes.length || !timingSafeEqual(suppliedBytes, tokenBytes))
         return fail(res, 401, "Unauthorized");
 
@@ -229,17 +226,27 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
           connection: "keep-alive",
         });
         res.flushHeaders();
-        res.write(": ready\n\n");
+        let blocked = !res.write(": ready\n\n");
+        let dirty = false;
         let pushTimer: ReturnType<typeof setTimeout> | undefined;
         const push = () => {
-          clearTimeout(pushTimer);
+          dirty = true;
+          if (blocked || pushTimer !== undefined || res.destroyed) return;
           pushTimer = setTimeout(() => {
-            if (!res.writableEnded) res.write('data: {"type":"changed"}\n\n');
+            pushTimer = undefined;
+            if (res.destroyed || res.writableEnded || blocked) return;
+            dirty = false;
+            blocked = !res.write('data: {"type":"changed"}\n\n');
           }, 250);
         };
+        res.on("drain", () => {
+          blocked = false;
+          if (dirty) push();
+        });
         const off = onChanged(push);
         const heartbeat = setInterval(() => {
-          if (!res.writableEnded) res.write(": ping\n\n");
+          if (!res.destroyed && !res.writableEnded && !blocked)
+            blocked = !res.write(": ping\n\n");
         }, 25_000);
         res.once("close", () => {
           off();
@@ -657,6 +664,9 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
     }
   };
   function trackRequest(req: IncomingMessage, res: ServerResponse): void {
+    if (req.method !== "GET") res.once("finish", () => {
+      if (res.statusCode >= 200 && res.statusCode < 300) notifyChanged();
+    });
     const task = handleRequest(req, res);
     pending.add(task);
     void task.then(() => pending.delete(task), () => pending.delete(task));

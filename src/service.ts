@@ -224,6 +224,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
 
   // Serial over itself (the watcher serializes too): a slow pass moves the next one, never overlaps it.
   let delay = bootSettings.pollMs;
+  let wakePending = false;
   const tick = async () => {
     try {
       await watcher.pass();
@@ -246,11 +247,21 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     } catch (error) {
       warn(`watcher pass: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (!stopped) timer = setTimeout(poll, delay);
   };
   function poll(): void {
+    if (stopped) return;
+    clearTimeout(timer);
+    timer = undefined;
+    if (tickInFlight) {
+      wakePending = true;
+      return;
+    }
     tickInFlight = tick().finally(() => {
       tickInFlight = undefined;
+      if (stopped) return;
+      const nextDelay = wakePending ? 0 : delay;
+      wakePending = false;
+      timer = setTimeout(poll, nextDelay);
     });
   }
   // A status-file write wakes a pass in under a second; the pollMs loop stays as the

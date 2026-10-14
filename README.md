@@ -360,6 +360,8 @@ Watcher passes never overlap. OMP's passive 10-second refresh reads the service 
 
 While the service runs, an `fs.watch` over the mission status directories wakes the watcher within about a second of any status write; the `pollMs` pass is the floor underneath it. Each pass reads each launched contact's mission status file, pings the owning session's control socket, and records changes as events (`phase`, `gate-armed`, `socket-up`, `socket-down`). Every `sampleMs` it samples the tracker and the delivery PR and appends a `sample` only when a field changed. It is read-only. Port failures are warned once per distinct message and never stop the loop.
 
+Wakeups coalesce into one pending pass and never multiply fallback timers. Continuous writes cannot postpone updates indefinitely. Unrelated agent files do not wake the board; directory watches are reconciled after topology changes and periodically rearmed after replacement. The stream uses the same header token as the rest of the API, not a URL query. Hidden tabs close it; reconnect and updates received during a slow refresh trigger a catch-up refresh. Slow stream readers receive coalesced notifications rather than an unbounded write queue.
+
 Adapters: tracker `linear` (`lin`) and `github` (`gh`); fleet `omp-mission` (status files and control socket, see [docs/contract.md](docs/contract.md)); delivery `github-pr` (`gh pr view`) and `local-merge` (`git merge-base --is-ancestor`).
 
 ## Launching missions

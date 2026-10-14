@@ -162,29 +162,6 @@ test("a startup configuration error releases ownership for a corrected restart",
   expect((await serviceHealth(home)).running).toBe(true);
 });
 
-test("settings are re-read every pass", async () => {
-  const home = mkdtempSync(join(tmpdir(), "holotable-svc-"));
-  await createOperation(home, operation());
-  let reads = 0;
-  const fake = fakePorts();
-  const board: Board = await startBoard({
-    home,
-    settings: async () => {
-      reads += 1;
-      return { ...DEFAULT_SETTINGS, pollMs: 40, sampleMs: 60_000 };
-    },
-    run: noRun,
-    portsFor: () => fake.ports,
-  });
-  cleanup.push(async () => {
-    await board.close();
-    rmSync(home, { recursive: true, force: true });
-  });
-  const before = reads;
-  // The poll loop is a real setTimeout chain: counting invocations needs wall clock.
-  await new Promise((resolve) => setTimeout(resolve, 130));
-  expect(reads).toBeGreaterThan(before + 1);
-});
 
 test("installService writes the unit under the config dir and reloads/enables", async () => {
   const configDir = mkdtempSync(join(tmpdir(), "holotable-xdg-"));

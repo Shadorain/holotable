@@ -1,6 +1,3 @@
-// Holotable shell: token, streaming refresh, connection state, selection, actions, toasts,
-// keyboard. The server pushes changes over /api/stream; the poll loop is only a slow
-// fallback while the stream is down, so it never steals focus or flickers controls.
 import { renderOps } from "./board.js";
 import { cardTabs, clearCardDecision, clearDecideModel, clearLaunchModel, getCardDecision, getDecideModel, getLaunchModel, planUiKey, renderCard } from "./card.js";
 import { orderedTickets, renderList } from "./list.js";
@@ -22,6 +19,7 @@ import { ensureNotes, notesKey } from "./notes.js";
 import { icon } from "./icons.js";
 import { installTooltips } from "./tooltip.js";
 import { installLoadTip } from "./usage.js";
+import { connectLive } from "./live.js";
 
 installTooltips();
 
@@ -65,6 +63,7 @@ const POLL_INTERVAL_MS = 3000;
 // While the stream is connected the loop only covers what file watching cannot see.
 const STREAM_FALLBACK_MS = 30_000;
 let polling = false;
+let refreshPending = false;
 let pollTimer = null;
 let confirmTimer = null;
 let opDocPending = null;
@@ -863,17 +862,17 @@ function schedulePoll(delay = streamOpen() ? STREAM_FALLBACK_MS : POLL_INTERVAL_
 }
 
 function streamOpen() {
-  return stream !== null && stream.readyState === EventSource.OPEN;
+  return stream?.open === true;
 }
 
-// Server-sent changes trigger an immediate refetch; EventSource self-reconnects and the
-// short poll keeps the page fresh while it is down.
 function connectStream() {
-  if (!token || stream) return;
-  stream = new EventSource(`/api/stream?token=${encodeURIComponent(token)}`);
-  stream.addEventListener("message", () => poll());
-  stream.addEventListener("open", () => schedulePoll());
-  stream.addEventListener("error", () => schedulePoll(POLL_INTERVAL_MS));
+  if (!token || stream || document.visibilityState !== "visible") return;
+  stream = connectLive({
+    api,
+    changed: () => poll(),
+    connected: () => schedulePoll(),
+    disconnected: () => schedulePoll(POLL_INTERVAL_MS),
+  });
 }
 
 async function poll() {
@@ -881,7 +880,10 @@ async function poll() {
   pollTimer = null;
   if (!token) return render();
   if (document.visibilityState !== "visible") return;
-  if (polling) return;
+  if (polling) {
+    refreshPending = true;
+    return;
+  }
   polling = true;
   try {
     const res = await api("/api/operations");
@@ -938,7 +940,8 @@ async function poll() {
     polling = false;
     render();
     if (document.visibilityState === "visible") {
-      schedulePoll();
+      schedulePoll(refreshPending ? 0 : undefined);
+      refreshPending = false;
     }
   }
 }
@@ -1213,8 +1216,11 @@ $("help").addEventListener("click", (event) => {
 document.addEventListener("visibilitychange", () => {
   syncRadar();
   if (document.visibilityState === "visible") {
+    connectStream();
     poll();
   } else {
+    stream?.close();
+    stream = null;
     clearTimeout(pollTimer);
     pollTimer = null;
   }

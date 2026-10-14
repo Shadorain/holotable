@@ -1,75 +1,116 @@
 import { watch, type FSWatcher } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-const RESYNC_MS = 10_000;
-
 export interface StatusWatch {
-  /** Resolves when the first directory sync has armed the watchers. */
   ready: Promise<void>;
   close(): void;
 }
 
-/**
- * fs.watch over <agentDir>/missions and every missions/<id>/status directory.
- * Any write inside wakes the callback after a short debounce, so mission status
- * changes reach the watcher in under a second instead of on the next poll tick.
- * Watchers die silently (directory deleted, inotify limit), so a slow resync
- * re-arms them; the regular poll stays the floor for anything file events miss.
- */
 export function watchMissionStatuses(agentDir: string, onChange: () => void, debounceMs = 300): StatusWatch {
   const root = join(agentDir, "missions");
-  const watchers = new Map<string, FSWatcher>();
+  const watchers = new Map<string, { watcher: FSWatcher; identity: string }>();
   let closed = false;
-  let timer: Timer | undefined;
+  let wakeTimer: ReturnType<typeof setTimeout> | undefined;
+  let scanTimer: ReturnType<typeof setTimeout> | undefined;
+  let scanning: Promise<void> | undefined;
+  let scanPending = false;
 
-  const fire = () => {
-    if (closed) return;
-    clearTimeout(timer);
-    timer = setTimeout(onChange, debounceMs);
-    timer.unref?.();
-    void sync();
-  };
-
-  const add = (dir: string) => {
-    if (closed || watchers.has(dir)) return;
+  // Leading-edge coalescing bounds latency even when a mission writes continuously.
+  function wake(): void {
+    if (closed || wakeTimer !== undefined) return;
+    wakeTimer = setTimeout(() => {
+      wakeTimer = undefined;
+      if (!closed) onChange();
+    }, debounceMs);
+    wakeTimer.unref?.();
+  }
+  function rescan(): void {
+    if (closed || scanTimer !== undefined) return;
+    scanTimer = setTimeout(() => {
+      scanTimer = undefined;
+      void sync();
+    }, debounceMs);
+    scanTimer.unref?.();
+  }
+  async function reconcile(): Promise<void> {
+    const desired = new Map<string, "agent" | "root" | "workspace" | "status">([[agentDir, "agent"], [root, "root"]]);
     try {
-      watchers.set(dir, watch(dir, { persistent: false }, fire));
-    } catch {
-      // Missing directory or inotify limit: the poll floor and resync cover it.
+      for (const entry of await readdir(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const dir = join(root, entry.name);
+        desired.set(dir, "workspace");
+        desired.set(join(dir, "status"), "status");
+      }
+    } catch { /* The periodic pass still covers unavailable directories. */ }
+    for (const [dir, kind] of desired) {
+      let identity: string;
+      try {
+        const info = await stat(dir);
+        if (!info.isDirectory()) continue;
+        identity = `${info.dev}:${info.ino}`;
+      } catch {
+        watchers.get(dir)?.watcher.close();
+        watchers.delete(dir);
+        continue;
+      }
+      if (closed) return;
+      const previous = watchers.get(dir);
+      if (previous?.identity === identity) continue;
+      previous?.watcher.close();
+      watchers.delete(dir);
+      try {
+        const watcher = watch(dir, { persistent: false }, (event, filename) => {
+          const name = filename?.toString();
+          if (kind === "status") {
+            if (!name || name.endsWith(".json")) wake();
+            if (!name) rescan();
+          } else if (!name || (kind === "agent" ? name === "missions" : kind === "workspace" ? name === "status" : event === "rename")) {
+            rescan();
+            wake();
+          }
+        });
+        watcher.on("error", () => {
+          if (watchers.get(dir)?.watcher !== watcher) return;
+          watcher.close();
+          watchers.delete(dir);
+          rescan();
+        });
+        watchers.set(dir, { watcher, identity });
+      } catch { /* Polling remains the fallback for inotify limits. */ }
     }
-  };
-
-  const sync = async () => {
-    add(agentDir); // watches missions/ appearing under a fresh agent dir
-    add(root);
-    let workspaces: string[];
-    try {
-      workspaces = (await readdir(root, { withFileTypes: true }))
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name);
-    } catch {
-      return;
+    for (const [dir, entry] of watchers) {
+      if (desired.has(dir)) continue;
+      entry.watcher.close();
+      watchers.delete(dir);
     }
-    if (closed) return;
-    for (const workspace of workspaces) {
-      const dir = join(root, workspace);
-      add(dir); // watches the status/ directory appearing inside a fresh workspace
-      add(join(dir, "status"));
+  }
+  function sync(): Promise<void> {
+    if (closed) return Promise.resolve();
+    if (scanning) {
+      scanPending = true;
+      return scanning;
     }
-  };
-
-  const resync = setInterval(() => void sync(), RESYNC_MS);
+    scanning = reconcile().finally(() => {
+      scanning = undefined;
+      if (scanPending && !closed) {
+        scanPending = false;
+        rescan();
+      }
+    });
+    return scanning;
+  }
+  const resync = setInterval(() => void sync(), 10_000);
   resync.unref?.();
   const ready = sync();
-
   return {
     ready,
     close() {
       closed = true;
-      clearTimeout(timer);
+      clearTimeout(wakeTimer);
+      clearTimeout(scanTimer);
       clearInterval(resync);
-      for (const watcher of watchers.values()) watcher.close();
+      for (const { watcher } of watchers.values()) watcher.close();
       watchers.clear();
     },
   };

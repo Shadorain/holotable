@@ -99,29 +99,46 @@ test("POST from another origin is refused", async () => {
   expect(noOrigin.status).toBe(403);
 });
 
-test("stream pushes a change event after an append and honors the query token", async () => {
+test("stream requires header auth and delivers committed changes", async () => {
   const { home, base, token } = await boot();
-  // EventSource cannot set headers, so the token goes in the query; a bad one is refused.
-  expect((await fetch(`${base}/api/stream?token=nope`)).status).toBe(401);
-  const res = await fetch(`${base}/api/stream?token=${encodeURIComponent(token)}`);
-  expect(res.status).toBe(200);
-  expect(res.headers.get("content-type")).toContain("text/event-stream");
-  const changed = Promise.withResolvers<void>();
+  expect((await fetch(`${base}/api/stream?token=${token}`)).status).toBe(401);
+  expect((await fetch(`${base}/api/operations?token=${token}`)).status).toBe(401);
+  const res = await fetch(`${base}/api/stream`, { headers: { "x-holotable-token": token } });
   const reader = res.body!.getReader();
-  // The stream is open-ended; the reader must end before server.close() can finish.
-  cleanup.unshift(() => void reader.cancel());
-  const decoder = new TextDecoder();
-  let buffer = "";
-  void (async () => {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      if (buffer.includes('"changed"')) changed.resolve();
-    }
-  })();
-  await appendEvent(home, "lab", { v: 1, at: "2026-01-01T00:00:01.000Z", kind: "operator", contact: "a", op: "refresh", ok: true });
-  await Promise.race([changed.promise, Bun.sleep(5000).then(() => changed.reject(new Error("no stream push")))]);
+  try {
+    const decoder = new TextDecoder();
+    expect(decoder.decode((await reader.read()).value)).toContain(": ready");
+    await appendEvent(home, "lab", { v: 1, at: "2026-01-01T00:00:01.000Z", kind: "operator", contact: "a", op: "refresh", ok: true });
+    expect(decoder.decode((await reader.read()).value)).toContain('"changed"');
+  } finally {
+    await reader.cancel();
+  }
+});
+
+test("stream notifies other clients after a notes-only mutation", async () => {
+  const { base, token, api } = await boot();
+  const response = await api("/api/stream");
+  const reader = response.body!.getReader();
+  try {
+    await reader.read();
+    const notes = await (await api("/api/notes?op=lab")).json() as { revision: string };
+    const saved = await api("/api/notes", { method: "PUT", body: { op: "lab", text: "- [ ] Changed", base: notes.revision } });
+    expect(saved.status).toBe(200);
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain('"changed"');
+  } finally {
+    await reader.cancel();
+  }
+});
+
+test("shutdown terminates an open stream without waiting for its client", async () => {
+  const { api } = await boot();
+  const close = cleanup.pop()!;
+  const response = await api("/api/stream");
+  const reader = response.body!.getReader();
+  await reader.read();
+  const ended = reader.read().then(chunk => chunk.done, () => true);
+  await close();
+  expect(await ended).toBe(true);
 });
 
 test("projection groups contacts and selects the first queued one", async () => {
