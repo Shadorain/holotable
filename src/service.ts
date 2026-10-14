@@ -20,6 +20,7 @@ import { startServer, type BoardServer } from "./server.ts";
 import { readSettings } from "./store/settings.ts";
 import { acquireBoard, ensureToken, type BoardInfo, type BoardLock } from "./store/board.ts";
 import { availableMemoryBytes } from "./machine.ts";
+import { watchMissionStatuses } from "./runtime/status-watch.ts";
 
 export class ServiceError extends Error {
   constructor(
@@ -72,6 +73,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
   let recoverInFlight: Promise<void> | undefined;
   let boardLock: BoardLock | null = null;
   let server: BoardServer | null = null;
+  let statusWatch: { close(): void } | null = null;
   const { promise: closed, resolve: resolveClosed } = Promise.withResolvers<void>();
   const onSignal = () => void close();
   async function close(): Promise<void> {
@@ -81,6 +83,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     process.off("SIGTERM", onSignal);
     clearTimeout(timer);
     try {
+      statusWatch?.close();
       await server?.close();
       await Promise.allSettled([tickInFlight, autoInFlight, recoverInFlight]);
     } finally {
@@ -250,6 +253,9 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
       tickInFlight = undefined;
     });
   }
+  // A status-file write wakes a pass in under a second; the pollMs loop stays as the
+  // floor for owner pings, terminal lists and anything fs.watch cannot see.
+  statusWatch = watchMissionStatuses(agentDir(), () => { if (!stopped) poll(); });
   timer = setTimeout(poll, 0);
 
   if (options.signals) {

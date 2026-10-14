@@ -1,6 +1,7 @@
 import { appendFile, readFile, truncate } from "node:fs/promises";
 import { join } from "node:path";
 import type { Event } from "../core/types.ts";
+import { notifyChanged } from "../core/notify.ts";
 import { validateEvent } from "../core/validate-event.ts";
 import { operationDir } from "../paths.ts";
 
@@ -25,6 +26,7 @@ export async function appendEvent(home: string, opId: string, e: Event): Promise
   }
   if (tornFrom !== null) await truncate(path, tornFrom);
   await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
+  notifyChanged();
 }
 
 /** Parse JSONL events; `path` is only used in error messages. */

@@ -1,6 +1,6 @@
-// Holotable shell: token, polling, connection state, selection, actions, toasts, keyboard.
-// Regions re-render only when their data changed, and never under an open <select>,
-// so a 3 s poll does not steal focus, close dropdowns or flicker.
+// Holotable shell: token, streaming refresh, connection state, selection, actions, toasts,
+// keyboard. The server pushes changes over /api/stream; the poll loop is only a slow
+// fallback while the stream is down, so it never steals focus or flickers controls.
 import { renderOps } from "./board.js";
 import { cardTabs, clearCardDecision, clearDecideModel, clearLaunchModel, getCardDecision, getDecideModel, getLaunchModel, planUiKey, renderCard } from "./card.js";
 import { orderedTickets, renderList } from "./list.js";
@@ -62,10 +62,13 @@ const state = {
   defaults: { tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none", pause: false },
 };
 const POLL_INTERVAL_MS = 3000;
+// While the stream is connected the loop only covers what file watching cannot see.
+const STREAM_FALLBACK_MS = 30_000;
 let polling = false;
 let pollTimer = null;
 let confirmTimer = null;
 let opDocPending = null;
+let stream = null;
 
 const api = (path, options = {}) => {
   const headers = new Headers(options.headers || {});
@@ -852,11 +855,25 @@ new ResizeObserver(() => {
 
 // ---- polling ----
 
-function schedulePoll(delay = POLL_INTERVAL_MS) {
+function schedulePoll(delay = streamOpen() ? STREAM_FALLBACK_MS : POLL_INTERVAL_MS) {
   clearTimeout(pollTimer);
   pollTimer = null;
   if (document.visibilityState !== "visible") return;
   pollTimer = setTimeout(poll, delay);
+}
+
+function streamOpen() {
+  return stream !== null && stream.readyState === EventSource.OPEN;
+}
+
+// Server-sent changes trigger an immediate refetch; EventSource self-reconnects and the
+// short poll keeps the page fresh while it is down.
+function connectStream() {
+  if (!token || stream) return;
+  stream = new EventSource(`/api/stream?token=${encodeURIComponent(token)}`);
+  stream.addEventListener("message", () => poll());
+  stream.addEventListener("open", () => schedulePoll());
+  stream.addEventListener("error", () => schedulePoll(POLL_INTERVAL_MS));
 }
 
 async function poll() {
@@ -921,7 +938,7 @@ async function poll() {
     polling = false;
     render();
     if (document.visibilityState === "visible") {
-      schedulePoll(POLL_INTERVAL_MS);
+      schedulePoll();
     }
   }
 }
@@ -1203,4 +1220,5 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 render();
+connectStream();
 if (document.visibilityState === "visible") poll();

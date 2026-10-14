@@ -8,6 +8,7 @@ import { isAllowedRemoteAddress, isTailscaleAddress, resolveBoardUrls } from "./
 import { HttpError, type BoardService, type ProjectSpec } from "./board.ts";
 import { CLOSE_OUTCOMES, type NewOperationSpec } from "./commands.ts";
 import type { Access, ClosedOutcome, Delivery, Fleet, Frontend, Kind, Settings, Tracker } from "./core/types.ts";
+import { onChanged } from "./core/notify.ts";
 import type { Run } from "./ports.ts";
 import { ActionError } from "./runtime/errors.ts";
 const MAX_BODY = 5 * 1024 * 1024;
@@ -187,6 +188,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
   let currentUrl = "";
   let actualPort = 0;
   let currentServer: Server;
+  const streams = new Set<ServerResponse>();
   const pending = new Set<Promise<void | ServerResponse>>();
 
   const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
@@ -210,10 +212,46 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         }
       }
       if (!pathname.startsWith("/api/")) return fail(res, 404, "Not found");
-      const supplied = req.headers["x-holotable-token"];
-      const suppliedBytes = typeof supplied === "string" ? Buffer.from(supplied, "utf8") : Buffer.alloc(0);
+      // Token check: every API call carries the header; EventSource cannot set headers,
+      // so /api/stream also accepts it as a query parameter. The token already lives in
+      // the page URL fragment, so this exposes nothing the URL does not.
+      const supplied = req.headers["x-holotable-token"] ?? url.searchParams.get("token") ?? "";
+      const suppliedBytes = Buffer.from(String(supplied), "utf8");
       if (suppliedBytes.length !== tokenBytes.length || !timingSafeEqual(suppliedBytes, tokenBytes))
         return fail(res, 401, "Unauthorized");
+
+      // Push channel: one event per change, debounced; the page refetches on receipt.
+      if (method === "GET" && pathname === "/api/stream") {
+        res.writeHead(200, {
+          "content-type": "text/event-stream; charset=utf-8",
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+          connection: "keep-alive",
+        });
+        res.flushHeaders();
+        res.write(": ready\n\n");
+        let pushTimer: ReturnType<typeof setTimeout> | undefined;
+        const push = () => {
+          clearTimeout(pushTimer);
+          pushTimer = setTimeout(() => {
+            if (!res.writableEnded) res.write('data: {"type":"changed"}\n\n');
+          }, 250);
+        };
+        const off = onChanged(push);
+        const heartbeat = setInterval(() => {
+          if (!res.writableEnded) res.write(": ping\n\n");
+        }, 25_000);
+        res.once("close", () => {
+          off();
+          clearInterval(heartbeat);
+          clearTimeout(pushTimer);
+        });
+        // Long-lived: closeAllConnections does not reap streaming responses, so the
+        // server tracks and destroys them itself on close and rebind.
+        streams.add(res);
+        res.once("close", () => streams.delete(res));
+        return;
+      }
 
       if (method !== "GET") {
         let origin: URL;
@@ -629,6 +667,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
     bindHost = currentAccess === "local" ? "127.0.0.1" : "0.0.0.0";
 
     const oldServer = currentServer;
+    for (const res of streams) res.destroy();
     oldServer.close();
 
     const newServer = createServer(trackRequest);
@@ -664,6 +703,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
     },
     close: () => {
       const { promise, resolve, reject } = Promise.withResolvers<void>();
+      for (const res of streams) res.destroy();
       currentServer.close((error) => (error ? reject(error) : resolve()));
       currentServer.closeAllConnections();
       return promise.then(async () => {

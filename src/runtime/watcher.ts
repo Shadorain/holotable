@@ -19,6 +19,7 @@ import type { ListedTerminal, Run } from "../ports.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { listDecisionPanes, readDecisionDoc, readDecisionPane, removeDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
 import { listOperations, readOperation } from "../store/operations.ts";
+import { notifyChanged } from "../core/notify.ts";
 
 export interface WatcherDeps {
   home: string;
@@ -53,6 +54,8 @@ interface OpState {
   decisionPanes: Set<string>;
   /** Uncommitted path count in the integration checkout; null until probed or not a local-merge op. */
   integrationDirty: number | null;
+  /** Serialized extras after the last pass; a change is pushed to stream clients. */
+  fp: string;
 }
 
 const GLOBAL_FRONTENDS: Record<string, true> = { orca: true, herdr: true };
@@ -253,6 +256,13 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         await appendEvent(deps.home, op.id, { v: 1, at: deps.now().toISOString(), kind: "unblocked", contact: contact.ticket });
     }
     state.open = openCount(op, folded, state);
+    // Extras changes the board cannot see in events alone (status text, owners, probes,
+    // integration dirt) still reach stream clients: the fingerprint moves with them.
+    const fp = JSON.stringify([state.statuses, state.owners, state.probes, state.integrationDirty, state.open, [...state.vanished].sort(), [...state.decisionPanes].sort()]);
+    if (fp !== state.fp) {
+      state.fp = fp;
+      notifyChanged();
+    }
   }
 
   /** Dirty-path count of the integration checkout: the header warns before a land ever runs. */
@@ -360,7 +370,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         return { op, events };
       });
       if (!read) continue;
-      const state = ops.get(row.id) ?? { statuses: {}, owners: {}, probes: {}, lastSampleAt: 0, open: 0, vanished: new Set<string>(), decisionPanes: new Set<string>(), integrationDirty: null };
+      const state = ops.get(row.id) ?? { statuses: {}, owners: {}, probes: {}, lastSampleAt: 0, open: 0, vanished: new Set<string>(), decisionPanes: new Set<string>(), integrationDirty: null, fp: "" };
       ops.set(row.id, state);
       const listsPanes = state.decisionPanes.size > 0 || read.op.contacts.some((c) => c.kind === "decision");
       state.decisionPanes = listsPanes

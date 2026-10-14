@@ -99,6 +99,31 @@ test("POST from another origin is refused", async () => {
   expect(noOrigin.status).toBe(403);
 });
 
+test("stream pushes a change event after an append and honors the query token", async () => {
+  const { home, base, token } = await boot();
+  // EventSource cannot set headers, so the token goes in the query; a bad one is refused.
+  expect((await fetch(`${base}/api/stream?token=nope`)).status).toBe(401);
+  const res = await fetch(`${base}/api/stream?token=${encodeURIComponent(token)}`);
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type")).toContain("text/event-stream");
+  const changed = Promise.withResolvers<void>();
+  const reader = res.body!.getReader();
+  // The stream is open-ended; the reader must end before server.close() can finish.
+  cleanup.unshift(() => void reader.cancel());
+  const decoder = new TextDecoder();
+  let buffer = "";
+  void (async () => {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      if (buffer.includes('"changed"')) changed.resolve();
+    }
+  })();
+  await appendEvent(home, "lab", { v: 1, at: "2026-01-01T00:00:01.000Z", kind: "operator", contact: "a", op: "refresh", ok: true });
+  await Promise.race([changed.promise, Bun.sleep(5000).then(() => changed.reject(new Error("no stream push")))]);
+});
+
 test("projection groups contacts and selects the first queued one", async () => {
   const { api } = await boot();
   const list = (await (await api("/api/operations")).json()) as Array<{ id: string; name: string; project: string | null; live: number; queued: number; attention: number }>;

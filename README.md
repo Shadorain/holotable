@@ -247,7 +247,7 @@ Start an automatic campaign from OMP with `/holotable new release --repo /path/t
 |`ai.model`|`null`|default model selector for new agent panes; unset leaves selection to OMP|
 |`ai.thinking`|`null`|reasoning effort for new panes: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `auto`; unset leaves it to OMP|
 |`ai.draft` / `ai.decision` / `ai.mission`|`null`|per-use model defaults; unset inherits `ai.model`, then OMP|
-|`pollMs`|`5000`|status read and owner ping interval|
+|`pollMs`|`5000`|status read and owner ping floor — status-file writes wake a pass sooner via fs.watch|
 |`sampleMs`|`60000`|tracker and delivery sampling interval|
 |`theme`|`holo`|page theme: `holo`, `omp` (omp-grill's palette), `slate`|
 |`worktrees.root`|`{repo}-holotable-{name}`|where herdr and custom lanes are created: `{repo}` (repo path), `{repoName}`, `{name}` (required), may start with `~/`. An operation's `worktreeRoot` overrides it|
@@ -352,13 +352,13 @@ refusals against its crash-loop budget. This is admission control, not a memory 
 running missions; other tools can still exhaust the host. If `/proc` is unavailable,
 this check is unavailable and the Agents cap remains the limit.
 
-Queued-only operations do not run terminal-list commands; operations with live recorded terminals or decision panes share one Orca/herdr listing per watcher pass. Custom frontends remain operation-scoped. Usage viewers share one machine snapshot instead of independently scanning `/proc`. Browser polls wait three seconds after completion rather than stacking requests behind slow responses. Hidden pages stop polling and drawing; usage polling runs only while its tooltip is visible. Unchanged header and formatted statistics leave their DOM intact.
+Queued-only operations do not run terminal-list commands; operations with live recorded terminals or decision panes share one Orca/herdr listing per watcher pass. Custom frontends remain operation-scoped. Usage viewers share one machine snapshot instead of independently scanning `/proc`. The page refreshes on push events from `GET /api/stream`; a 30 s poll (3 s while the stream is down) is only a safety net and never stacks requests behind slow responses. Hidden pages stop refreshing and drawing; usage polling runs only while its tooltip is visible. Unchanged header and formatted statistics leave their DOM intact.
 
 Watcher passes never overlap. OMP's passive 10-second refresh reads the service in-process; it does not spawn CLI polling processes. Explicit CLI starts close the parent's log descriptor after spawn. Stop authenticates a live PID and instance nonce, never signals a PID from a discovery file, and drains HTTP actions, watcher, auto and recovery work before releasing the ownership lock.
 
 ## Watching missions
 
-While the service runs, its watcher polls every `pollMs`: it reads each launched contact's mission status file, pings the owning session's control socket, and records changes as events (`phase`, `gate-armed`, `socket-up`, `socket-down`). Every `sampleMs` (and when the page regains focus) it samples the tracker and the delivery PR and appends a `sample` only when a field changed. It is read-only. Port failures are warned once per distinct message and never stop the loop.
+While the service runs, an `fs.watch` over the mission status directories wakes the watcher within about a second of any status write; the `pollMs` pass is the floor underneath it. Each pass reads each launched contact's mission status file, pings the owning session's control socket, and records changes as events (`phase`, `gate-armed`, `socket-up`, `socket-down`). Every `sampleMs` it samples the tracker and the delivery PR and appends a `sample` only when a field changed. It is read-only. Port failures are warned once per distinct message and never stop the loop.
 
 Adapters: tracker `linear` (`lin`) and `github` (`gh`); fleet `omp-mission` (status files and control socket, see [docs/contract.md](docs/contract.md)); delivery `github-pr` (`gh pr view`) and `local-merge` (`git merge-base --is-ancestor`).
 
