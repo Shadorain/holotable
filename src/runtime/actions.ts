@@ -189,6 +189,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         run = () => fleetOp(req.op, req.contact, req.action as OperatorOp, {
           ...(typeof req.args.beadId === "string" ? { beadId: req.args.beadId } : {}),
           ...(typeof req.args.detail === "string" ? { detail: req.args.detail } : {}),
+          ...(req.action === "resend" && Array.isArray(req.args.files) && req.args.files.every((f) => typeof f === "string") ? { files: req.args.files } : {}),
         });
         break;
       case "plan-approve":
