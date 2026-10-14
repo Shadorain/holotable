@@ -318,6 +318,16 @@ export interface Settings {
 export type Verify = "pending" | "active" | "passed" | "failed" | "skipped";
 export const VERIFIES = ["pending", "active", "passed", "failed", "skipped"] as const;
 
+export interface MissionProblem {
+  kind: "quota" | "rate-limit" | "timeout" | "error";
+  source: string;
+  detail: string;
+  retryAt: string | null;
+  attempt: number | null;
+  completed: number | null;
+  total: number | null;
+}
+
 export interface ContactStatus {
   schema: 1;
   id: string;
@@ -343,6 +353,7 @@ export interface ContactStatus {
   usage: UsageTotals | null;
   /** Latest verification outcome; 'failed' means `continue` would re-open broken work. */
   verify: Verify | null;
+  problem?: MissionProblem | null;
   ctl: { socket: string; generation: number } | null;
   updatedAt: string;
 }
@@ -482,6 +493,7 @@ export interface ContactView {
   group: "queue" | "live";
   state: ContactState;
   detail: string;
+  problem?: MissionProblem | null;
   progress: { step: number; of: number } | null;
   phase: string | null;
   blockedBy: Array<{ ticket: string; landed: boolean }>;
@@ -509,7 +521,7 @@ export interface Projection {
     frontend: Frontend;
     tracker: Tracker;
     fleet: Fleet;
-    auto: (AutoMode & { plansSupported: boolean; landWait?: string | null }) | null;
+    auto: (AutoMode & { plansSupported: boolean; landWait?: string | null; capacityWait?: string | null }) | null;
     recover: boolean;
     delivery: Delivery;
     pause: boolean;

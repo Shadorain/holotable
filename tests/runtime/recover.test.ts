@@ -64,6 +64,7 @@ async function setup(opts: Opts = {}) {
   const extras = () => ({ statuses, owners: owners(), probes: {}, load: { live: opts.open ?? 1, open: opts.open ?? 1 }, vanished, decisionPanes: new Set<string>(), integrationDirty: null });
 
   const noRun: Run = async () => ({ stdout: "", stderr: "", code: 0 });
+  const availableMemory = opts.availableMemory ?? (() => 8 * 1024 * 1024 * 1024);
   const act = createActionRunner({
     home,
     now: () => new Date(now),
@@ -74,10 +75,10 @@ async function setup(opts: Opts = {}) {
     token: () => "abc123",
     socketWaitMs: 0,
     run: noRun,
-    availableMemory: opts.availableMemory,
+    availableMemory,
   });
   const warnings: string[] = [];
-  const newRecover = () => createRecover({ home, now: () => new Date(now), settings, extras, run: act, warn: (m) => warnings.push(m), availableMemory: opts.availableMemory });
+  const newRecover = () => createRecover({ home, now: () => new Date(now), settings, extras, run: act, warn: (m) => warnings.push(m), availableMemory });
   const recover = newRecover();
 
   const events = () => readEvents(home, "lab");
@@ -234,6 +235,7 @@ describe("recovery: relaunch", () => {
       return open(input);
     };
     await t.recover.pass();
+    await t.until(async () => (await t.relaunches()).some(e => e.ok));
     await t.settle();
     const opened = t.fake.calls.filter((call) => call.method === "openTerminal").map((call) => {
       const args = call.args;

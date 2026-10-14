@@ -107,6 +107,8 @@ Recovery treats producer `hold: quota` as an operator hold, even when the pane i
 neither Continue nor Relaunch is automatic. Serialized relaunches recheck that hold when
 their queued action begins, so a newly reported exhausted quota cannot trigger a retry storm.
 
+`core/mission-problem.ts` reads structured producer problems and uses older panes' next-step text only for presentation. Failed reviews are Hold/Needs you even without a retry capability; scheduled retries are Waiting, never running or relaunchable live panes. Recovery capacity waits remain distinct. Projection exposes an operation-level `auto.capacityWait` for current quota/rate-limit problems: Auto suppresses new mission launches, native plan approvals and paid decision panes but continues landing and recommended decisions. No deadline inferred from text authorizes an action.
+
 Mission launch and relaunch admission reads Linux `MemAvailable` without scanning the
 process table. `core/policy.ts` requires 600 MiB per new/pending pane plus a 512 MiB
 machine reserve. `runtime/launcher.ts` checks before frontend creation or old-pane

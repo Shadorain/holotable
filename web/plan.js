@@ -70,7 +70,7 @@ function node(c, selected, chain) {
   box.title = `${c.ticket}: ${taskText}${statusNote} · Click to trace, double-click to open`;
   box.setAttribute("aria-label", `${c.ticket}: ${taskText}`);
   const top = el("div", "node-top");
-  top.append(statePill(c.state), el("span", "mono", c.ticket));
+  top.append(statePill(c.state, c.problem), el("span", "mono", c.ticket));
   box.append(top, el("div", "node-title", taskText));
   if (c.state !== "landed") {
     const unlanded = c.blockedBy?.filter((b) => !b.landed).map((b) => b.ticket) ?? [];

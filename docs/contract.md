@@ -31,6 +31,15 @@ interface ContactStatus {
   ctl: { socket: string; generation: number } | null; // null: no control socket
   plan?: { path: string; revision: string } | null;   // pending plan awaiting approval; revision bumps on every edit
   mode?: "auto" | "pause" | "force" | null;           // the mission's review mode (the planned one while a plan is pending)
+  problem?: {
+    kind: "quota" | "rate-limit" | "timeout" | "error";
+    source: string;                 // review, worker, coordinator, verification or graph
+    detail: string;                 // full current failure, not truncated next-step text
+    retryAt: string | null;         // ISO deadline owned by the producer; null = explicit retry
+    attempt: number | null;         // failed review attempt
+    completed: number | null;       // retained review targets
+    total: number | null;
+  } | null;                        // null = healthy; absent = older producer
   usage?: {                                           // cumulative across the coordinator and worker sessions; null until any is recorded
     tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
     costUsd: number | null;                           // sum of omp's per-message cost estimates; null when none carried a cost
@@ -45,6 +54,8 @@ Unknown fields are ignored. An invalid file is skipped (and counted), never fata
 Join: among status files whose `worktree` realpath equals the contact's `lane.worktree` realpath, the newest `updatedAt` wins. A lane hosts one mission at a time.
 
 As implemented by `omp-mission`: `next` may carry `/mission <verb> — <text>` (command prefix plus step text, whitespace-collapsed, 240 chars); `progress.of` is 9 (the phase list length); clearing a pending plan deletes its status file; clearing a saved or completed mission keeps its final status with `ctl: null`.
+
+`problem` is display and scheduling evidence, not a capability. Only advertised `actions` authorize socket controls. Missing fields from older panes do not authorize board retries or model switching.
 
 ## Control socket
 

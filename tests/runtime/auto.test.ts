@@ -282,3 +282,18 @@ async function seedOperationLaunchedLane(home: string, ticket: string, worktree:
     ),
   }));
 }
+
+for (const kind of ["quota", "rate-limit"] as const) test(`auto waits for ${kind} before starting more AI work, then resumes`, async () => {
+  const t = await setup([contact("a", { lane: lane("/wt/a", "t1") }), contact("b")]);
+  t.setStatus("a", status({ worktree: "/wt/a", phase: "review", problem: {
+    kind, source: "review", detail: "Provider capacity unavailable", retryAt: kind === "quota" ? null : "2026-01-01T04:00:00Z",
+    attempt: 1, completed: 1, total: 2,
+  } }));
+  t.liveWorktree("b");
+  await t.auto.pass();
+  expect((await t.op()).contacts.find(c => c.ticket === "b")!.lane).toBeNull();
+  expect((await t.op()).auto?.enabled).toBe(true);
+  t.setStatus("a", status({ worktree: "/wt/a", phase: "review", next: "Independent review running", problem: null }));
+  await t.auto.pass();
+  expect((await t.op()).contacts.find(c => c.ticket === "b")!.lane?.worktree).toBe("/wt/b");
+});

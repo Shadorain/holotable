@@ -2,6 +2,7 @@ import { foldEvents, contactDerived } from "./fold.ts";
 import { countTasks } from "./notes.ts";
 import { actionsFor, contactState, launchRefusal } from "./policy.ts";
 import { computeStats } from "./stats.ts";
+import { missionProblem, retryWaiting } from "./mission-problem.ts";
 import type {
   Contact,
   ContactState,
@@ -265,6 +266,7 @@ function contactView(
   const status = statuses[contact.ticket] ?? null;
   const owner = owners[contact.ticket] ?? "none";
   const probe = probes[contact.ticket] ?? null;
+  const problem = state === "landed" ? null : missionProblem(status);
   const policy: PolicyInput = {
     operation: op,
     contact,
@@ -282,7 +284,7 @@ function contactView(
   };
 
   const blockers = contact.blockedBy.filter((b) => !contactDerived(derived, b).landed);
-  const detail = state === "waiting" ? input.recoveryWaits?.[contact.ticket]?.detail ?? "Waiting to reconnect" : detailFor(state, {
+  let detail = state === "waiting" && !retryWaiting(status) ? input.recoveryWaits?.[contact.ticket]?.detail ?? "Waiting to reconnect" : detailFor(state === "waiting" ? "review" : state, {
     refusal: state === "ready" || state === "blocked" ? launchRefusal(policy) : null,
     next: status?.next ?? null,
     conflictOpen,
@@ -291,6 +293,8 @@ function contactView(
     deciding: decisionPaneOpen,
     autoDecides: Boolean(op.auto?.enabled && op.auto.decide && op.frontend !== "none"),
   });
+  if (state === "waiting" && problem?.retryAt)
+    detail = `Review retry at ${problem.retryAt.slice(0, 16).replace("T", " ")} UTC`;
   const actions = actionsFor(policy);
 
   const group: ContactView["group"] =
@@ -305,6 +309,7 @@ function contactView(
     group,
     state,
     detail,
+    problem,
     progress: status?.progress ?? null,
     phase: status?.phase ?? null,
     blockedBy: contact.blockedBy.map((t) => ({
@@ -350,6 +355,9 @@ export function project(input: ProjectionInput): Projection {
       input.decisionPanes?.has(c.ticket) ?? false,
     ),
   );
+  const capacityTickets = contacts.filter(c => c.state !== "landed" &&
+    (c.problem?.kind === "quota" || c.problem?.kind === "rate-limit")).map(c => c.ticket);
+  const capacityWait = capacityTickets.length ? `New AI work waits for provider capacity: ${capacityTickets.join(", ")}` : null;
 
   const selection =
     contacts.find((c) => c.group === "live")?.ticket ??
@@ -368,7 +376,7 @@ export function project(input: ProjectionInput): Projection {
       fleet: op.fleet,
       delivery: op.delivery,
       pause: op.pause,
-      auto: op.auto ? { ...op.auto, plansSupported: Object.values(input.statuses).some((s) => s?.actions.includes("plan-approve")) } : null,
+      auto: op.auto ? { ...op.auto, capacityWait, plansSupported: Object.values(input.statuses).some((s) => s?.actions.includes("plan-approve")) } : null,
       recover: op.recover,
       project: input.project,
       zones: op.zones.map((z, i) => ({

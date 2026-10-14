@@ -50,7 +50,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
       return;
     }
 
-    if (auto.plans) {
+    if (auto.plans && !auto.capacityWait) {
       const target = projection.contacts.find((c) => {
         const status = deps.extras(opId).statuses[c.ticket];
         if (status?.hold !== "plan-approval") return false;
@@ -132,7 +132,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
             await pause(opId, error instanceof Error ? error.message : String(error));
             return;
           }
-        } else if (live < auto.maxLive && open < projection.header.cap) {
+        } else if (!auto.capacityWait && live < auto.maxLive && open < projection.header.cap) {
           try {
             await deps.run({ op: opId, contact: target.ticket, action: "decide-agent", args: {}, by: "auto" });
             live += 1;
@@ -145,7 +145,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
       }
     }
 
-    if (auto.launch && projection.header.live < auto.maxLive && projection.header.open < projection.header.cap) {
+    if (auto.launch && !auto.capacityWait && projection.header.live < auto.maxLive && projection.header.open < projection.header.cap) {
       const next = projection.contacts.find(
         (c) => c.group === "queue" && c.state === "ready" && c.actions.some((a) => a.id === "launch" && a.enabled),
       );

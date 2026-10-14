@@ -2,7 +2,7 @@
 // rings are lifecycle stages from outside in: queue, planning, active, complete. Landed contacts
 // leave the scope and only count in the hub. One canvas; the static well is prerendered offscreen
 // on resize or layout change, then each frame blits it and draws sweep + blips.
-import { STATE_WORDS } from "./ui.js";
+import { stateLabel } from "./ui.js";
 
 /** Hub radius as a share of R; contacts never sit inside 0.17 R. */
 const HUB = 0.15;
@@ -486,7 +486,7 @@ export function createRadar(stage, opts) {
     if (hovered) {
       const hb = blips.find((b) => b.c.ticket === hovered);
       if (hb) {
-        const word = STATE_WORDS[hb.c.state] ?? hb.c.state;
+        const word = stateLabel(hb.c.state, hb.c.problem);
         const line1 = hb.c.ticket;
         const line2 = `${hb.c.title ?? "—"} · ${word}`;
         ctx.font = `600 12px Inter, system-ui, sans-serif`;

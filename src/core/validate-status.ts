@@ -148,6 +148,27 @@ export function validateStatus(
     verify = value.verify as Verify;
   }
 
+  let problem: ContactStatus["problem"] = null;
+  if (value.problem !== undefined && value.problem !== null) {
+    const p = value.problem;
+    if (!isRecord(p) || !["quota", "rate-limit", "timeout", "error"].includes(String(p.kind)) ||
+        typeof p.source !== "string" || !p.source || typeof p.detail !== "string" || !p.detail)
+      return fail("problem must carry kind, source and detail");
+    if (p.retryAt !== null && (typeof p.retryAt !== "string" || !Number.isFinite(Date.parse(p.retryAt))))
+      return fail("problem.retryAt must be an ISO timestamp or null");
+    const count = (key: string): number | null => {
+      const n = p[key];
+      if (n === null) return null;
+      if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0) return fail(`problem.${key} must be a nonnegative integer or null`);
+      return n;
+    };
+    problem = {
+      kind: p.kind as NonNullable<ContactStatus["problem"]>["kind"],
+      source: p.source, detail: p.detail, retryAt: p.retryAt as string | null,
+      attempt: count("attempt"), completed: count("completed"), total: count("total"),
+    };
+  }
+
   const updatedAt = str("updatedAt");
   return {
     schema: 1,
@@ -172,5 +193,6 @@ export function validateStatus(
     mode,
     usage,
     verify,
+    ...(value.problem === undefined ? {} : { problem }),
   };
 }

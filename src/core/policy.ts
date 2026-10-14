@@ -1,5 +1,6 @@
 import { contactDerived } from "./fold.ts";
 import { unmetBlockers } from "./graph.ts";
+import { missionProblem, retryWaiting } from "./mission-problem.ts";
 import type {
   ActionView,
   Contact,
@@ -43,6 +44,8 @@ export function contactState(i: {
   if ((owner === "offline" || d.reaped) && !status.complete) return "offline";
   if (status.hold !== "none") return "hold";
   if (status.complete) return "complete";
+  if (retryWaiting(status)) return "waiting";
+  if (missionProblem(status)) return "hold";
   if (status.actions.includes("resend")) return "hold";
   if (status.phase === "verify") return "verify";
   if (status.phase === "review") return "review";
@@ -130,7 +133,7 @@ export function actionsFor(i: PolicyInput): ActionView[] {
       : status.actions.includes("continue") && continueNeeded ? "continue"
       : status.actions.includes("resend") ? "resend"
       : status.actions.includes("release") ? "release"
-      : state === "review" && status.actions.includes("review") ? "review" : null;
+      : status.phase === "review" && status.actions.includes("review") ? "review" : null;
     for (const op of status.actions) {
       if (!(FLEET_OPS as readonly string[]).includes(op)) continue;
       if (op === "continue" && !continueNeeded) continue;
@@ -193,6 +196,7 @@ export function actionsFor(i: PolicyInput): ActionView[] {
       ];
     }
     case "waiting":
+      if (owner === "live" && state === "waiting") return [focus(), ...fleetButtons(), reap()];
     case "offline": {
       const relaunchable =
         terminal !== null && operation.frontend !== "none" && contact.lane?.frontend !== "external";

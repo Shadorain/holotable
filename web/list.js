@@ -58,7 +58,7 @@ function item(contact, selected, ctx) {
   main.setAttribute("aria-current", contact.ticket === selected ? "true" : "false");
   main.title = `${contact.ticket}: ${contact.title ?? ""}${contact.detail ? ` · ${contact.detail}` : ""}`;
   const meta = el("div", "item-meta");
-  meta.append(statePill(contact.state), el("span", "mono", contact.ticket), el("span", "item-detail", contact.detail));
+  meta.append(statePill(contact.state, contact.problem), el("span", "mono", contact.ticket), el("span", "item-detail", contact.detail));
   main.append(el("div", "item-title", contact.title ?? contact.ticket), meta);
   row.append(main);
   const next = primaryAction(contact) ?? (contact.attention ? contact.actions.find((a) => a.id === "focus" && a.enabled) : null);

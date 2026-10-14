@@ -428,3 +428,28 @@ test("history credits auto mode and post-land cleanup to the board, an explicit 
   expect(project(input(op, { events: reapedByHand })).log[0]?.actor).toBe("operator");
 });
 
+
+test("a scheduled review cooldown is waiting, not running or a relaunch request", () => {
+  const op = makeOp([makeContact("a", { lane: live() })], { frontend: "orca", fleet: "omp-mission" });
+  const v = viewOf(op, "a", {
+    statuses: { a: makeStatus({ phase: "review", next: "Review retries automatically at 22:05 UTC after: Reviewer error: 429 rate_limit_error", actions: ["mode"] }) },
+    owners: { a: "live" },
+  });
+  expect(v.state).toBe("waiting");
+  expect(v.problem?.kind).toBe("rate-limit");
+  expect(v.attention).toBe(false);
+  expect(v.actions.some(a => a.id === "relaunch")).toBe(false);
+  expect(v.detail).toContain("22:05 UTC");
+});
+
+test("review failure remains visible even when the producer does not offer a retry", () => {
+  const op = makeOp([makeContact("a", { lane: live() })], { frontend: "orca", fleet: "omp-mission" });
+  const status = makeStatus({ phase: "review", next: "Review failed (1/2 reviewers complete)", actions: [] });
+  const failed = viewOf(op, "a", { statuses: { a: status }, owners: { a: "live" } });
+  expect(failed.state).toBe("hold");
+  expect(failed.attention).toBe(true);
+  const recovered = viewOf(op, "a", { statuses: { a: { ...status, next: "Independent review running", problem: null } }, owners: { a: "live" } });
+  expect(recovered.state).toBe("review");
+  expect(recovered.problem).toBeNull();
+  expect(recovered.attention).toBe(false);
+});

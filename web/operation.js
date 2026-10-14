@@ -250,6 +250,7 @@ function autoSection(p, ctx) {
     note: "Launch the queue and land finished work without a click each time.",
   });
   if (auto?.enabled) {
+    if (auto.capacityWait) card.append(el("p", "set-note", auto.capacityWait));
     if (auto.landWait) card.append(el("div", "set-note", `Landing waiting · ${auto.landWait}`));
     const sub = el("div", "auto-sub");
     switchRow(sub, "Launch", "auto.launch", auto.launch, ctx.saveOp, {
@@ -391,7 +392,7 @@ function zonesContactsSection(p, ctx) {
     kind.append(kindPill(c.kind));
     row.append(tk, el("span", "ctable-title", c.title ?? "—"), el("span", "", zoneLabel(c.zone)), kind);
     const st = el("span", "");
-    st.append(statePill(c.state));
+    st.append(statePill(c.state, c.problem));
     row.append(st);
     const waits = c.blockedBy.filter((b) => !b.landed).map((b) => b.ticket).join(", ");
     row.append(el("span", "dim", waits || "—"));

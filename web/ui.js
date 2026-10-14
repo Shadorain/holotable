@@ -113,10 +113,19 @@ const STATE_ICON = {
   conflict: "triangle-alert", landed: "git-merge", offline: "wifi-off", waiting: "clock",
 };
 
-export function statePill(state) {
-  const pill = el("span", `pill s-${state}`);
+export function stateLabel(state, problem) {
+  if (state === "offline" || state === "landed") return STATE_WORDS[state];
+  if (problem?.kind === "quota") return "Quota exhausted";
+  if (problem?.kind === "rate-limit") return "Rate limited";
+  if (problem && state === "waiting") return "Retry waiting";
+  if (problem && state === "hold") return "Failed";
+  return STATE_WORDS[state] ?? state;
+}
+
+export function statePill(state, problem) {
+  const pill = el("span", `pill s-${problem ? "hold" : state}`);
   if (STATE_ICON[state]) pill.append(icon(STATE_ICON[state], { size: 10 }));
-  pill.append(document.createTextNode(STATE_WORDS[state] ?? state));
+  pill.append(document.createTextNode(stateLabel(state, problem)));
   return pill;
 }
 

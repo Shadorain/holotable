@@ -39,7 +39,7 @@ function header(contact, zoneLabel) {
   const titleEl = el("h2", "card-title", titleText);
   head.append(titleEl);
   const status = el("div", "card-status");
-  status.append(statePill(contact.state));
+  status.append(statePill(contact.state, contact.problem));
   const owner = OWNER_COPY[contact.owner];
   if (owner) {
     const dot = el("span", `owner o-${owner[0]}`);
@@ -564,8 +564,19 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan) {
   const bar = progress(contact);
   if (bar) body.append(bar);
   if (contact.state !== "blocked") {
-    const next = el("div", `next s-${contact.state}`);
-    next.append(el("div", "kicker", contact.attention ? "Your move" : "Status"), el("div", "next-text", contact.detail));
+    const problem = contact.problem;
+    const next = el("div", `next s-${problem ? "hold" : contact.state}`);
+    const message = problem?.retryAt
+      ? `Review paused. Automatic retry: ${new Date(problem.retryAt).toLocaleString()}.`
+      : contact.detail;
+    next.append(el("div", "kicker", contact.state === "waiting" && problem ? "Retry scheduled" : contact.attention ? "Your move" : "Status"), el("div", "next-text", message));
+    if (problem?.completed !== null && problem?.completed !== undefined && problem.total !== null)
+      next.append(el("div", "set-note", `${problem.completed}/${problem.total} reviewers retained${problem.attempt ? ` · failed attempt ${problem.attempt}` : ""}`));
+    if (problem && problem.detail !== contact.detail) {
+      const details = el("details", "mission-error");
+      details.append(el("summary", "", "Failure details"), el("pre", "", problem.detail));
+      next.append(details);
+    }
     body.append(next);
   }
   const decided = decisionBox(contact, projection.operation.id);

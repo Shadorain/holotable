@@ -381,6 +381,8 @@ details.group > summary .count { margin-left: auto; }
   border-left: 3px solid var(--s, var(--line-2)); background: var(--next-bg);
 }
 .next-text { font-size: 15px; font-weight: 600; margin-top: 2px; }
+.mission-error { margin-top: 10px; color: var(--muted); }
+.mission-error pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .actions-main { display: flex; flex-wrap: wrap; gap: 8px; }
 .actions-aside { margin-left: auto; }

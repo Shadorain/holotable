@@ -551,7 +551,7 @@ function render() {
         ui: opUiKey(p.operation.id, p.operation.zones),
         auto: p.operation.auto,
         zones: p.operation.zones,
-        contacts: p.contacts.map((c) => [c.ticket, c.title, c.description, c.zone, c.kind, c.state, c.blockedBy, c.tracker?.url ?? null]),
+        contacts: p.contacts.map((c) => [c.ticket, c.title, c.description, c.zone, c.kind, c.state, c.problem, c.blockedBy, c.tracker?.url ?? null]),
         notes: p.notes,
         notesKey: notesKey(p.operation.id),
         busy: [...ctx.busy],

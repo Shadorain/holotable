@@ -385,18 +385,15 @@ The contact card shows the fleet buttons the mission itself offers (`Approve`, `
 
 `Relaunch` appears on a contact whose session is `offline` while its lane still has a terminal (a pane that closed, a session that exited or died, or one that hung inside its pane). It closes the old pane if the frontend still lists it, opens a new one in the same worktree with the same launch command, and waits for the control socket. A mission that is already past its plan reopens **outside plan mode** (a resumed mission cannot continue while the session is in plan mode); one still waiting on a plan reopens in it and plans again. The new session re-attaches the saved mission under resume hold, so the card then shows `Continue`; nothing resumes until you press it (or [recovery](#recovery) does). A dead session holds no slot against the cap, so Relaunch replaces its own pane; it is disabled with the reason `cap <open>/<cap> omp` only when other live sessions fill the cap, and is not offered for a finished mission, a lane with no terminal, an `external` lane, or a `none` frontend. After **Reap**, Relaunch is the only way back.
 
-After quota exhaustion, a live pane stays **Hold** and offers **Continue** for an explicit retry.
-A dead pane is **Offline**, retains its last quota reason, and offers **Relaunch**. Recovery
-never clears either quota hold automatically. Relaunch loads current extension code; Continue
-then releases the saved coordinator park through its socket. No process freezing or manual
-mission/status-file edits are needed.
+Quota exhaustion is explicit: live panes show **Quota exhausted**, dead panes remain **Offline** with the last failure. Restore quota before using the producer-advertised retry (**Continue** for a coordinator park, **Review** for a failed review, or **Resend** for a stopped worker). Recovery never clears quota holds automatically. Reload/relaunch older mission panes to load updated producer code; no mission/status-file edits are needed.
 
 A live mission advertising `resend` has a stopped worker and shows **Hold**, not
 **Running**. Its **Resend** button asks the producer to retry; **Release** appears
 only when the producer offers it. Recovery never sends either action automatically.
 
-A mission in review shows **Review**, not **Running**. When it offers an independent
-review, **Review** is the primary operator action; recovery does not request reviews.
+Active independent reviews show **Review**. Failed reviews requiring an operator show **Failed**, **Rate limited**, or **Quota exhausted** in Needs you; automatic cooldowns show under **Waiting**, not In flight, with their retry time and retained-review counts. The card exposes full provider error details when the producer supplies them. Older running panes' next-step text still identifies failures and scheduled waits, but their full structured evidence requires updated producer code.
+
+Auto mode pauses new launches, plan approvals and decision-agent panes while this operation reports quota/rate-limit failures. It leaves the queue visible and can still land completed work or record free recommended decisions. Existing producer retries retain their own pacing; the board never changes models or adds a competing retry loop.
 
 ## Blocked queue
 
