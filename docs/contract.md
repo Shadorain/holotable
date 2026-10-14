@@ -20,7 +20,7 @@ interface ContactStatus {
   base: string | null;
   phase: string;                    // producer vocabulary, shown verbatim
   progress: { step: number; of: number } | null;
-  hold: "none" | "plan-approval" | "resume" | "gate" | "blocked" | "quota";
+  hold: "none" | "plan-approval" | "resume" | "gate" | "blocked" | "quota"; // blocked: saved blocker or unreadable bead graph
   gate: { kind: string; id: string } | null;       // id = first 12 hex of sha256(gate token)
   next: string | null;              // one line shown on the card
   actions: string[];                // operator ops legal now
