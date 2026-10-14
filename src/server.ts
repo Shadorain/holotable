@@ -361,6 +361,16 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
           return fail(res, 400, error instanceof Error ? error.message : String(error));
         }
       }
+      if (method === "POST" && pathname === "/api/project-graph") {
+        const body = await readBody(req);
+        const project = requireString(body, "project");
+        const op = requireString(body, "op");
+        if (op !== "install" && op !== "restart") return fail(res, 400, 'op must be "install" or "restart"');
+        const config = op === "install"
+          ? await service.installGraphService(project)
+          : await service.restartGraphService(project);
+        return respond(res, 200, JSON.stringify(config));
+      }
       if (method === "GET" && pathname === "/api/notes") {
         const op = url.searchParams.get("op");
         if (!op) return fail(res, 400, "op is required");

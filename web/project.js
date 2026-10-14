@@ -78,7 +78,7 @@ export function renderProject(root, cfg, operations, ctx) {
   if (w?.path) ws.append(el("span", "mono", `${w.path} · ${WORKSPACE_SOURCE[w.source] ?? w.source}`));
   if (w?.note) ws.append(el("div", "set-note", w.note));
   setup.append(ws);
-  root.append(setup);
+  root.append(setup, graphSection(cfg.graph, ctx));
 
   const danger = section("Remove");
   const remove = el("button", "btn danger");
@@ -89,4 +89,38 @@ export function renderProject(root, cfg, operations, ctx) {
   remove.addEventListener("click", () => ctx.remove());
   danger.append(remove, el("div", "set-note", "Only possible without open operations. The repository is never touched."));
   root.append(danger);
+}
+
+/** The bead-graph Dolt server, when this repo keeps one. The board supervises it; it never runs it. */
+function graphSection(graph, ctx) {
+  const box = section("Bead graph", "Missions read their bead graph from a Dolt server in this repo. holotable keeps it under a systemd unit that restarts it; no mission pane starts its own.");
+  if (!graph || !graph.managed) {
+    box.append(el("div", "set-note", graph?.detail ?? "This repo has no server-mode bead database."));
+    return box;
+  }
+  const row = el("div", "proj-op");
+  const healthy = graph.reachable === true;
+  const pill = el("span", `pill ${healthy ? "s-landed" : "s-blocked"}`, healthy ? "up" : "down");
+  row.append(pill, el("span", "mono", graph.unit ?? ""), el("span", "set-note", graph.detail));
+  box.append(row);
+  const tools = el("div", "list-tools left");
+  const action = (label, op, cls) => {
+    const b = el("button", `btn small ${cls ?? ""}`);
+    b.type = "button";
+    b.append(document.createTextNode(label));
+    b.addEventListener("click", () => {
+      b.disabled = true;
+      ctx.graph(op, (error) => {
+        b.disabled = false;
+        if (error) b.title = error.message;
+      });
+    });
+    tools.append(b);
+  };
+  if (graph.unitState === "missing") action("Install", "install", "primary");
+  else action("Restart", "restart", "");
+  box.append(tools);
+  if (graph.managed && !graph.autoStartDisabled)
+    box.append(el("div", "set-note", "bd auto-start is still on: a pane can start a copy the Orca reaper will kill. Install turns it off."));
+  return box;
 }

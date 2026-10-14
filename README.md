@@ -96,6 +96,7 @@ Install only what your projects use. The board can display and organize work wit
 |GitHub tickets or PR delivery|Install `gh` and run `gh auth login`.|
 |Linear tickets|Install and authenticate `lin`; `lin me` should succeed.|
 |Local-merge delivery|Git and a clean integration worktree; no hosting-service credentials needed.|
+|Bead graph (server-mode beads)|The project page shows the repo's Dolt graph server and can put it under a supervised `beads-dolt-<project>` systemd user unit (pinned port, `Restart=always`, `dolt.auto-start: false` so no mission pane starts a copy the Orca reaper would kill).|
 
 ### Open it from another machine
 
@@ -304,7 +305,7 @@ A markdown scratch pad per operation (`notes.md`), on the Operation page and in 
 
 ### Projects
 
-**Projects** (the first breadcrumb in the header) is the top of the board: every project with its repo, base and operations (with what needs you), the standalone operations, and **New project**. The picker offers your existing projects' repos, every repo Orca knows, and repos where `/holotable` recently ran (`GET /api/repos`, deduplicated); pick or paste a repo and detection fills every field — name, base, integration, tracker, frontend, delivery, worktree folder — each with a one-line reason, all adjustable (`POST /api/projects/detect`; `POST /api/projects` with just `{repo}` does the same at create time). The second breadcrumb opens one project: its operations, its settings (changing one changes it for every operation that has not overridden it), and Remove (only once no open operation uses it; the repo is never touched). An operation's own page only picks its project; the per-operation overrides are folded behind a one-line summary ("all from the project", or which fields differ). Boards from before projects existed are migrated once: operations are grouped by repo into one project each, seeded from the oldest operation, and keep only the fields that differ.
+**Projects** (the first breadcrumb in the header) is the top of the board: every project with its repo, base and operations (with what needs you), the standalone operations, and **New project**. The picker offers your existing projects' repos, every repo Orca knows, and repos where `/holotable` recently ran (`GET /api/repos`, deduplicated); pick or paste a repo and detection fills every field — name, base, integration, tracker, frontend, delivery, worktree folder — each with a one-line reason, all adjustable (`POST /api/projects/detect`; `POST /api/projects` with just `{repo}` does the same at create time). The second breadcrumb opens one project: its operations, its settings (changing one changes it for every operation that has not overridden it), the bead-graph server status when the repo is server-mode beads (Install puts it under the systemd unit; Restart bounces it), and Remove (only once no open operation uses it; the repo is never touched). An operation's own page only picks its project; the per-operation overrides are folded behind a one-line summary ("all from the project", or which fields differ). Boards from before projects existed are migrated once: operations are grouped by repo into one project each, seeded from the oldest operation, and keep only the fields that differ.
 
 ### New operation
 

@@ -651,6 +651,20 @@ function renderProjectPage() {
           done?.(error);
         }
       },
+      graph: async (op, done) => {
+        try {
+          const res = await api("/api/project-graph", { method: "POST", body: JSON.stringify({ project: state.projectId, op }) });
+          const data = await res.json().catch(() => null);
+          if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+          state.projectCfg = data;
+          toast(op === "install" ? "Graph server installed" : "Graph server restarted", "ok");
+          done?.(null);
+          render();
+        } catch (error) {
+          toast(error instanceof Error ? error.message : String(error), "error");
+          done?.(error);
+        }
+      },
       openOperation: (id) => openOperationPage(id),
       newOperation: async () => {
         await loadProjects();
@@ -888,6 +902,15 @@ async function poll() {
            const h = await hres.json();
            if (state.opId !== pollOpId) return;
            state.history = h;
+        }
+      }
+      // The graph-server pill is live health, not stored config, so refresh it with the rest.
+      if (state.view === "project" && state.projectId) {
+        const asked = state.projectId;
+        const gres = await api(`/api/project-config?project=${encodeURIComponent(asked)}`);
+        if (gres.ok) {
+          const g = await gres.json();
+          if (state.projectId === asked && state.view === "project") state.projectCfg = g;
         }
       }
     } else state.projection = null;

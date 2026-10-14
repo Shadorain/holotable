@@ -1,8 +1,10 @@
-import { realpath } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
 import { usableMemoryBytes } from "./machine.ts";
 import { zoneIdFor } from "./core/zones.ts";
 import { workspaceInfo, type WorkspaceInfo } from "./adapters/workspace-info.ts";
+import { doltState, installDolt, restartDolt, type DoltState } from "./adapters/beads-dolt.ts";
 import {
   applyOperationField,
   applyProjectField,
@@ -187,6 +189,10 @@ export interface BoardService {
   createProject(input: ProjectSpec): Promise<{ id: string }>;
   /** Same fields and validation as `/holotable project set`; bad values are a 400. */
   setProjectField(id: string, field: string, value: string): Promise<ProjectConfig>;
+  /** Put this project's bead-graph Dolt server under a supervised systemd unit and stop `bd` auto-start. */
+  installGraphService(id: string): Promise<ProjectConfig>;
+  /** Restart that unit when the graph is down. */
+  restartGraphService(id: string): Promise<ProjectConfig>;
   /** Delete the project directory; 409 while operations point at it. */
   deleteProject(id: string): Promise<void>;
   /** The notes scratch pad of an operation plus its revision. */
@@ -248,6 +254,8 @@ export interface ProjectConfig {
   };
   options: { tracker: string[]; fleet: string[]; frontend: string[]; delivery: string[] };
   workspace: WorkspaceInfo | null;
+  /** The bead-graph Dolt server this project's missions read, when it keeps one. */
+  graph: DoltState;
 }
 export interface DraftInfo {
   id: string;
@@ -369,7 +377,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       workspace: await workspaceInfo(op, await readSettings(home), hooks.run),
     };
   }
-  function projectConfigOf(project: Project, workspace: WorkspaceInfo | null): ProjectConfig {
+  function projectConfigOf(project: Project, workspace: WorkspaceInfo | null, graph: DoltState): ProjectConfig {
     return {
       fields: {
         name: project.name,
@@ -385,6 +393,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       },
       options: { tracker: [...TRACKERS], fleet: [...FLEETS], frontend: [...FRONTENDS], delivery: [...DELIVERIES] },
       workspace,
+      graph,
     };
   }
   /** The project page's lane folder mirrors the operation one: the project stands in for its ops. */
@@ -397,7 +406,12 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       repo: project.repo,
       worktreeRoot: project.worktreeRoot,
     } as Operation;
-    return projectConfigOf(project, await workspaceInfo(stub, await readSettings(home), hooks.run));
+    const run = hooks.run ?? createRun();
+    return projectConfigOf(
+      project,
+      await workspaceInfo(stub, await readSettings(home), hooks.run),
+      await doltState(project.id, project.repo, { run }),
+    );
   }
   return {
     projection,
@@ -620,6 +634,37 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       if (!(PROJECT_FIELDS as readonly string[]).includes(field)) throw new HttpError(400, `Unknown field "${field}"`);
       // Project paths are absolute on the wire; resolve("/") is a pass-through for them.
       await asBadRequest(() => mutateProject(home, id, (p) => applyProjectField(p, field, value, "/")));
+      return projectConfig(id);
+    },
+    async installGraphService(id) {
+      const project = await readProject(home, id).catch(() => {
+        throw new HttpError(404, `No project "${id}"`);
+      });
+      const run = hooks.run ?? createRun();
+      const dolt = await run("which", ["dolt"], project.repo);
+      const doltPath = dolt.stdout.trim();
+      if (dolt.code !== 0 || !doltPath.startsWith("/"))
+        throw new HttpError(400, "dolt is not on PATH; install it before managing the graph server");
+      const result = await asBadRequest(() =>
+        installDolt(project.id, project.name, project.repo, {
+          run,
+          doltPath,
+          unitDir: join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "systemd", "user"),
+          write: async (path, content) => {
+            await mkdir(dirname(path), { recursive: true });
+            await writeFile(path, content);
+          },
+          read: (path) => readFile(path, "utf8").catch(() => null),
+        }),
+      );
+      if (result.warnings.length) throw new HttpError(502, result.warnings.join("; "));
+      return projectConfig(id);
+    },
+    async restartGraphService(id) {
+      const project = await readProject(home, id).catch(() => {
+        throw new HttpError(404, `No project "${id}"`);
+      });
+      await asBadRequest(() => restartDolt(project.id, project.repo, { run: hooks.run ?? createRun() }));
       return projectConfig(id);
     },
     async deleteProject(id) {
