@@ -299,7 +299,7 @@ describe("githubPrDelivery.land", () => {
       ghCalls.push(args);
       return {
         stdout: prJson({
-          statusCheckRollup: [{ status: "COMPLETED", conclusion: "FAILURE" }],
+          statusCheckRollup: [{ name: "Lint", status: "COMPLETED", conclusion: "SUCCESS" }, { name: "Verify policy change explanation", status: "COMPLETED", conclusion: "FAILURE" }],
         }),
         stderr: "",
         code: 0,
@@ -313,7 +313,7 @@ describe("githubPrDelivery.land", () => {
         sourceBranch: "feat",
         status,
       }),
-    ).rejects.toMatchObject({ code: "checks-failing" });
+    ).rejects.toMatchObject({ code: "checks-failing", message: "failing check: Verify policy change explanation" });
     expect(ghCalls.some((a) => a[1] === "merge")).toBe(false);
   });
 

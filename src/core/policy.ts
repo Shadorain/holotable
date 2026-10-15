@@ -226,6 +226,8 @@ export function actionsFor(i: PolicyInput): ActionView[] {
         else if (i.conflictOpen !== null)
           reason = `conflict mission ${i.conflictOpen} open`;
         else if (probe?.state === "closed") reason = "pull request closed";
+        else if (probe?.checks === "fail")
+          reason = probe.failing?.length ? `failing check: ${probe.failing.join(", ")}` : "a required check failed";
         actions.push(view("land", "Land", true, reason === null, reason));
         if (operation.delivery === "none")
           actions.push(view("done", "Mark done", false, true));

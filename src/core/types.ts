@@ -383,6 +383,8 @@ export interface DeliveryProbe {
   state: "open" | "merged" | "closed";
   mergeable: "clean" | "conflict" | "unknown";
   checks: "pass" | "fail" | "pending" | "none";
+  /** Names of failed checks, when the delivery reports them. */
+  failing?: string[];
 }
 
 // ---- derived state (C7) ----

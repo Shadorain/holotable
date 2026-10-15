@@ -26,6 +26,16 @@ function checksFrom(rollup: unknown): DeliveryProbe["checks"] {
   return sawPending ? "pending" : "pass";
 }
 
+function failedChecks(rollup: unknown): string[] {
+  if (!Array.isArray(rollup)) return [];
+  const names = rollup.filter(isRecord).flatMap((item) => {
+    const failed = typeof item.state === "string" ? FAILED.has(item.state) : typeof item.conclusion === "string" && FAILED.has(item.conclusion);
+    const name = typeof item.name === "string" ? item.name : typeof item.context === "string" ? item.context : "unnamed check";
+    return failed ? [name] : [];
+  });
+  return [...new Set(names)];
+}
+
 export function githubPrDelivery(run: Run): DeliveryPort {
   return {
     id: "github-pr",
@@ -54,11 +64,13 @@ export function githubPrDelivery(run: Run): DeliveryPort {
       if (state !== "open" && state !== "merged" && state !== "closed") return null;
       const mergeable =
         pr.mergeable === "MERGEABLE" ? "clean" : pr.mergeable === "CONFLICTING" ? "conflict" : "unknown";
+      const failing = failedChecks(pr.statusCheckRollup);
       return {
         url: typeof pr.url === "string" ? pr.url : null,
         state,
         mergeable,
         checks: checksFrom(pr.statusCheckRollup),
+        ...(failing.length ? { failing } : {}),
       };
     },
     async land(i) {
@@ -98,8 +110,10 @@ export function githubPrDelivery(run: Run): DeliveryPort {
           "pr-base-mismatch",
           `PR base is ${String(pr.baseRefName)}, expected ${operation.base}`,
         );
-      if (checksFrom(pr.statusCheckRollup) === "fail")
-        throw new PortError("checks-failing", "a required check failed");
+      if (checksFrom(pr.statusCheckRollup) === "fail") {
+        const failing = failedChecks(pr.statusCheckRollup);
+        throw new PortError("checks-failing", failing.length ? `failing check: ${failing.join(", ")}` : "a required check failed");
+      }
       if (typeof pr.headRefName !== "string" || pr.headRefName.length === 0)
         throw new PortError("pr-view-failed", "gh pr view omitted headRefName");
       const url = typeof pr.url === "string" ? pr.url : "";
