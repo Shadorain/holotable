@@ -144,11 +144,11 @@ export function clock(iso) {
 
 // Action ids the server handles via POST /api/actions. plan-save/plan-refine are wired but
 // render inside the Plan tab, not the action bar (card.js filters them).
-const WIRED = new Set(["launch", "reap", "approve", "continue", "review", "dispatch", "resend", "release", "retry-model", "mode", "focus", "done", "land", "land-anyway", "relaunch", "redecide", "decide-agent", "plan-save", "plan-refine"]);
+const WIRED = new Set(["launch", "reap", "approve", "continue", "review", "dispatch", "check", "resend", "release", "retry-model", "mode", "focus", "done", "land", "land-anyway", "relaunch", "redecide", "decide-agent", "plan-save", "plan-refine"]);
 // Shown while the request runs; launch and land can take a while against real tools.
 const BUSY_LABEL = {
   launch: "Launching…", land: "Landing…", "land-anyway": "Landing…", approve: "Approving…", continue: "Continuing…",
-  review: "Requesting…", dispatch: "Dispatching…", done: "Saving…", reap: "Closing…", focus: "Focusing…", mode: "Setting…", relaunch: "Reopening…", "decide-agent": "Opening…", redecide: "Saving…",
+  review: "Requesting…", dispatch: "Dispatching…", check: "Checking…", done: "Saving…", reap: "Closing…", focus: "Focusing…", mode: "Setting…", relaunch: "Reopening…", "decide-agent": "Opening…", redecide: "Saving…",
   "plan-save": "Saving…", "plan-refine": "Refining…",
   resend: "Resending…", release: "Releasing…",
 };
@@ -157,7 +157,7 @@ const BUSY_LABEL = {
 const ACTION_ICON = {
   launch: "rocket", land: "git-merge", "land-anyway": "git-merge", approve: "check", continue: "skip-forward", review: "eye",
   dispatch: "send", done: "check-check", reap: "circle-x", focus: "crosshair", relaunch: "rotate-cw", "decide-agent": "bot", redecide: "pencil",
-  resend: "rotate-cw", release: "skip-forward", "retry-model": "rotate-cw",
+  resend: "rotate-cw", release: "skip-forward", "retry-model": "rotate-cw", check: "git-branch",
 };
 // Actions that end something the operator cannot get back; they need a second click.
 export const CONFIRM = { reap: "Close terminal?", "land-anyway": "Merge with failing checks?" };
@@ -179,13 +179,14 @@ const ACTION_TIPS = {
   relaunch: "Reopen this mission's pane in its worktree; the mission comes back in resume hold until continued",
   review: "Ask the mission for a review round",
   dispatch: "Dispatch the next ready work to workers",
+  check: "Inspect the delivered PR: update it from the base, work through review threads and conflicts, reply to reviewers (the mission pane does the work)",
   resend: "Retry the stopped worker through its mission controller",
   release: "Ask the mission controller to release its blocker",
   focus: "Bring this mission's terminal to the front",
   reap: "Close this mission's terminal (click twice)",
   land: "Merge this contact's branch into the integration checkout, or merge its PR",
   "land-anyway": "Merge this PR although its checks are failing (click twice); GitHub branch protection still applies",
-  done: "Mark finished: anything waiting on it can start",
+  done: "Mark finished once its work is really merged into the base; anything waiting on it can start",
   "decide-agent": "Open an omp pane that investigates this question and records a choice with its reasoning",
   redecide: "Record a different choice; anything that waited on this stays unblocked",
 };

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { validateStatus } from "../../src/core/validate-status.ts";
 import { makeStatus } from "./fixtures.ts";
 import { missionProblem } from "../../src/core/mission-problem.ts";
+import type { MissionCheck } from "../../src/core/types.ts";
 
 const bad = (v: unknown): string => {
   try {
@@ -49,4 +50,20 @@ test("malformed retry metadata cannot enter the board", () => {
   const problem = { kind: "rate-limit", source: "review", detail: "429 rate_limit_error", retryAt: "not a date", attempt: 1, completed: 0, total: 2 };
   expect(() => validateStatus({ ...makeStatus(), problem })).toThrow();
   expect(() => validateStatus({ ...makeStatus(), problem: { ...problem, retryAt: null, attempt: -1 } })).toThrow();
+});
+
+describe("validateStatus check", () => {
+  const check: MissionCheck = { at: "2026-10-15T20:00:00.000Z", state: "threads", detail: "2 unresolved review threads", conflicts: [], threads: { open: 2, total: 3 } };
+
+  test("older producers omit it; a valid check is kept", () => {
+    expect(validateStatus(makeStatus()).check).toBeUndefined();
+    expect(validateStatus({ ...makeStatus(), check }).check).toEqual(check);
+    expect(validateStatus({ ...makeStatus(), check: null }).check).toBeNull();
+  });
+
+  test("a check with an unknown state or more open threads than total is invalid", () => {
+    expect(() => validateStatus({ ...makeStatus(), check: { ...check, state: "ok" } })).toThrow();
+    expect(() => validateStatus({ ...makeStatus(), check: { ...check, threads: { open: 4, total: 3 } } })).toThrow();
+    expect(() => validateStatus({ ...makeStatus(), check: { ...check, conflicts: [1] } })).toThrow();
+  });
 });

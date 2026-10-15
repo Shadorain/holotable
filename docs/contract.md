@@ -39,7 +39,22 @@ interface ContactStatus {
     attempt: number | null;         // failed review attempt
     completed: number | null;       // retained review targets
     total: number | null;
+  problem?: {
+    kind: "quota" | "rate-limit" | "timeout" | "error";
+    source: string;                 // review, worker, coordinator, verification or graph
+    detail: string;                 // full current failure, not truncated next-step text
+    retryAt: string | null;         // ISO deadline owned by the producer; null = explicit retry
+    attempt: number | null;         // failed review attempt
+    completed: number | null;       // retained review targets
+    total: number | null;
   } | null;                        // null = healthy; absent = older producer
+  check?: {                        // latest result of the `check` op; absent = never checked or older producer
+    at: string;                    // when the check ran
+    state: "clean" | "merged" | "closed" | "conflict" | "threads" | "checks" | "fixing" | "unknown";
+    detail: string;                // one line shown on the card
+    conflicts: string[];           // paths conflicting with the base, if any
+    threads: { open: number; total: number };  // unresolved PR review threads
+  } | null;
   usage?: {                                           // cumulative across the coordinator and worker sessions; null until any is recorded
     tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
     costUsd: number | null;                           // sum of omp's per-message cost estimates; null when none carried a cost
@@ -65,12 +80,12 @@ Path: `<tmpdir>/omp-mission-ctl-<uid>/<sha256(missionId)[0:16]>.sock`, directory
 
 Newline-delimited JSON, one request per connection, one response line. Max line 64 KiB.
 
-- Request: `{"v":1,"op":"<ping|approve|continue|mode|review|dispatch|resend|release|reap|clear|plan-edit|plan-refine|plan-approve|retry-model>","args":{...},"operator":true}`. `ping` needs no `operator`; any other op without `operator: true` is `bad-request`.
+- Request: `{"v":1,"op":"<ping|approve|continue|mode|review|dispatch|check|resend|release|reap|clear|plan-edit|plan-refine|plan-approve|retry-model>","args":{...},"operator":true}`. `ping` needs no `operator`; any other op without `operator: true` is `bad-request`.
 - Response: `{"v":1,"ok":true,"revision":"…"}` or `{"v":1,"ok":false,"error":{"code":"…","message":"…"}}`.
 - Server codes: `bad-request`, `stale` (approve carried a `args.gate` that is not the current gate id), `busy`, `rejected` (the same `control()`/`decision()` path the slash command uses threw), `no-session`.
 - Client-side only: `owner-offline` (ENOENT, ECONNREFUSED, connect/ping timeout 3 s). Operation timeout 150 s.
 
-The board UI exposes producer-advertised `approve`, `continue`, `review`, `dispatch`, `resend`, `release`, `mode` (`args {mode: "auto"|"pause"|"force"}`), `retry-model` (`args {model}` — an operator-only model switch plus retry of failed coordinator/review/worker work; a mission that stopped offering it is `refused` before the socket call), and the plan-review pair `plan-edit` (`args {text, base}` — `base` is the plan revision the editor saw; a mismatch is `stale`) and `plan-refine` (`args {message}` — the owner rewrites the plan from the feedback). Resend and Release accept optional `args {beadId, detail}`; Resend also takes `files` (paths added to a stopped subagent worker's scope). An omitted bead id leaves selection to the mission controller. The socket also accepts `reap` (`args {beadId}`) and `clear` for the CLI and tests. Judgment ops (`bind_graph`, `record_verification`, `record_delivery`, `accept_repairs`, `reject_finding`) are never reachable. Resume hold, plan mode, Pause gates and the ownership lock are enforced by the mission code the socket calls into; the socket adds no bypass. Plan approval: when the session advertises `plan-approve` (`args {revision}`, a stale revision is `stale`; see `omp-plan-approval.md`) the board sends it; otherwise it stays in the mission pane, where a pane on OMP older than 18.10.4 has no review API the board can answer.
+The board UI exposes producer-advertised `approve`, `continue`, `review`, `dispatch`, `check` (the mission inspects its delivered PR: updates it from the base, works review threads and conflicts, replies to reviewers, then publishes the outcome as the status `check` field — operator clicks only, never auto mode), `resend`, `release`, `mode` (`args {mode: "auto"|"pause"|"force"}`), `retry-model` (`args {model}` — an operator-only model switch plus retry of failed coordinator/review/worker work; a mission that stopped offering it is `refused` before the socket call), and the plan-review pair `plan-edit` (`args {text, base}` — `base` is the plan revision the editor saw; a mismatch is `stale`) and `plan-refine` (`args {message}` — the owner rewrites the plan from the feedback). Resend and Release accept optional `args {beadId, detail}`; Resend also takes `files` (paths added to a stopped subagent worker's scope). An omitted bead id leaves selection to the mission controller. The socket also accepts `reap` (`args {beadId}`) and `clear` for the CLI and tests. Judgment ops (`bind_graph`, `record_verification`, `record_delivery`, `accept_repairs`, `reject_finding`) are never reachable. Resume hold, plan mode, Pause gates and the ownership lock are enforced by the mission code the socket calls into; the socket adds no bypass. Plan approval: when the session advertises `plan-approve` (`args {revision}`, a stale revision is `stale`; see `omp-plan-approval.md`) the board sends it; otherwise it stays in the mission pane, where a pane on OMP older than 18.10.4 has no review API the board can answer.
 
 Client quirk (Bun): a client that calls `socket.end(payload)` half-closes, and Bun then drops the server's reply. Clients must `write` the request and wait for the reply line.
 

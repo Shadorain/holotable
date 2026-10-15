@@ -308,3 +308,36 @@ test("memory admission leaves reserve and accounts for panes still opening", () 
   expect(memoryLaunchRefusal(1712 * mib, 1)).toBeNull();
   expect(memoryLaunchRefusal(null)).toBeNull();
 });
+
+describe("landing needs a real merge", () => {
+  const lab = { fleet: "omp-mission", frontend: "orca", delivery: "github-pr" } as const;
+  const open = { url: "https://github.com/x/pull/242", state: "open", mergeable: "clean", checks: "pass" } as const;
+  const complete = (kind: "audit" | "implement", probe: PolicyInput["probe"], status = makeStatus({ complete: true })) => {
+    const op = makeOp([makeContact("a", { kind, lane: makeLane() })], lab);
+    return labels(actionsFor(policy(op, "a", { state: "complete", status, probe, owner: "live" })));
+  };
+
+  test("an audit that opened a PR lands through its PR like any code, never through Mark done", () => {
+    expect(complete("audit", open)).toEqual(expect.arrayContaining(["land:on:P"]));
+    expect(complete("audit", open).some((a) => a.startsWith("done"))).toBe(false);
+  });
+
+  test("an audit with nothing to merge still exits with Mark done", () => {
+    expect(complete("audit", null)).toEqual(expect.arrayContaining(["done:on:P"]));
+  });
+
+  test("a PR merged outside the board offers recording it instead of a Land that would fail", () => {
+    for (const kind of ["audit", "implement"] as const) {
+      const a = complete(kind, { ...open, state: "merged" });
+      expect(a).toEqual(expect.arrayContaining(["done:on:P"]));
+      expect(a.some((x) => x.startsWith("land"))).toBe(false);
+    }
+  });
+
+  test("Check PR shows on a finished mission only when the producer advertises it", () => {
+    const without = complete("implement", open, makeStatus({ complete: true, actions: [] }));
+    const offered = complete("implement", open, makeStatus({ complete: true, actions: ["check"] }));
+    expect(without.some((a) => a.startsWith("check"))).toBe(false);
+    expect(offered).toEqual(expect.arrayContaining(["check:on"]));
+  });
+});

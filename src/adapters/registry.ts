@@ -39,7 +39,7 @@ const FRONTEND_ADAPTERS: Record<string, (c: AdapterContext) => FrontendPort> = {
   custom: (c) => customFrontend(c.run, { ...c.settings, worktrees: { root: c.operation.worktreeRoot ?? c.settings.worktrees.root } }),
 };
 const DELIVERY_ADAPTERS: Record<string, (c: AdapterContext) => DeliveryPort> = {
-  none: () => noneDelivery(),
+  none: (c) => noneDelivery(c.run),
   "github-pr": (c) => githubPrDelivery(c.run),
   "local-merge": (c) => localMergeDelivery(c.run),
 };

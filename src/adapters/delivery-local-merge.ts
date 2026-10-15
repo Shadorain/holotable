@@ -1,4 +1,4 @@
-import { assertIntegrationReady, mergeBranch } from "./git-merge.ts";
+import { assertIntegrationReady, branchInBase, mergeBranch } from "./git-merge.ts";
 import type { DeliveryPort, Run } from "../ports.ts";
 
 export function localMergeDelivery(run: Run): DeliveryPort {
@@ -24,6 +24,9 @@ export function localMergeDelivery(run: Run): DeliveryPort {
         mergeable: "unknown",
         checks: "none",
       };
+    },
+    async verifyMerged(i) {
+      return branchInBase(run, i.operation.integration, i.operation.base, i.branch, true);
     },
     async land(i) {
       await assertIntegrationReady(run, i.operation.integration, i.operation.base, i.sourceBranch);

@@ -67,8 +67,9 @@ export function launchRefusal(i: PolicyInput): string | null {
   return null;
 }
 
-const FLEET_OPS = ["approve", "continue", "review", "dispatch", "resend", "release", "plan-approve", "retry-model"] as const;
+const FLEET_OPS = ["approve", "continue", "review", "dispatch", "resend", "release", "plan-approve", "retry-model", "check"] as const;
 const FLEET_OP_LABELS: Record<string, string> = {
+  check: "Check PR",
   "retry-model": "Switch model & retry",
   "plan-approve": "Approve plan",
   approve: "Approve",
@@ -220,7 +221,12 @@ export function actionsFor(i: PolicyInput): ActionView[] {
       return [focus(), ...fleetButtons(), ...planButtons(), reap()];
     case "complete": {
       const actions: ActionView[] = [];
-      if (contact.kind === "implement") {
+      // An audit that opened a PR (or committed on a local-merge base) carries code like any implementation.
+      const carriesCode = contact.kind === "implement" || (contact.kind === "audit" && probe !== null);
+      if (carriesCode && probe?.state === "merged") {
+        // Merged outside the board (or by an earlier Land): recording it is the only step left.
+        actions.push(view("done", "Mark merged", true, true));
+      } else if (carriesCode) {
         let reason: string | null = null;
         if (operation.delivery === "none") reason = "no delivery configured";
         else if (i.conflictOpen !== null)
@@ -232,14 +238,15 @@ export function actionsFor(i: PolicyInput): ActionView[] {
         actions.push(view("land", "Land", true, reason === null, reason));
         // The operator can still land past red CI for this one PR; auto mode only looks at `land`.
         if (failingChecks) actions.push(view("land-anyway", "Land anyway", false, true));
+        // Without a delivery the operator merges by hand; Mark done then verifies the merge actually happened.
         if (operation.delivery === "none")
           actions.push(view("done", "Mark done", false, true));
       } else {
-        // audit and conflict contacts never land: done is the exit.
+        // Audits with nothing to merge and conflict missions never land: done is the exit.
         // A finished conflict mission is not the operator's next step: Land on the original is.
         actions.push(view("done", "Mark done", contact.kind !== "conflict", true));
       }
-      actions.push(focus(), reap());
+      actions.push(...fleetButtons().filter((b) => b.id === "check"), focus(), reap());
       return actions;
     }
     case "conflict":

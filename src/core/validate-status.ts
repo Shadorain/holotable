@@ -169,6 +169,20 @@ export function validateStatus(
     };
   }
 
+  let check: ContactStatus["check"] = null;
+  if (value.check !== undefined && value.check !== null) {
+    const k = value.check;
+    const states = ["clean", "merged", "closed", "conflict", "threads", "checks", "fixing", "unknown"];
+    if (!isRecord(k) || typeof k.at !== "string" || !Number.isFinite(Date.parse(k.at)) || !states.includes(String(k.state)) ||
+        typeof k.detail !== "string" || !Array.isArray(k.conflicts) || k.conflicts.some((p) => typeof p !== "string") ||
+        !isRecord(k.threads))
+      return fail("check must carry at, state, detail, conflicts and threads");
+    const { open, total } = k.threads;
+    if (typeof open !== "number" || !Number.isSafeInteger(open) || open < 0 || typeof total !== "number" || !Number.isSafeInteger(total) || total < open)
+      return fail("check.threads must be {open, total} nonnegative integers");
+    check = { at: k.at, state: k.state as NonNullable<ContactStatus["check"]>["state"], detail: k.detail, conflicts: k.conflicts as string[], threads: { open, total } };
+  }
+
   const updatedAt = str("updatedAt");
   return {
     schema: 1,
@@ -194,5 +208,6 @@ export function validateStatus(
     usage,
     verify,
     ...(value.problem === undefined ? {} : { problem }),
+    ...(value.check === undefined ? {} : { check }),
   };
 }

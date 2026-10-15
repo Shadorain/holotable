@@ -311,6 +311,7 @@ function contactView(
     state,
     detail,
     problem,
+    check: status?.check ?? null,
     progress: status?.progress ?? null,
     phase: status?.phase ?? null,
     blockedBy: contact.blockedBy.map((t) => ({

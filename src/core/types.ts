@@ -12,6 +12,7 @@ export const OPERATOR_OPS = [
   "mode",
   "review",
   "dispatch",
+  "check",
   "resend",
   "retry-model",
   "release",
@@ -352,6 +353,15 @@ export interface MissionProblem {
   total: number | null;
 }
 
+/** Producer's latest PR check (omp-mission `/mission check`); absent from older panes. */
+export interface MissionCheck {
+  at: string;
+  state: "clean" | "merged" | "closed" | "conflict" | "threads" | "checks" | "fixing" | "unknown";
+  detail: string;
+  conflicts: string[];
+  threads: { open: number; total: number };
+}
+
 export interface ContactStatus {
   schema: 1;
   id: string;
@@ -378,6 +388,7 @@ export interface ContactStatus {
   /** Latest verification outcome; 'failed' means `continue` would re-open broken work. */
   verify: Verify | null;
   problem?: MissionProblem | null;
+  check?: MissionCheck | null;
   ctl: { socket: string; generation: number } | null;
   updatedAt: string;
 }
@@ -520,6 +531,8 @@ export interface ContactView {
   state: ContactState;
   detail: string;
   problem?: MissionProblem | null;
+  /** Latest PR check the producer reported; null until the first /mission check. */
+  check?: MissionCheck | null;
   progress: { step: number; of: number } | null;
   phase: string | null;
   blockedBy: Array<{ ticket: string; landed: boolean }>;

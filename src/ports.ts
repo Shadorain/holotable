@@ -108,6 +108,8 @@ export interface FleetPort {
   control(status: ContactStatus, op: ControlOp, args: Record<string, unknown>): Promise<void>;
 }
 
+export type MergeVerdict = { merged: true; detail: string } | { merged: false; reason: string };
+
 export type LandResult =
   | { outcome: "landed"; via: "merge" | "pr" }
   | { outcome: "conflict"; paths: string[]; deliveredSha: string; baseSha: string };
@@ -119,6 +121,11 @@ export interface DeliveryPort {
     contact: Contact;
     status: ContactStatus;
   }): Promise<DeliveryProbe | null>;
+  /**
+   * Whether `branch`'s work is really in the operation's base. The only authority for recording `landed`:
+   * Land, Mark done and auto mode all ask it, so an open PR or an unmerged branch never counts as landed.
+   */
+  verifyMerged(i: { operation: Operation; contact: Contact; branch: string }): Promise<MergeVerdict>;
   land(i: {
     operation: Operation;
     contact: Contact;

@@ -1,7 +1,7 @@
 import type { DeliveryProbe } from "../core/types.ts";
 import { isRecord } from "../core/validate.ts";
 import { PortError, type DeliveryPort, type Run } from "../ports.ts";
-import { assertIntegrationReady, probeMerge } from "./git-merge.ts";
+import { assertIntegrationReady, branchInBase, probeMerge } from "./git-merge.ts";
 
 const FAILED = new Set(["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]);
 
@@ -72,6 +72,31 @@ export function githubPrDelivery(run: Run): DeliveryPort {
         checks: checksFrom(pr.statusCheckRollup),
         ...(failing.length ? { failing } : {}),
       };
+    },
+    async verifyMerged(i) {
+      // GitHub's own record is the authority: a squash merge rewrites the commits, so ancestry cannot answer it.
+      let reason: string | null = null;
+      try {
+        const viewed = await run(
+          "gh",
+          ["pr", "view", i.branch, "--json", "state,baseRefName,url,number"],
+          i.operation.integration,
+        );
+        if (viewed.code === 0) {
+          const pr: unknown = JSON.parse(viewed.stdout);
+          if (isRecord(pr) && typeof pr.state === "string") {
+            const label = typeof pr.number === "number" ? `PR #${pr.number}` : "the PR";
+            if (pr.state === "MERGED") {
+              if (pr.baseRefName === i.operation.base) return { merged: true, detail: `${label} merged into ${i.operation.base}` };
+              return { merged: false, reason: `${label} merged into ${String(pr.baseRefName)}, not ${i.operation.base}` };
+            }
+            reason = pr.state === "OPEN" ? `${label} is still open` : `${label} was closed without merging`;
+          }
+        }
+      } catch { /* no usable PR answer: fall through to the git check */ }
+      const git = await branchInBase(run, i.operation.integration, i.operation.base, i.branch);
+      if (git.merged || reason === null) return git;
+      return { merged: false, reason: `${reason}; ${git.reason}` };
     },
     async land(i) {
       const { operation, contact, sourceBranch, status } = i;

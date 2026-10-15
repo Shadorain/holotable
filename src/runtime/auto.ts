@@ -28,6 +28,8 @@ export interface AutoDeps {
 export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait(opId: string): string | null } {
   const busy = new Set<string>();
   const landingWaits = new Map<string, { reason: string; retryAt: number }>();
+  // A finished contact whose work is not in the base yet (Mark done refused): leave it, try again much later.
+  const unmerged = new Map<string, number>();
 
   async function pause(opId: string, reason: string): Promise<void> {
     landingWaits.delete(opId);
@@ -82,6 +84,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
     if (auto.land) {
       const target = projection.contacts.find((c) => {
         if (c.state !== "complete") return false;
+        if ((unmerged.get(`${opId}/${c.ticket}`) ?? 0) > deps.now().getTime()) return false;
         if (c.actions.some((a) => a.id === "land" && a.enabled)) return true;
         return (c.kind === "audit" || c.kind === "conflict") && c.actions.some((a) => a.id === "done" && a.enabled);
       });
@@ -104,6 +107,8 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
                 (error.code === "integration-dirty" || error.code === "integration-wrong-branch")) {
               // Readiness can change between preflight and merge. Never retry a blocked merge each poll.
               landingWaits.set(opId, { reason: `${target.ticket}: ${error.message}`, retryAt: deps.now().getTime() + 30_000 });
+            } else if (error instanceof ActionError && error.code === "not-merged") {
+              unmerged.set(`${opId}/${target.ticket}`, deps.now().getTime() + 10 * 60_000);
             } else if (!(error instanceof ActionError && error.code === "conflict-opened")) {
               await pause(opId, error instanceof Error ? error.message : String(error));
               return;

@@ -109,6 +109,8 @@ export function fakePorts() {
     /** Tracker search answers; null simulates an unavailable tracker. */
     searchHits: null as TrackerHit[] | null,
     probes: new Map<string, DeliveryProbe | null>(),
+    /** Tickets whose branch is not in the base yet; every other ticket reads as really merged. */
+    unmerged: new Map<string, string>(),
     fail: new Map<string, Error>(),
     /** createWorkspace waits on this when set, to hold a launch mid-flight. */
     hold: null as Promise<void> | null,
@@ -151,6 +153,11 @@ export function fakePorts() {
     delivery: {
       id: "github-pr",
       probe: async (i) => call("delivery", "probe", i.contact.ticket, () => world.probes.get(i.contact.ticket) ?? null),
+      verifyMerged: async (i) =>
+        call("delivery", "verifyMerged", i.contact.ticket, () => {
+          const reason = world.unmerged.get(i.contact.ticket);
+          return reason === undefined ? { merged: true as const, detail: "merged" } : { merged: false as const, reason };
+        }),
       land: async (i) => call("delivery", "land", i.sourceBranch, () => ({ outcome: "landed" as const, via: "pr" as const })),
     },
   };

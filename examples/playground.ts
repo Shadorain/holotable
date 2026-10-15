@@ -103,6 +103,7 @@ const GITHUB_BACKLOG: TrackerHit[] = [
 function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, dirtyPath: string, homeDir: string) {
   const missions = new Map<string, SimMission>();
   const resolved = new Set<string>();
+  const landedInSim = new Set<string>();
   /** Panes the simulated frontend lists; a closed pane drops out, so the watcher sees it vanish. */
   const terminals = new Map<string, TerminalRef & { worktree: string }>();
   let counter = 0;
@@ -342,6 +343,11 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
               ...(RED_CI.has(contact.ticket) ? { checks: "fail" as const, failing: ["Flaky e2e"] } : { checks: "pass" as const }),
             }
           : null,
+      // Only a land counts as a merge here; an audit with nothing to merge reads as in the base.
+      verifyMerged: async ({ contact }) =>
+        contact.kind !== "implement" || landedInSim.has(contact.ticket)
+          ? { merged: true, detail: "merged in the simulation" }
+          : { merged: false, reason: "not landed yet" },
       land: async ({ contact, sourceBranch, ignoreChecks }) => {
         if (RED_CI.has(contact.ticket) && !ignoreChecks) throw new PortError("checks-failing", "failing check: Flaky e2e");
         const fromConflictMission = sourceBranch.includes("conflict");
@@ -350,6 +356,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
           resolved.add(contact.ticket);
           return { outcome: "conflict", paths: ["src/schema.ts", "src/routes/index.ts"], deliveredSha: "d".repeat(40), baseSha: "b".repeat(40) };
         }
+        landedInSim.add(contact.ticket);
         return { outcome: "landed", via: "pr" };
       },
     },

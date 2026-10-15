@@ -38,6 +38,13 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     if (!offered?.enabled) throw new ActionError(409, "refused", offered?.reason ?? `${ticket} cannot be marked done in its current state`);
     const operation = await readOperation(deps.home, opId);
     const contact = operation.contacts.find((x) => x.ticket === ticket);
+    // Done is bookkeeping that unblocks dependents and removes the worktree. Code-carrying contacts must really
+    // be in the base first; a decision or a conflict mission lands through another contact's merge.
+    const branch = contact?.lane?.branch;
+    if (contact && branch && contact.kind !== "decision" && contact.kind !== "conflict") {
+      const verdict = await deps.portsFor(operation, await deps.settings()).delivery.verifyMerged({ operation, contact, branch });
+      if (!verdict.merged) throw new ActionError(409, "not-merged", `${ticket} is not merged into ${operation.base}: ${verdict.reason}`);
+    }
     const at = deps.now().toISOString();
     if (contact?.kind === "decision") {
       const decision = decideArgs("done", contact, args);
@@ -149,6 +156,8 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       throw new ActionError(409, "refused", "Automatic Continue requires a resumable mission without quota or failed verification");
     if (op === "retry-model" && !status.actions.includes(op))
       throw new ActionError(409, "refused", "Mission no longer offers model recovery; refresh its state or reload an older mission pane");
+    if (op === "check" && !status.actions.includes(op))
+      throw new ActionError(409, "refused", "Mission does not offer a PR check now; it needs a delivered PR, or its pane predates Check");
     await fleet.control(status, op, args);
   }
 
@@ -185,6 +194,11 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       case "review":
       case "dispatch":
         run = () => fleetOp(req.op, req.contact, req.action as OperatorOp, {}, req.by === "recover" && req.action === "continue");
+        break;
+      case "check":
+        // Check pushes to the PR branch and replies on review threads as the operator: never unattended.
+        if (req.by !== undefined) throw new ActionError(403, "refused", "Checking a PR requires an operator");
+        run = () => fleetOp(req.op, req.contact, "check", {});
         break;
       case "retry-model":
         if (req.by !== undefined) throw new ActionError(403, "refused", "Model recovery requires an operator");

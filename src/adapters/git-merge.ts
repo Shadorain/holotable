@@ -1,4 +1,4 @@
-import { PortError, type LandResult, type Run } from "../ports.ts";
+import { PortError, type LandResult, type MergeVerdict, type Run } from "../ports.ts";
 
 export type MergeOutcome =
   | { outcome: "clean" }
@@ -164,4 +164,39 @@ export async function probeMerge(
       m.stderr.trim() || `git merge ${ref} failed`,
     );
   return { outcome: "conflict", paths, baseSha };
+}
+
+/**
+ * Whether every commit of `branch` already sits in `base`: an ancestor, or patch-equivalent (rebase merge).
+ * Squash merges rewrite the commits, so a PR lookup must answer those; this is the answer without one.
+ * `preferLocalBase` is for local-merge, which never pushes: its base only exists locally.
+ */
+export async function branchInBase(
+  run: Run,
+  repo: string,
+  base: string,
+  branch: string,
+  preferLocalBase = false,
+): Promise<MergeVerdict> {
+  // Best effort: a stale remote-tracking ref must not report an already-merged branch as unmerged.
+  await git(run, ["fetch", "--quiet", "origin", base, branch], repo).catch(() => undefined);
+  const resolve = async (candidates: string[]): Promise<string | null> => {
+    for (const candidate of candidates) {
+      const r = await git(run, ["rev-parse", "--verify", "--quiet", `${candidate}^{commit}`], repo);
+      if (r.code === 0) return candidate;
+    }
+    return null;
+  };
+  const baseRef = await resolve(preferLocalBase ? [base, `origin/${base}`] : [`origin/${base}`, base]);
+  if (!baseRef) return { merged: false, reason: `base ${base} not found in ${repo}` };
+  const ref = await resolve([`origin/${branch}`, branch]);
+  if (!ref) return { merged: false, reason: `branch ${branch} not found, so its merge cannot be verified` };
+  const ahead = await git(run, ["rev-list", "--count", `${baseRef}..${ref}`], repo);
+  if (ahead.code !== 0) return { merged: false, reason: ahead.stderr.trim() || `git rev-list ${baseRef}..${ref} failed` };
+  if (Number(ahead.stdout.trim()) === 0) return { merged: true, detail: `${branch} is contained in ${base}` };
+  const cherry = await git(run, ["cherry", baseRef, ref], repo);
+  if (cherry.code !== 0) return { merged: false, reason: cherry.stderr.trim() || `git cherry ${baseRef} ${ref} failed` };
+  const missing = cherry.stdout.split("\n").filter((line) => line.startsWith("+")).length;
+  if (missing === 0) return { merged: true, detail: `${branch}'s changes are all in ${base}` };
+  return { merged: false, reason: `${missing} commit${missing === 1 ? "" : "s"} on ${branch} not in ${base}` };
 }

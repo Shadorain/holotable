@@ -211,6 +211,16 @@ function facts(contact, projection) {
     if (d.checks !== "none") box.append(el("span", `chip c-${d.checks}`, `checks ${d.checks}`));
     delivery("Pull request", box);
   } else delivery("Pull request", [contact.lane ? "none yet: appears when the mission delivers" : "none: not launched"]);
+  const checkChip = { clean: "c-clean", merged: "c-merged", closed: "c-closed", conflict: "c-conflict", threads: "c-pending", checks: "c-fail", fixing: "c-pending", unknown: "c-unknown" };
+  if (contact.check) {
+    const c = contact.check;
+    const box = el("span", "chips");
+    box.append(el("span", `chip ${checkChip[c.state] ?? ""}`, c.state));
+    const tail = [c.detail, ago(c.at)].filter(Boolean).join(" · ");
+    if (tail) box.append(el("span", "dim", tail));
+    delivery("Last check", box);
+  }
+
 
   const lane = group("Lane");
   if (!contact.lane) {
