@@ -266,10 +266,22 @@ the per-use default for that action; **OMP default** bypasses Holotable's model 
 mission picks survive replacement panes. **Refine** uses the model already running in the mission:
 the control socket cannot change it.
 
-The catalog loads only when you open a model picker; there is no model polling. Prices are
-catalog input/output dollars per million tokens, not spend limits or a promise of provider access.
-Authenticate the selected provider in OMP. OMP still owns fallback and subagent-role routing.
-Use a cheaper model, lower reasoning effort and a lower Agents cap to control token use and load.
+Open **Settings → AI & Models → Load subscription quotas** to see remaining quota, binding
+windows, reset times and report freshness from OMP. Model pickers rank reported capacity first,
+warn at 10% remaining (or a provider warning), and disable exhausted subscriptions while preserving
+their current selection visibly. Unknown or stale quota is never presented as available.
+Antigravity's Gemini and shared Claude/GPT pools stay separate; the same model through another
+provider is a different subscription. Some accounts do not expose usage, so a partial report
+cannot prove that all accounts are exhausted.
+
+The catalog and quotas load only when a picker opens or you request them: there is no quota
+polling. **Refresh subscription quotas** reloads OMP's current report and updates the pickers;
+the report timestamp shows its upstream age. Browser and server caches expire after 30 seconds.
+Choices apply to new panes, not running coordinators, bead workers or reviewers. No fallback,
+account selection, subscription reset credits or global OMP settings are changed automatically.
+Prices are catalog input/output dollars per million tokens, not spend limits or a promise of
+provider/model access. Authenticate the selected provider in OMP. OMP still owns fallback and
+subagent-role routing. Lower reasoning effort and the Agents cap to control token use and load.
 
 ```bash
 holotable config cap 2

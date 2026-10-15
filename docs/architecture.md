@@ -77,13 +77,33 @@ The server rejects non-string, non-null overrides. Browser action picks are keye
 and ticket and cleared after success, so identical ticket ids in different operations cannot
 share an override.
 
-`GET /api/models` runs `omp models --json --no-extensions` through the injected `Run`, on demand.
-`src/models.ts` coalesces concurrent requests and caches results for 30 seconds; both the catalog
-wait and actual command are bounded at 10 seconds. Opening a browser picker triggers the first
-request; mounting a form or card does not. The browser shares the catalog and renders at most
-60 matching options at once, searching the whole catalog. Errors remain visible and retryable.
-Catalog prices are estimates, not spend caps; a listed provider may still need authentication.
-Fallback and subagent-role model selection remain OMP-owned.
+`GET /api/models` runs `omp models --json --no-extensions` and
+`omp usage --json --redact --no-extensions` through the injected `Run`, on demand. CLI startups
+are serialized because they share the production board's CPU budget. Each command and wait is
+bounded at 10 seconds (up to 20 seconds for both). `src/models.ts` coalesces concurrent requests
+and caches results for 30 seconds; `?refresh=1` bypasses that cache without duplicating an
+in-flight request. Opening a picker or requesting quotas triggers a read; mounting a form or
+card does not. The browser also expires its cache after 30 seconds and renders at most 60
+matching options, searching the whole catalog. There is no quota polling.
+
+`core/subscription-capacity.ts` projects sanitized quota evidence into each model's optional
+`capacity` and the catalog's `subscriptions`. Capacity contains `state` (`available`, `low`,
+`exhausted`, `unknown`), remaining fraction, binding reset time, report timestamp and detail;
+subscriptions add provider, pool label and window summaries. Accounts are not summed: each
+account is constrained by its lowest remaining window, then the best reported account is used.
+Unreported accounts prevent claiming universal exhaustion. Model-scoped limits do not block
+unrelated models. Antigravity backend counters isolate Gemini from its shared Claude/GPT pool.
+Grok subscription windows exclude product breakdowns and paid overage. Reports older than ten
+minutes, or predating an elapsed reset, are unknown until refreshed. Raw report metadata,
+account identifiers, endpoints and credentials are not exposed.
+
+Settings shows the read-only subscription panel; existing pickers display capacity and reset
+hints, rank known headroom ahead of near-limit/unknown choices, and disable exhausted options
+without changing the selected value. Refresh updates closed settings pickers too. Low means
+at most 10% remaining or a provider warning. Usage failures preserve a searchable model catalog
+with unknown capacity and an explicit `usageError`. Capacity is advisory subscription evidence,
+not a billing balance or model-access guarantee. No live sessions or OMP settings are changed;
+fallback and subagent-role/account selection remain OMP-owned.
 
 Contacts keep a short `title` and a separate optional `description` containing complete instructions.
 Map and list cards show the title; the selected card displays the full markdown description

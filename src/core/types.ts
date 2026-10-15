@@ -283,17 +283,34 @@ export interface ModelCost {
   output: number;
 }
 
+export interface ModelCapacity {
+  state: "available" | "low" | "exhausted" | "unknown";
+  remainingFraction: number | null;
+  resetAt: number | null;
+  checkedAt: number | null;
+  detail: string;
+}
+
+export interface SubscriptionCapacity extends ModelCapacity {
+  provider: string;
+  label: string;
+  windows: Array<{ label: string; remainingFraction: number | null; resetAt: number | null }>;
+}
+
 export interface ModelEntry {
   selector: string;
   name: string;
   provider: string;
   cost?: ModelCost;
   reasoning?: boolean;
+  capacity?: ModelCapacity;
 }
 
 export interface ModelsResult {
   models: ModelEntry[];
   error?: string;
+  subscriptions?: SubscriptionCapacity[];
+  usageError?: string;
 }
 
 export interface Settings {

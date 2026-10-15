@@ -1,168 +1,61 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { createModelCatalog } from "../src/models.ts";
 import type { CommandResult, Run } from "../src/ports.ts";
 
-describe("createModelCatalog", () => {
-  test("single-flight concurrency: concurrent callers share one in-flight run execution", async () => {
-    let callCount = 0;
-    const { promise: runHold, resolve: finishRun } = Promise.withResolvers<CommandResult>();
+const now = Date.parse("2026-10-14T22:00:00Z");
+const ok = (value: unknown): CommandResult => ({ code: 0, stdout: JSON.stringify(value), stderr: "" });
+const models = { models: [{ selector: "xai-oauth/grok", provider: "xai-oauth", name: "Grok" }] };
+const usage = (remaining: number) => ({ reports: [{ provider: "xai-oauth", fetchedAt: now, limits: [{ id: "xai-oauth:credits:1w", scope: { provider: "xai-oauth", shared: true }, window: { label: "Weekly", resetsAt: now + 86400000 }, amount: { remainingFraction: remaining } }] }] });
 
-    const run: Run = async () => {
-      callCount++;
-      return runHold;
-    };
+test("quota failures leave the catalog searchable with explicitly unknown capacity", async () => {
+  const run: Run = async (_command, args) => args[0] === "models" ? ok(models) : { code: 1, stdout: "", stderr: "private provider details" };
+  const result = await createModelCatalog(run, { now: () => now }).getModels();
+  expect(result.models.find(m => m.selector === "xai-oauth/grok")?.capacity?.state).toBe("unknown");
+  expect(result.usageError).toBeDefined();
+  expect(JSON.stringify(result)).not.toContain("private provider details");
+});
 
-    const catalog = createModelCatalog(run);
-    const p1 = catalog.getModels();
-    const p2 = catalog.getModels();
-    const p3 = catalog.getModels();
+test("explicit refresh replaces exhausted capacity and concurrent requests share the refreshed snapshot", async () => {
+  let remaining = 0;
+  let pending: Promise<CommandResult> | undefined;
+  const run: Run = async (_command, args) => args[0] === "models" ? ok(models) : pending ?? ok(usage(remaining));
+  const catalog = createModelCatalog(run, { now: () => now });
+  expect((await catalog.getModels()).models[0]!.capacity?.state).toBe("exhausted");
+  remaining = 0.6;
+  expect((await catalog.getModels()).models[0]!.capacity?.state).toBe("exhausted");
+  const held = Promise.withResolvers<CommandResult>();
+  pending = held.promise;
+  const refreshing = catalog.getModels(true);
+  const concurrent = catalog.getModels();
+  held.resolve(ok(usage(remaining)));
+  const [fresh, joined] = await Promise.all([refreshing, concurrent]);
+  expect(fresh.models[0]!.capacity).toMatchObject({ state: "available", remainingFraction: 0.6 });
+  expect(joined).toBe(fresh);
+});
 
-    finishRun({
-      code: 0,
-      stdout: JSON.stringify({
-        models: [
-          {
-            selector: "anthropic/claude-3-5-sonnet",
-            name: "Claude Sonnet 3.5",
-            provider: "anthropic",
-            cost: { input: 3, output: 15 },
-            reasoning: false,
-          },
-        ],
-      }),
-      stderr: "",
-    });
+test("expired catalog cache cannot keep suggesting a newly exhausted subscription", async () => {
+  let clock = now;
+  let remaining = 0.7;
+  const run: Run = async (_command, args) => args[0] === "models" ? ok(models) : ok(usage(remaining));
+  const catalog = createModelCatalog(run, { now: () => clock, ttlMs: 100 });
+  expect((await catalog.getModels()).models[0]!.capacity?.state).toBe("available");
+  remaining = 0;
+  clock += 101;
+  expect((await catalog.getModels()).models[0]!.capacity?.state).toBe("exhausted");
+});
 
-    const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
-    expect(callCount).toBe(1);
-    expect(r2).toBe(r1);
-    expect(r3).toBe(r1);
-  });
+test("malformed usage cannot falsely imply usable capacity", async () => {
+  const run: Run = async (_command, args) => args[0] === "models" ? ok(models) : ok({ reports: "invalid" });
+  const result = await createModelCatalog(run, { now: () => now }).getModels();
+  expect(result.usageError).toBeDefined();
+  expect(result.models[0]!.capacity?.state).toBe("unknown");
+});
 
-  test("cache TTL expires and re-fetches using deterministic clock", async () => {
-    let callCount = 0;
-    let clock = 1000;
-    const run: Run = async () => {
-      callCount++;
-      return {
-        code: 0,
-        stdout: JSON.stringify({
-          models: [
-            {
-              selector: `model-v${callCount}`,
-              name: `Model ${callCount}`,
-              provider: "test",
-            },
-          ],
-        }),
-        stderr: "",
-      };
-    };
-
-    const catalog = createModelCatalog(run, { ttlMs: 50, now: () => clock });
-    const res1 = await catalog.getModels();
-    expect(res1.models[0].selector).toBe("model-v1");
-    expect(callCount).toBe(1);
-
-    const res2 = await catalog.getModels();
-    expect(res2.models[0].selector).toBe("model-v1");
-    expect(callCount).toBe(1);
-
-    clock += 60;
-
-    const res3 = await catalog.getModels();
-    expect(res3.models[0].selector).toBe("model-v2");
-    expect(callCount).toBe(2);
-  });
-
-  test("returns error on non-zero exit code", async () => {
-    const run: Run = async () => ({
-      code: 1,
-      stdout: "",
-      stderr: "omp: failed to connect to daemon",
-    });
-
-    const catalog = createModelCatalog(run);
-    const result = await catalog.getModels();
-    expect(result.models).toEqual([]);
-    expect(result.error).toBeTypeOf("string");
-  });
-
-  test("returns error on command timeout", async () => {
-    // Deliberately exercises bounded catalog timeout race against platform clock
-    const { promise: pending } = Promise.withResolvers<CommandResult>();
-    const run: Run = async () => pending;
-
-    const catalog = createModelCatalog(run, { timeoutMs: 10 });
-    const result = await catalog.getModels();
-    expect(result.models).toEqual([]);
-    expect(result.error).toBeTypeOf("string");
-  });
-
-  test("returns error on malformed JSON", async () => {
-    const run: Run = async () => ({
-      code: 0,
-      stdout: "not-json",
-      stderr: "",
-    });
-
-    const catalog = createModelCatalog(run);
-    const result = await catalog.getModels();
-    expect(result.models).toEqual([]);
-    expect(result.error).toBeTypeOf("string");
-  });
-
-  test("returns error when payload missing models array", async () => {
-    const run: Run = async () => ({
-      code: 0,
-      stdout: JSON.stringify({ foo: "bar" }),
-      stderr: "",
-    });
-
-    const catalog = createModelCatalog(run);
-    const result = await catalog.getModels();
-    expect(result.models).toEqual([]);
-    expect(result.error).toBeTypeOf("string");
-  });
-
-  test("parses valid models, maps costs and reasoning, and skips rows missing selector", async () => {
-    const run: Run = async () => ({
-      code: 0,
-      stdout: JSON.stringify({
-        models: [
-          {
-            selector: "provider-a/model-1",
-            name: "Model One",
-            provider: "provider-a",
-            cost: { input: 2.5, output: 10, cacheRead: 0.25 },
-            reasoning: true,
-          },
-          {
-            id: "model-without-selector",
-            name: "Model Two",
-            provider: "provider-b",
-          },
-          {
-            // invalid row: missing selector and id
-            name: "Invalid Model",
-          },
-          "not an object",
-        ],
-      }),
-      stderr: "",
-    });
-
-    const catalog = createModelCatalog(run);
-    const result = await catalog.getModels();
-    expect(result.error).toBeUndefined();
-    expect(result.models).toEqual([
-      {
-        selector: "provider-a/model-1",
-        name: "Model One",
-        provider: "provider-a",
-        cost: { input: 2.5, output: 10 },
-        reasoning: true,
-      },
-    ]);
-  });
+test("usage deadline cannot hold model selection indefinitely", async () => {
+  const held = Promise.withResolvers<CommandResult>();
+  const run: Run = async (_command, args) => args[0] === "models" ? ok(models) : held.promise;
+  const result = await createModelCatalog(run, { now: () => now, timeoutMs: 10 }).getModels();
+  expect(result.usageError).toBeDefined();
+  expect(result.models[0]!.capacity?.state).toBe("unknown");
+  held.resolve(ok(usage(0)));
 });

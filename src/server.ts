@@ -559,7 +559,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         if (!op) return fail(res, 400, "op is required");
         return respond(res, 200, JSON.stringify(await service.history(op)));
       }
-      if (method === "GET" && pathname === "/api/models") return respond(res, 200, JSON.stringify(await service.models()));
+      if (method === "GET" && pathname === "/api/models") return respond(res, 200, JSON.stringify(await service.models(url.searchParams.get("refresh") === "1")));
       if (method === "GET" && pathname === "/api/settings") return respond(res, 200, JSON.stringify(await service.settings()));
       if (method === "PUT" && pathname === "/api/settings") {
         const body = await readBody(req);

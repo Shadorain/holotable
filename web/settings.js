@@ -5,7 +5,7 @@
 import { closePopoversWithin, dropdown, el, numberField, segmented, textField } from "./components.js";
 import { enumRow, field, numberRow, switchRow, textRow } from "./fields.js";
 import { icon } from "./icons.js";
-import { modelDropdown } from "./models.js";
+import { modelDropdown, subscriptionPanel } from "./models.js";
 import { PORT_OPTIONS } from "./projectform.js";
 import { errorText, fetchJson, sectionBox, titleCase } from "./ui.js";
 
@@ -180,6 +180,9 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
     sec = section("AI & Models");
     sec.append(el("div", "set-note sec-note", "Controls apply to new agent panes; existing sessions keep their model."));
     sec.append(el("div", "set-note sec-note", "Search OMP's model catalog; a provider may still need sign-in. Prices are input/output dollars per million tokens, not spend limits. Plan refinement uses the model already running in its mission pane."));
+    sec.append(el("div", "set-note sec-note", "Reported quota ranks model choices. Exhausted subscriptions are unavailable; 10% or less is near limit. Unknown quota is not a recommendation. Remaining capacity does not guarantee model access. OMP still owns account routing and fallback."));
+    const modelPickers = [];
+    sec.append(subscriptionPanel(api, catalog => modelPickers.forEach(picker => picker.setCatalog(catalog))));
 
     const ai = s.ai ?? (s.ai = {});
 
@@ -202,6 +205,7 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
           });
         },
       });
+      modelPickers.push(dd);
       f = field(sec, "Default model", dd.root, {
         note: "Used when a per-use default isn't set. Changing this does not change existing sessions.",
       });
@@ -253,6 +257,7 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
         allowInherit: true,
         inheritLabel: "Inherit default",
         allowOmpDefault: false,
+        defaultModel: () => ai.model ?? null,
         placeholder: "Inherit default",
         className: "dd-model-wide",
         onChange: (v) => {
@@ -264,6 +269,7 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
           });
         },
       });
+      modelPickers.push(dd);
       f = field(sec, def.label, dd.root, {
         note: `Used when this agent starts. Inherit uses the default model above.`,
       });

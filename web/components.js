@@ -366,7 +366,7 @@ export function dropdown(opts) {
         nextPlaceholder === placeholder &&
         next.length === options.length &&
         next.every(
-          (o, i) => o.value === options[i].value && o.label === options[i].label && Boolean(o.disabled) === Boolean(options[i].disabled),
+          (o, i) => o.value === options[i].value && o.label === options[i].label && o.meta === options[i].meta && o.hint === options[i].hint && Boolean(o.disabled) === Boolean(options[i].disabled),
         );
       if (same) return;
       options = next;

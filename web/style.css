@@ -820,6 +820,19 @@ textarea.plan-edit.seed-edit { width: 100%; background: var(--well); border: 1px
 .dd-model .cmp-dd-btn { padding: 6px 10px; min-width: 0; width: auto; font-size: 12.5px; }
 .dd-model-wide .cmp-dd-btn { width: 100%; min-width: 200px; }
 .action-model-dd .cmp-dd-btn { padding: 6px 10px; font-size: 12px; min-width: 120px; }
+.subscription-panel { margin: 12px 0 18px; }
+.subscription-tools { display: flex; gap: 8px; margin-bottom: 8px; }
+.subscription-results { display: grid; gap: 8px; max-height: 320px; overflow: auto; }
+.subscription-capacity { border: 1px solid var(--line-2); border-left: 3px solid var(--dim); border-radius: 6px; padding: 9px 11px; overflow-wrap: anywhere; }
+.subscription-capacity strong { font-size: 12px; }
+.subscription-state { margin-top: 4px; font-size: 13px; font-weight: 600; }
+.capacity-available { border-left-color: var(--ok); }
+.capacity-available .subscription-state { color: var(--ok); }
+.capacity-low { border-left-color: var(--warn); }
+.capacity-low .subscription-state { color: var(--warn); }
+.capacity-exhausted { border-left-color: var(--bad); }
+.capacity-exhausted .subscription-state { color: var(--bad); }
+.subscription-window { color: var(--muted); font-size: 11.5px; margin-top: 5px; }
 
 /* ---- searchable dropdown ---- */
 .cmp-dd-search-wrap { padding: 4px 4px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }

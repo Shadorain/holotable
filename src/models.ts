@@ -1,5 +1,6 @@
 import type { ModelsResult, ModelEntry } from "./core/types.ts";
 import type { CommandResult, Run } from "./ports.ts";
+import { subscriptionCapacity } from "./core/subscription-capacity.ts";
 
 export interface ModelCatalogOptions {
   ttlMs?: number;
@@ -9,7 +10,7 @@ export interface ModelCatalogOptions {
 }
 
 export interface ModelCatalog {
-  getModels(): Promise<ModelsResult>;
+  getModels(refresh?: boolean): Promise<ModelsResult>;
 }
 
 const DEFAULT_TTL_MS = 30_000;
@@ -95,18 +96,38 @@ export function createModelCatalog(run: Run, options: ModelCatalogOptions = {}):
     return { models };
   }
 
+  async function fetchUsage(): Promise<{ payload?: unknown; error?: string }> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const timeout = new Promise<CommandResult>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Subscription usage timed out")), timeoutMs);
+        timer.unref?.();
+      });
+      const result = await Promise.race([run("omp", ["usage", "--json", "--redact", "--no-extensions"], cwd), timeout]);
+      if (result.code !== 0) return { error: `OMP subscription usage unavailable (exit ${result.code})` };
+      let payload: unknown;
+      try { payload = JSON.parse(result.stdout); } catch { return { error: "Invalid subscription usage JSON" }; }
+      if (!payload || typeof payload !== "object" || !Array.isArray((payload as Record<string, unknown>).reports))
+        return { error: "Subscription usage response is missing reports" };
+      return { payload };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Subscription usage unavailable" };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   return {
-    async getModels(): Promise<ModelsResult> {
+    async getModels(refresh = false): Promise<ModelsResult> {
+      if (inFlight) return inFlight;
       const current = now();
-      if (cached && current - cached.timestamp < ttlMs) {
-        return cached.result;
-      }
-      if (inFlight) {
-        return inFlight;
-      }
+      if (!refresh && cached && current - cached.timestamp < ttlMs) return cached.result;
       inFlight = (async () => {
         try {
-          const res = await fetchModels();
+          // CLI startups share the board's CPU budget; parallel reads can exhaust their deadlines.
+          const models = await fetchModels();
+          const usage = await fetchUsage();
+          const res = { ...models, ...subscriptionCapacity(models.models, usage.payload, now()), ...(usage.error ? { usageError: usage.error } : {}) };
           cached = { timestamp: now(), result: res };
           return res;
         } finally {
