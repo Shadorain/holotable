@@ -208,6 +208,7 @@ function setupSection(p, doc, ctx) {
   for (const kind of ["tracker", "fleet", "frontend", "delivery"])
     inheritance(enumRow(ports, titleCase(kind), kind, cfg.options[kind], of[kind], ctx.saveOp), kind, cfg, ctx);
   body.append(ports);
+  inheritance(switchRow(body, "Land with failing checks", "ignoreChecks", of.ignoreChecks, ctx.saveOp, { note: "Land and auto mode merge PRs even when CI checks are red. Off: Land waits for green, and each card still offers Land anyway. GitHub branch protection still applies." }), "ignoreChecks", cfg, ctx);
   inheritance(
     textRow(body, "Worktree folder", "worktreeRoot", of.worktreeRoot, ctx.saveOp, {
       mono: true,

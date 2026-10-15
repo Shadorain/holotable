@@ -36,6 +36,7 @@ export function validateProject(value: unknown, path = "project.json"): Project 
     const problem = worktreeRootProblem(value.worktreeRoot);
     if (problem) return fail(`worktreeRoot ${problem}`);
   }
+  if (value.ignoreChecks !== undefined && typeof value.ignoreChecks !== "boolean") return fail("ignoreChecks must be a boolean");
   const project: Project = {
     v: 1,
     id: value.id,
@@ -48,6 +49,8 @@ export function validateProject(value: unknown, path = "project.json"): Project 
     fleet,
     frontend,
     delivery,
+    // Projects written before the setting existed keep blocking on failing checks.
+    ignoreChecks: value.ignoreChecks === true,
     createdAt: value.createdAt,
     ...(typeof value.worktreeRoot === "string" ? { worktreeRoot: value.worktreeRoot } : {}),
   };

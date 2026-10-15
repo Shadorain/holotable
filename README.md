@@ -208,7 +208,7 @@ Once activated, the row shows the selected operation and nonzero live, queued an
 |`list [--all]`|open operations (`--all` adds archived)|
 |`use <id>`|select an operation|
 |`zone <label>`|add a zone (its id is derived from the label)|
-|`set <field> <value>`|change `name`, `base`, `integration`, `pause`, `tracker`, `fleet`, `frontend`, `delivery`, `worktreeRoot` (`default` clears it), `recover` (`on`/`off`, see [Recovery](#recovery)) or the auto-mode fields `auto` (`on`/`off`), `auto.launch`, `auto.land`, `auto.decide`, `auto.maxLive`; in a project, `inherit` drops the override (not for `auto*` or `recover`: those belong to the operation)|
+|`set <field> <value>`|change `name`, `base`, `integration`, `pause`, `ignoreChecks` (`true`/`false`, see [Landing](#landing-and-conflicts)), `tracker`, `fleet`, `frontend`, `delivery`, `worktreeRoot` (`default` clears it), `recover` (`on`/`off`, see [Recovery](#recovery)) or the auto-mode fields `auto` (`on`/`off`), `auto.launch`, `auto.land`, `auto.decide`, `auto.maxLive`; in a project, `inherit` drops the override (not for `auto*` or `recover`: those belong to the operation)|
 |`add <ticket> --zone <id> [--kind] [--blocked-by A,B] [--title] [--description <text>] [--worktree <path>] [--option X…] [--recommended X]`|add a contact with a short title and separate full instructions; `--worktree` adopts an existing checkout; `--option`/`--recommended` build a decision contact (see [Decisions](#decisions))|
 |`close <id> <landed\|abandoned\|decision\|failed>`|end the operation through the same path as the page: wind-down, `closed` event, report, archive|
 |`config [key value]`|show or set board settings|
@@ -413,7 +413,9 @@ A contact with unmet blockers stays in the queue, visible and unlaunchable (`blo
 
 ## Landing and conflicts
 
-**Land** is a click on a completed contact. It merges the delivered branch on the operation's integration checkout (`integration`, default the repo's primary checkout), never inside a mission checkout, and only when that checkout is on the base branch and has no uncommitted changes on paths the merge would write (`integration-wrong-branch`, `integration-dirty` otherwise — the refusal names the overlapping paths; unrelated uncommitted files are kept). `local-merge` runs `git merge --no-ff`; `github-pr` checks the PR targets the base and its checks are not failing, then merges it with `gh pr merge --merge` (a resolution branch is pushed non-force onto the PR head first). While the latest PR probe reports a failed check, Land is disabled with `failing check: <names>`; it re-enables on the next probe after the checks pass. Clean: `land-attempt`, then `landed`, which unblocks dependents.
+**Land** is a click on a completed contact. It merges the delivered branch on the operation's integration checkout (`integration`, default the repo's primary checkout), never inside a mission checkout, and only when that checkout is on the base branch and has no uncommitted changes on paths the merge would write (`integration-wrong-branch`, `integration-dirty` otherwise — the refusal names the overlapping paths; unrelated uncommitted files are kept). `local-merge` runs `git merge --no-ff`; `github-pr` checks the PR targets the base and its checks are not failing, then merges it with `gh pr merge --merge` (a resolution branch is pushed non-force onto the PR head first). Clean: `land-attempt`, then `landed`, which unblocks dependents.
+
+**Failing CI checks.** While the latest PR probe reports a failed check, Land is disabled with `failing check: <names>` and the card adds **Land anyway** (click twice): it merges that one PR past the red checks and is recorded in history as `landed past failing checks`. Auto mode never presses it. For a repo whose CI is often red for unrelated reasons, switch on **Land with failing checks** (`ignoreChecks`) on the project page, or per operation on the Operation page (`/holotable set ignoreChecks true`, or `inherit`): Land and auto land then merge regardless of check results. Either way only holotable's own check is skipped; GitHub branch protection and required reviews still apply, and a merge GitHub refuses fails as usual.
 
 A conflict aborts the merge, so integration stays clean, and opens **one new conflict contact** (`<ticket>-conflict-<n>`): a worktree at the delivered commit with the conflict markers already in place, and a local-graph `/mission` told to edit only those files and not to merge, push or open a PR. The original contact stays; Land is disabled with `conflict mission <ticket> open` until the conflict mission completes, then it lands the conflict mission's branch. The scoping to those files is by prompt only.
 
@@ -477,6 +479,8 @@ The simulated frontend lists its panes, so a pane can vanish: the `status` conta
 
 Simulated decision panes write their answer about five seconds after opening (the recommended option, else the first, else "proceed with the longest option"), so the watcher decides on its own. `charidel` has two undecided contacts: `CHR-151` with options "Migrate ACS data"/"Start fresh" and the former recommended — switch on `auto.decide` and it lands instantly — and `CHR-163`, a free-text decision for **Ask an agent**.
 
+`charidel` also seeds failure cases. `CHR-156`'s simulated PR has a red `Flaky e2e` check, so once it completes, Land waits and **Land anyway** (or **Land with failing checks**) merges it. `CHR-167` and `CHR-157-CONFLICT-1` are parked on provider quota for **Switch failed models**: the first can be recovered, while the second must have its plan approved first.
+
 ## Safety model
 
 - The board launches and watches missions; it never runs them. This process never attaches a mission and never calls `control()`. Every mutation is an operator click, forwarded to the owning session's control socket, which runs the same code the slash command runs.
@@ -488,7 +492,7 @@ Simulated decision panes write their answer about five seconds after opening (th
 
 ## Data
 
-Per project under `$OMP_HOLOTABLE_HOME/projects/<id>/project.json`: repo, base, integration, pause, the four ports, worktree folder.
+Per project under `$OMP_HOLOTABLE_HOME/projects/<id>/project.json`: repo, base, integration, pause, the four ports, worktree folder, `ignoreChecks` (land with failing checks).
 
 Per operation under `$OMP_HOLOTABLE_HOME/operations/<id>/`:
 

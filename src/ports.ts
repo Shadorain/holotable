@@ -111,6 +111,8 @@ export interface DeliveryPort {
     contact: Contact;
     sourceBranch: string;
     status: ContactStatus;
+    /** Merge even when PR checks are failing (the operation's setting or Land anyway); absent = enforce checks. */
+    ignoreChecks?: boolean;
   }): Promise<LandResult>;
 }
 

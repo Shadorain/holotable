@@ -27,6 +27,7 @@ function makeOp(home: string, init: {
     integration: join(home, "repos", init.id),
     base: init.base,
     pause: true,
+    ignoreChecks: false,
     tracker: init.tracker,
     fleet: init.fleet,
     frontend: init.frontend,

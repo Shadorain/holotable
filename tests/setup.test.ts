@@ -34,7 +34,7 @@ test("setup checks: route shape, failures become ok:false with fix, only in-use 
     expect(checks.checks.some(c => c.id === "github")).toBe(false);
 
     // Now let's add a project using herdr and github
-    await createProject(home, { v: 1, id: "p1", name: "p1", repo: "/p", base: "main", frontend: "herdr", tracker: "github", integration: "/p/integration", pause: false, fleet: "none", delivery: "none", worktreeRoot: "/p/{name}", createdAt: "2026-10-10T12:00:00.000Z" });
+    await createProject(home, { v: 1, id: "p1", name: "p1", repo: "/p", base: "main", frontend: "herdr", tracker: "github", integration: "/p/integration", pause: false, ignoreChecks: false, fleet: "none", delivery: "none", worktreeRoot: "/p/{name}", createdAt: "2026-10-10T12:00:00.000Z" });
 
     checks = await runSetupChecks(home, async (cmd, args) => {
       if (cmd === "herdr") return { code: 127, stdout: "", stderr: "command not found" }; // Failing command

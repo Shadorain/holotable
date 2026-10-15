@@ -28,6 +28,7 @@ const EXECUTE_S = 10;
 const REVIEW_S = 8;
 // Seeded Charidel lanes parked on provider quota: one running (recoverable), one still at its plan (not yet).
 const QUOTA_PARKED = new Set(["chr-167", "chr-157-conflict-1"]);
+const RED_CI = new Set(["CHR-156"]);
 const SIM_MODELS = [
   { selector: "anthropic/claude-opus-4-5", name: "Claude Opus 4.5", provider: "anthropic", reasoning: true },
   { selector: "anthropic/claude-sonnet-4-5", name: "Claude Sonnet 4.5", provider: "anthropic", reasoning: true },
@@ -333,11 +334,16 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
     },
     delivery: {
       id: "github-pr",
+      // CHR-156's PR has a red check unrelated to the change: Land waits, Land anyway or the setting merges it.
       probe: async ({ contact, status }) =>
         status.complete || status.delivery
-          ? { url: `https://github.example/demo/pull/${100 + (hash(contact.ticket) % 50)}`, state: "open", mergeable: "clean", checks: "pass" }
+          ? {
+              url: `https://github.example/demo/pull/${100 + (hash(contact.ticket) % 50)}`, state: "open", mergeable: "clean",
+              ...(RED_CI.has(contact.ticket) ? { checks: "fail" as const, failing: ["Flaky e2e"] } : { checks: "pass" as const }),
+            }
           : null,
-      land: async ({ contact, sourceBranch }) => {
+      land: async ({ contact, sourceBranch, ignoreChecks }) => {
+        if (RED_CI.has(contact.ticket) && !ignoreChecks) throw new PortError("checks-failing", "failing check: Flaky e2e");
         const fromConflictMission = sourceBranch.includes("conflict");
         // Every third contact conflicts the first time; the conflict mission's branch lands clean.
         if (hash(contact.ticket) % 3 === 0 && !fromConflictMission && !resolved.has(contact.ticket)) {

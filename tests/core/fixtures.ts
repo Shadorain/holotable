@@ -49,6 +49,7 @@ export function makeOp(
     integration: "/repo",
     base: "main",
     pause: false,
+    ignoreChecks: false,
     tracker: "none",
     fleet: "none",
     frontend: "none",

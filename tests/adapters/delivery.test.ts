@@ -26,6 +26,7 @@ function makeOperation(home: string): Operation {
     base: "main",
     integration: join(home, "repo"),
     pause: true,
+    ignoreChecks: false,
     tracker: "github",
     fleet: "omp-mission",
     frontend: "none",

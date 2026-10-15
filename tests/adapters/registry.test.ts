@@ -26,6 +26,7 @@ function makeOperation(home: string, extra: Partial<Operation> = {}): Operation 
     base: "main",
     integration: join(home, "repo"),
     pause: true,
+    ignoreChecks: false,
     tracker: "none",
     fleet: "none",
     frontend: "none",

@@ -65,6 +65,7 @@ function makeOperation(integration: string): Operation {
     integration,
     base: "main",
     pause: false,
+    ignoreChecks: false,
     tracker: "github",
     fleet: "omp-mission",
     frontend: "orca",
@@ -315,6 +316,20 @@ describe("githubPrDelivery.land", () => {
       }),
     ).rejects.toMatchObject({ code: "checks-failing", message: "failing check: Verify policy change explanation" });
     expect(ghCalls.some((a) => a[1] === "merge")).toBe(false);
+  });
+
+  test("ignoreChecks merges a PR whose checks are failing", async () => {
+    const ghCalls: string[][] = [];
+    const { run } = realRun((args) => {
+      ghCalls.push(args);
+      if (args[1] === "view")
+        return { stdout: prJson({ statusCheckRollup: [{ name: "Flaky e2e", status: "COMPLETED", conclusion: "FAILURE" }] }), stderr: "", code: 0 };
+      return { stdout: "", stderr: "", code: 0 };
+    });
+    const { repo } = await prSetup(run);
+    const result = await githubPrDelivery(run).land({ operation: makeOperation(repo), contact, sourceBranch: "feat", status, ignoreChecks: true });
+    expect(result).toEqual({ outcome: "landed", via: "pr" });
+    expect(ghCalls.filter((a) => a[1] === "merge")).toEqual([["pr", "merge", "7", "--merge"]]);
   });
 
   test("conflict path: no gh pr merge, integration clean, shas returned", async () => {

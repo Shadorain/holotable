@@ -38,6 +38,7 @@ async function setup(contacts: Contact[]) {
     base: "main",
     integration: "/tmp/lab",
     pause: true,
+    ignoreChecks: false,
     tracker: "none",
     fleet: "omp-mission",
     frontend: "orca",

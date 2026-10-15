@@ -30,6 +30,7 @@ function makeOperation(home: string, id: string, extra: Partial<Operation> = {})
     base: "main",
     integration: join(home, "repo"),
     pause: true,
+    ignoreChecks: false,
     tracker: "none",
     fleet: "none",
     frontend: "none",

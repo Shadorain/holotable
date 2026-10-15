@@ -99,6 +99,7 @@ export interface OperationConfig {
     base: string;
     integration: string;
     pause: boolean;
+    ignoreChecks: boolean;
     tracker: string;
     fleet: string;
     frontend: string;
@@ -237,6 +238,7 @@ export interface ProjectSpec {
   frontend?: string;
   delivery?: string;
   pause?: boolean;
+  ignoreChecks?: boolean;
   worktreeRoot?: string;
 }
 export interface ProjectConfig {
@@ -246,6 +248,7 @@ export interface ProjectConfig {
     base: string;
     integration: string;
     pause: boolean;
+    ignoreChecks: boolean;
     tracker: string;
     fleet: string;
     frontend: string;
@@ -363,6 +366,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         base: op.base,
         integration: op.integration,
         pause: op.pause,
+        ignoreChecks: op.ignoreChecks,
         tracker: op.tracker,
         fleet: op.fleet,
         frontend: op.frontend,
@@ -385,6 +389,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         base: project.base,
         integration: project.integration,
         pause: project.pause,
+        ignoreChecks: project.ignoreChecks,
         tracker: project.tracker,
         fleet: project.fleet,
         frontend: project.frontend,

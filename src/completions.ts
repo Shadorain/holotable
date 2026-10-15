@@ -29,6 +29,7 @@ const SET_VALUES: Record<string, readonly string[]> = {
   base: [],
   integration: [],
   pause: ["true", "false"],
+  ignoreChecks: ["true", "false"],
   tracker: TRACKERS,
   fleet: FLEETS,
   frontend: FRONTENDS,
@@ -190,7 +191,7 @@ export function holotableCompletions(
         case "set":
           if (done.length !== 1) return null;
           return orNull(
-            ["name", "repo", "base", "integration", "pause", "tracker", "fleet", "frontend", "delivery", "worktreeRoot"]
+            ["name", "repo", "base", "integration", "pause", "tracker", "fleet", "frontend", "delivery", "worktreeRoot", "ignoreChecks"]
               .filter((name) => prefixMatches(partial, name))
               .map((name) => item(`project set ${name} `, name)),
           );

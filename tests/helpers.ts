@@ -41,6 +41,7 @@ export function operation(over: Partial<Operation> = {}): Operation {
     base: "main",
     integration: "/tmp/lab",
     pause: true,
+    ignoreChecks: false,
     tracker: "none",
     fleet: "omp-mission",
     frontend: "orca",

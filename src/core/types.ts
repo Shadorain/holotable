@@ -102,6 +102,8 @@ export interface Project {
   fleet: Fleet;
   frontend: Frontend;
   delivery: Delivery;
+  /** Land PRs whose checks are failing (CI that is often red for unrelated reasons). Branch protection still applies. */
+  ignoreChecks: boolean;
   createdAt: string;
   worktreeRoot?: string;
 }
@@ -116,6 +118,7 @@ export const OVERRIDABLE_FIELDS = [
   "frontend",
   "delivery",
   "worktreeRoot",
+  "ignoreChecks",
 ] as const;
 export type OverridableField = (typeof OVERRIDABLE_FIELDS)[number];
 /** operation.json on disk: with `project` set, any overridable key may be absent to inherit it. */
@@ -133,6 +136,7 @@ export interface StoredOperation {
   frontend?: Frontend;
   delivery?: Delivery;
   worktreeRoot?: string;
+  ignoreChecks?: boolean;
   zones: Zone[];
   contacts: Contact[];
   createdAt: string;
@@ -152,6 +156,8 @@ export interface Operation {
   fleet: Fleet;
   frontend: Frontend;
   delivery: Delivery;
+  /** See Project.ignoreChecks; operations written before it existed do not ignore checks. */
+  ignoreChecks: boolean;
   zones: Zone[];
   contacts: Contact[];
   createdAt: string;

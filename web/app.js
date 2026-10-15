@@ -200,7 +200,7 @@ loadTheme();
 // ---- actions ----
 
 const PAST = {
-  launch: "launched", land: "landed", approve: "approved", continue: "continued", review: "sent to review",
+  launch: "launched", land: "landed", "land-anyway": "landed past failing checks", approve: "approved", continue: "continued", review: "sent to review",
   dispatch: "dispatched", done: "marked done", reap: "terminal closed", focus: "focused", mode: "mode changed",
   "plan-save": "plan saved", "plan-refine": "refinement sent to the mission",
   relaunch: "reopened", redecide: "decision changed", "decide-agent": "agent asked to decide",

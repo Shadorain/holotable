@@ -222,14 +222,20 @@ describe("actionsFor", () => {
       policy(op, "a", { state: "complete", status, conflictOpen: "a-c-1" }),
     );
     expect(b[0].reason).toBe("conflict mission a-c-1 open");
-    const c = actionsFor(
-      policy(op, "a", {
-        state: "complete",
-        status,
-        probe: { url: "u", state: "open", mergeable: "clean", checks: "fail", failing: ["Verify policy change explanation"] },
-      }),
-    );
-    expect(c[0]).toMatchObject({ enabled: false, reason: "failing check: Verify policy change explanation" });
+  });
+
+  test("complete with failing checks: Land waits, Land anyway is offered; the setting lands directly", () => {
+    const status = makeStatus({ complete: true });
+    const probe = { url: "u", state: "open" as const, mergeable: "clean" as const, checks: "fail" as const, failing: ["Verify policy change explanation"] };
+    const blocked = actionsFor(policy(op, "a", { state: "complete", status, probe }));
+    expect(blocked.find((a) => a.id === "land")).toMatchObject({ enabled: false, reason: "failing check: Verify policy change explanation" });
+    expect(blocked.find((a) => a.id === "land-anyway")).toMatchObject({ enabled: true, primary: false });
+    const ignoring = actionsFor(policy({ ...op, ignoreChecks: true }, "a", { state: "complete", status, probe }));
+    expect(ignoring.find((a) => a.id === "land")).toMatchObject({ enabled: true, reason: null });
+    expect(ignoring.some((a) => a.id === "land-anyway")).toBe(false);
+    // A closed PR is not something Land anyway can fix.
+    const closed = actionsFor(policy(op, "a", { state: "complete", status, probe: { ...probe, state: "closed" } }));
+    expect(closed.some((a) => a.id === "land-anyway")).toBe(false);
   });
 
   test("conflict: land disabled with open conflict reason", () => {

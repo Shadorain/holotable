@@ -67,6 +67,7 @@ export const SET_FIELDS = [
   "frontend",
   "delivery",
   "worktreeRoot",
+  "ignoreChecks",
   "auto",
   "auto.launch",
   "auto.land",
@@ -89,6 +90,7 @@ export const PROJECT_FIELDS = [
   "frontend",
   "delivery",
   "worktreeRoot",
+  "ignoreChecks",
 ] as const;
 export type ProjectField = (typeof PROJECT_FIELDS)[number];
 
@@ -478,6 +480,8 @@ export function applyOperationField(op: Operation, field: string, raw: string, c
       return { ...op, integration: resolve(cwd, value) };
     case "pause":
       return { ...op, pause: oneOf(["true", "false"], value, "pause") === "true" };
+    case "ignoreChecks":
+      return { ...op, ignoreChecks: oneOf(["true", "false"], value, "ignoreChecks") === "true" };
     case "tracker":
       return { ...op, tracker: oneOf(TRACKERS, value, "tracker") };
     case "fleet":
@@ -540,6 +544,8 @@ export function applyProjectField(project: Project, field: string, value: string
       return { ...project, integration: resolve(cwd, value) };
     case "pause":
       return { ...project, pause: oneOf(["true", "false"], value, "pause") === "true" };
+    case "ignoreChecks":
+      return { ...project, ignoreChecks: oneOf(["true", "false"], value, "ignoreChecks") === "true" };
     case "tracker":
       return { ...project, tracker: oneOf(TRACKERS, value, "tracker") };
     case "fleet":

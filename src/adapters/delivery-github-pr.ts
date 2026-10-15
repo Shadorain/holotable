@@ -110,7 +110,7 @@ export function githubPrDelivery(run: Run): DeliveryPort {
           "pr-base-mismatch",
           `PR base is ${String(pr.baseRefName)}, expected ${operation.base}`,
         );
-      if (checksFrom(pr.statusCheckRollup) === "fail") {
+      if (i.ignoreChecks !== true && checksFrom(pr.statusCheckRollup) === "fail") {
         const failing = failedChecks(pr.statusCheckRollup);
         throw new PortError("checks-failing", failing.length ? `failing check: ${failing.join(", ")}` : "a required check failed");
       }

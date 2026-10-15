@@ -22,10 +22,11 @@ export function newestConflict(operation: Operation, ticket: string): Contact | 
  * A conflict leaves the integration checkout clean and opens one new local-graph conflict mission in a worktree
  * that already holds the markers; the original contact stays and Land waits for that mission.
  */
-export async function landContact(deps: LanderDeps, opId: string, ticket: string): Promise<void> {
+export async function landContact(deps: LanderDeps, opId: string, ticket: string, options: { anyway?: boolean } = {}): Promise<void> {
   const settings = await deps.settings();
   const projection = await loadProjection(deps.home, opId, settings, deps.now().getTime(), deps.extras(opId));
-  const offered = projection.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === "land");
+  const action = options.anyway ? "land-anyway" : "land";
+  const offered = projection.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === action);
   if (!offered?.enabled) throw new ActionError(409, "refused", offered?.reason ?? `${ticket} cannot be landed in its current state`);
 
   const operation = await readOperation(deps.home, opId);
@@ -40,7 +41,8 @@ export async function landContact(deps: LanderDeps, opId: string, ticket: string
   if (!status) throw new ActionError(409, "owner-offline", `No mission status for ${ticket}`);
   const at = () => deps.now().toISOString();
 
-  const result = await ports.delivery.land({ operation, contact, sourceBranch, status });
+  const ignoreChecks = operation.ignoreChecks || options.anyway === true;
+  const result = await ports.delivery.land({ operation, contact, sourceBranch, status, ignoreChecks });
   if (result.outcome === "landed") {
     await appendEvent(deps.home, opId, { v: 1, at: at(), kind: "land-attempt", contact: ticket, outcome: "clean" });
     await appendEvent(deps.home, opId, { v: 1, at: at(), kind: "landed", contact: ticket, via: result.via });

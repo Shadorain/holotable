@@ -88,6 +88,7 @@ const OPERATOR_VERBS: Record<string, string> = {
   "plan-save": "plan saved",
   "plan-refine": "plan refine requested",
   relaunch: "relaunched",
+  "land-anyway": "landed past failing checks",
 };
 
 const SOURCE_ACTOR: Record<Source, Actor> = { operator: "operator", model: "model", seed: "operator", conflict: "board" };

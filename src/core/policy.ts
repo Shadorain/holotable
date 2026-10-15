@@ -226,9 +226,12 @@ export function actionsFor(i: PolicyInput): ActionView[] {
         else if (i.conflictOpen !== null)
           reason = `conflict mission ${i.conflictOpen} open`;
         else if (probe?.state === "closed") reason = "pull request closed";
-        else if (probe?.checks === "fail")
+        const failingChecks = reason === null && probe?.checks === "fail" && !operation.ignoreChecks;
+        if (failingChecks)
           reason = probe.failing?.length ? `failing check: ${probe.failing.join(", ")}` : "a required check failed";
         actions.push(view("land", "Land", true, reason === null, reason));
+        // The operator can still land past red CI for this one PR; auto mode only looks at `land`.
+        if (failingChecks) actions.push(view("land-anyway", "Land anyway", false, true));
         if (operation.delivery === "none")
           actions.push(view("done", "Mark done", false, true));
       } else {

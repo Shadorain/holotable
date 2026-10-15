@@ -242,6 +242,10 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       case "land":
         run = () => landContact(deps, req.op, req.contact);
         break;
+      case "land-anyway":
+        if (req.by !== undefined) throw new ActionError(403, "refused", "Landing past failing checks requires an operator");
+        run = () => landContact(deps, req.op, req.contact, { anyway: true });
+        break;
       case "launch": {
         if (req.args.model !== undefined && req.args.model !== null && typeof req.args.model !== "string")
           throw new ActionError(400, "bad-request", "model must be a string or null");

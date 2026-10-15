@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gitWorkspaces } from "../../src/adapters/git-workspaces.ts";
 import { localMergeDelivery } from "../../src/adapters/delivery-local-merge.ts";
-import type { ContactStatus } from "../../src/core/types.ts";
+import type { ContactStatus, DeliveryProbe } from "../../src/core/types.ts";
 import type { Run } from "../../src/ports.ts";
 import { createActionRunner } from "../../src/runtime/actions.ts";
 import { ActionError } from "../../src/runtime/errors.ts";
@@ -182,4 +182,32 @@ test("land is refused for a contact that is not complete", async () => {
   t.statuses.set("a", status({ complete: false, phase: "execute", ctl: null }));
   const failure = await t.refused(t.act({ op: "lab", contact: "a", action: "land", args: {} }));
   expect(failure.status).toBe(409);
+});
+
+test("failing checks hold Land; operator-only Land anyway merges past them and is recorded", async () => {
+  const t = await setup();
+  const asked: Array<boolean | undefined> = [];
+  const probes: Record<string, DeliveryProbe> = { a: { url: "u", state: "open", mergeable: "clean", checks: "fail", failing: ["Flaky e2e"] } };
+  const act = createActionRunner({
+    home: t.home,
+    now: () => new Date("2026-01-01T03:00:00Z"),
+    settings: async () => ({ ...DEFAULT_SETTINGS, cleanup: false }),
+    portsFor: () => ({
+      ...t.fake.ports,
+      delivery: { ...t.fake.ports.delivery, land: async (i) => { asked.push(i.ignoreChecks); return { outcome: "landed" as const, via: "pr" as const }; } },
+    }),
+    extras: () => ({ statuses: Object.fromEntries(t.statuses), owners: {}, probes, load: { live: 0, open: 0 } }),
+    sleep: async () => {},
+    token: () => "abc123",
+    socketWaitMs: 0,
+    run,
+  });
+  expect((await t.refused(act({ op: "lab", contact: "a", action: "land", args: {} }))).message).toBe("failing check: Flaky e2e");
+  expect((await t.refused(act({ op: "lab", contact: "a", action: "land-anyway", args: {}, by: "auto" }))).status).toBe(403);
+  expect(asked).toEqual([]);
+  await act({ op: "lab", contact: "a", action: "land-anyway", args: {} });
+  expect(asked).toEqual([true]);
+  const events = await readEvents(t.home, "lab");
+  expect(events.some((e) => e.kind === "landed")).toBe(true);
+  expect(events.find((e) => e.kind === "operator" && e.op === "land-anyway")).toMatchObject({ ok: true });
 });

@@ -104,6 +104,10 @@ export function validateOperationDoc(
     if (problem) return fail(`worktreeRoot ${problem}`);
     doc.worktreeRoot = raw.worktreeRoot;
   }
+  if (raw.ignoreChecks !== undefined) {
+    if (typeof raw.ignoreChecks !== "boolean") return fail("ignoreChecks must be a boolean");
+    doc.ignoreChecks = raw.ignoreChecks;
+  }
 
   // Legacy documents may still carry `workflow`: validate it so a malformed list
   // is rejected before the store's migration turns it into notes.md task lines.
@@ -144,9 +148,9 @@ export function validateOperationDoc(
       if (project !== null && projectId === project.id) inherited.push(field);
       continue;
     }
-    // Operations written before `pause` existed behave as unpaused.
-    if (field === "pause") {
-      effective.pause = false;
+    // Operations written before `pause` or `ignoreChecks` existed behave as unpaused and blocking on checks.
+    if (field === "pause" || field === "ignoreChecks") {
+      effective[field] = false;
       if (project !== null && projectId === project.id) inherited.push(field);
       continue;
     }
@@ -368,6 +372,7 @@ export function validateOperationDoc(
     ...(doc.frontend !== undefined ? { frontend: doc.frontend as StoredOperation["frontend"] } : {}),
     ...(doc.delivery !== undefined ? { delivery: doc.delivery as StoredOperation["delivery"] } : {}),
     ...(doc.worktreeRoot !== undefined ? { worktreeRoot: doc.worktreeRoot as string } : {}),
+    ...(doc.ignoreChecks !== undefined ? { ignoreChecks: doc.ignoreChecks as boolean } : {}),
     ...(auto ? { auto } : {}),
     ...(recover ? { recover } : {}),
   };
@@ -387,6 +392,7 @@ export function validateOperationDoc(
     fleet: effective.fleet as Operation["fleet"],
     frontend: effective.frontend as Operation["frontend"],
     delivery: effective.delivery as Operation["delivery"],
+    ignoreChecks: effective.ignoreChecks as boolean,
     zones,
     contacts,
     createdAt: stored.createdAt,

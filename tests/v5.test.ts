@@ -27,6 +27,7 @@ function project(over: Partial<Project> = {}): Project {
     base: "main",
     integration: "/repo/lab-int",
     pause: false,
+    ignoreChecks: false,
     tracker: "linear",
     fleet: "omp-mission",
     frontend: "orca",

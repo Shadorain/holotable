@@ -67,6 +67,7 @@ export function renderProject(root, cfg, operations, ctx) {
   const ports = el("div", "set-grid ports-grid");
   for (const kind of ["tracker", "fleet", "frontend", "delivery"]) enumRow(ports, titleCase(kind), kind, cfg.options[kind], f[kind], ctx.save);
   setup.append(ports);
+  switchRow(setup, "Land with failing checks", "ignoreChecks", f.ignoreChecks, ctx.save, { note: "Operations on this project land PRs even when CI checks are red, unless an operation overrides it. GitHub branch protection still applies." });
   switchRow(setup, "Pause gates", "pause", f.pause, ctx.save, { note: "Missions stop at each Pause gate for your approval." });
   textRow(setup, "Worktree folder", "worktreeRoot", f.worktreeRoot ?? "", ctx.save, {
     mono: true,
