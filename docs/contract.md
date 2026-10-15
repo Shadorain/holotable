@@ -20,7 +20,7 @@ interface ContactStatus {
   base: string | null;
   phase: string;                    // producer vocabulary, shown verbatim
   progress: { step: number; of: number } | null;
-  hold: "none" | "plan-approval" | "resume" | "gate" | "blocked" | "quota"; // blocked: saved blocker or unreadable bead graph
+  hold: "none" | "plan-approval" | "resume" | "gate" | "blocked" | "quota" | "question";
   gate: { kind: string; id: string } | null;       // id = first 12 hex of sha256(gate token)
   next: string | null;              // one line shown on the card
   actions: string[];                // operator ops legal now
@@ -56,6 +56,8 @@ Join: among status files whose `worktree` realpath equals the contact's `lane.wo
 As implemented by `omp-mission`: `next` may carry `/mission <verb> — <text>` (command prefix plus step text, whitespace-collapsed, 240 chars); `progress.of` is 9 (the phase list length); clearing a pending plan deletes its status file; clearing a saved or completed mission keeps its final status with `ctl: null`.
 
 `problem` is display and scheduling evidence, not a capability. Only advertised `actions` authorize socket controls. Missing fields from older panes do not authorize board retries or model switching.
+
+While the main mission agent's `ask` tool is waiting, `hold: question` replaces plan approval, `next` carries the question text, and `actions` is empty. The board offers **Answer in mission** (frontend focus), not answer submission. Matching tool completion clears the hold; unrelated tool completions do not. Recovery must not continue or relaunch it. The producer rejects mutating socket operations with `question-waiting` until answered. Planning provider blockers publish blocked/quota holds and no plan-approval action until a new turn clears the blocker.
 
 ## Control socket
 

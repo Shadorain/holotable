@@ -52,7 +52,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
       const folded = foldEvents(await readEvents(deps.home, opId));
       const contact = projection.contacts.find(c => c.ticket === ticket);
       if (!projection.operation.recover || folded.closed || folded.contacts[ticket]?.reaped ||
-          contact?.state !== "offline" || !contact.lane?.terminal || extras.statuses[ticket]?.hold === "quota") return;
+          contact?.state !== "offline" || !contact.lane?.terminal || extras.statuses[ticket]?.hold === "quota" || extras.statuses[ticket]?.hold === "question") return;
       if (projection.header.open >= projection.header.cap) {
         defer(opId, ticket, { kind: "capacity", detail: `Waiting for a session slot (${projection.header.open}/${projection.header.cap})` });
         return;
@@ -159,8 +159,8 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
 
     for (const contact of projection.contacts) {
       const status = extras.statuses[contact.ticket] ?? null;
-      // Quota exhaustion is an operator hold: relaunch or continue would spend another turn on the same cap.
-      if (status?.hold === "quota") continue;
+      // Neither spend another turn against exhausted quota nor discard an unanswered prompt.
+      if (status?.hold === "quota" || status?.hold === "question") continue;
       const state = recovery(events, contact.ticket);
       if (
         status?.hold === "resume" &&

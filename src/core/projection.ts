@@ -66,7 +66,7 @@ function computeStates(
       });
       const wait = input.recoveryWaits?.[c.ticket];
       const deferred = s === "offline" && op.recover && !contactDerived(derived, c.ticket).reaped &&
-        input.statuses[c.ticket]?.hold !== "quota" && wait !== undefined;
+        input.statuses[c.ticket]?.hold !== "quota" && input.statuses[c.ticket]?.hold !== "question" && wait !== undefined;
       const state = deferred ? "waiting" : s;
       if (states.get(c.ticket) !== state) changed = true;
       states.set(c.ticket, state);

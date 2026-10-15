@@ -58,6 +58,8 @@ Install `omp-mission` too, restart OMP, then open a session in the repo you want
 3. **Create an operation.** Choose the project, name the campaign and add contacts. Or paste a Linear document/project URL, issue links, a markdown plan or a rough goal into **What**, then press **Draft it**. An OMP pane reads the sources and repository and writes the seed; review it before **Create**.
 4. **Run the work.** Launch a ready contact. Approve its native plan from the card's Plan tab, then approve Pause gates and land completed work from the board. Dependencies keep blocked contacts queued and visible.
 
+Questions asked by a mission appear under **Needs you** with their text and an **Answer in mission** button. Answer in the original OMP pane; the board never chooses an answer or resumes past it. Planning provider failures show their blocker instead of a misleading plan-approval prompt.
+
 Start with **Settings → Agents → 2** on a small or heat-constrained machine. Auto mode and recovery are off by default; enable them per operation only when you want their documented behavior.
 
 ### Draft a plan or an idea

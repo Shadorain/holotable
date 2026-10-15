@@ -39,7 +39,7 @@ export const SOURCES = ["operator", "model", "seed", "conflict"] as const;
 export type Source = (typeof SOURCES)[number];
 /** Who caused a history entry. */
 export type Actor = "operator" | "model" | "mission" | "board";
-export const HOLDS = ["none", "plan-approval", "resume", "gate", "blocked", "quota"] as const;
+export const HOLDS = ["none", "plan-approval", "resume", "gate", "blocked", "quota", "question"] as const;
 
 /** Socket ops beyond the UI-exposed operator set: plan reading (no operator flag) is `FleetPort.readPlan`. */
 export const CONTROL_OPS = [...OPERATOR_OPS, "plan-edit", "plan-refine"] as const;

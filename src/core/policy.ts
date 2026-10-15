@@ -105,8 +105,8 @@ export function actionsFor(i: PolicyInput): ActionView[] {
     const ok = terminal !== null && contact.lane?.frontend !== "external" && !i.terminalMissing;
     return view(
       "focus",
-      "Focus",
-      false,
+      status?.hold === "question" ? "Answer in mission" : "Focus",
+      status?.hold === "question",
       ok,
       ok ? null : i.terminalMissing ? "terminal closed" : terminal === null ? "no terminal recorded" : "no frontend",
     );
@@ -123,7 +123,7 @@ export function actionsFor(i: PolicyInput): ActionView[] {
   };
   /** Fleet ops rendered from status.actions; never computed locally. */
   const fleetButtons = (): ActionView[] => {
-    if (status === null) return [];
+    if (status === null || status.hold === "question") return [];
     const ctlMissing =
       status.ctl === null ? "no control socket" : null;
     const buttons: ActionView[] = [];

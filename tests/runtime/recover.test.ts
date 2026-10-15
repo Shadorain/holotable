@@ -207,10 +207,10 @@ describe("recovery: relaunch", () => {
     expect((await t.events()).filter((e) => e.kind === "launched")).toHaveLength(2);
   });
 
-  test("does not relaunch a vanished pane whose last status is a quota hold", async () => {
+  test.each(["quota", "question"] as const)("does not relaunch a vanished pane at an operator %s hold", async (hold) => {
     const t = await setup();
     t.fake.world.terminals = [];
-    t.dead("a", { hold: "quota" });
+    t.dead("a", { hold });
     t.vanished.add("a");
     await t.ev("socket-up", T - 5 * MIN);
     await t.recover.pass();

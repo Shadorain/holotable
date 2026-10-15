@@ -38,6 +38,19 @@ const live = (terminal = true) =>
 const viewOf = (op: Operation, ticket: string, over: Partial<ProjectionInput> = {}) =>
   project(input(op, over)).contacts.find((c) => c.ticket === ticket)!;
 
+test("a pending question needs attention and focuses its owner instead of approving or continuing", () => {
+  const op = makeOp([makeContact("a", { lane: live() })], { fleet: "omp-mission", frontend: "orca", recover: true });
+  const v = viewOf(op, "a", {
+    statuses: { a: makeStatus({ hold: "question", next: "Answer in mission: Where should the parent hub live?", actions: ["plan-approve", "continue"] }) },
+    owners: { a: "live" },
+  });
+  expect(v.state).toBe("hold");
+  expect(v.attention).toBe(true);
+  expect(v.detail).toContain("Where should the parent hub live?");
+  expect(v.actions.filter(action => action.primary && action.enabled).map(action => action.id)).toEqual(["focus"]);
+  expect(v.actions.some(action => action.id === "plan-approve" || action.id === "continue")).toBe(false);
+});
+
 describe("project: state table", () => {
   test("landed beats everything", () => {
     const op = makeOp([makeContact("a", { kind: "decision" })], {
