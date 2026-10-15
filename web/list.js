@@ -2,6 +2,7 @@
 import { addContactButton } from "./addcontact.js";
 import { allLanded, doneBanner } from "./endop.js";
 import { actionButton, el, primaryAction, statePill } from "./ui.js";
+import { modelRecoveryCandidate, openModelRecovery } from "./model-recovery.js";
 
 const ATTENTION_ORDER = ["hold", "review", "complete", "decision", "offline"];
 const FLIGHT_ORDER = ["conflict", "verify", "review", "running", "planning"];
@@ -68,6 +69,14 @@ function item(contact, selected, ctx) {
 
 export function renderList(root, projection, selected, ctx) {
   root.replaceChildren();
+  const failures = projection.contacts.filter(modelRecoveryCandidate);
+  if (failures.length) {
+    const recover = el("button", "btn small", `Switch failed models (${failures.length})`);
+    recover.type = "button";
+    recover.dataset.key = "model-recovery";
+    recover.addEventListener("click", () => openModelRecovery(failures, ctx));
+    root.append(recover);
+  }
   if (allLanded(projection) && ctx.endCtx) root.append(doneBanner(projection, ctx.endCtx));
   const { groups } = sections(projection);
   for (const group of groups) {

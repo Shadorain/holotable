@@ -26,6 +26,13 @@ const arg = (name: string, fallback: string) => {
 // Seconds each stage lasts. Short enough to watch, long enough to see the phase rail move.
 const EXECUTE_S = 10;
 const REVIEW_S = 8;
+// Seeded Charidel lanes parked on provider quota: one running (recoverable), one still at its plan (not yet).
+const QUOTA_PARKED = new Set(["chr-167", "chr-157-conflict-1"]);
+const SIM_MODELS = [
+  { selector: "anthropic/claude-opus-4-5", name: "Claude Opus 4.5", provider: "anthropic", reasoning: true },
+  { selector: "anthropic/claude-sonnet-4-5", name: "Claude Sonnet 4.5", provider: "anthropic", reasoning: true },
+  { selector: "openai/gpt-5.1-codex", name: "GPT-5.1 Codex", provider: "openai", reasoning: true },
+];
 
 interface SimMission {
   id: string;
@@ -48,6 +55,9 @@ interface SimMission {
   resumeHold: boolean;
   /** Control-socket generation: a new session of the same mission gets a new one. */
   gen: number;
+  /** Provider quota park: the error text, until Continue or Switch model & retry clears it. */
+  quota: string | null;
+  model: string | null;
 }
 
 const hash = (text: string) => [...text].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
@@ -118,12 +128,14 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       closed: false,
       resumeHold: false,
       gen: counter,
+      quota: QUOTA_PARKED.has(name) ? "429 usage_limit_reached: weekly Anthropic quota exhausted" : null,
+      model: null,
     };
     missions.set(worktree, m);
     return m;
   };
   const advance = (m: SimMission) => {
-    if (m.closed || m.resumeHold) return;
+    if (m.closed || m.resumeHold || m.quota) return;
     const age = (now() - m.stageStart) / 1000;
     const go = (stage: SimMission["stage"]) => {
       m.stage = stage;
@@ -137,9 +149,11 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
   const statusOf = (m: SimMission): ContactStatus => {
     advance(m);
     const step = { plan: 1, execute: 3, gate: 5, review: 6, complete: 7 }[m.stage];
-    const hold = m.resumeHold ? "resume" : m.stage === "plan" ? "plan-approval" : m.stage === "gate" ? "gate" : "none";
+    const hold = m.quota ? "quota" : m.resumeHold ? "resume" : m.stage === "plan" ? "plan-approval" : m.stage === "gate" ? "gate" : "none";
     const phase = { plan: "plan", execute: "execute", gate: "verify", review: "review", complete: "complete" }[m.stage];
-    const next = m.resumeHold
+    const next = m.quota
+      ? "Provider quota exhausted. Restore quota or change the model, then /mission continue"
+      : m.resumeHold
       ? "Session reopened under resume hold: continue it to pick up where it left off"
       : {
           plan: "Review the plan below — edit, refine, or approve it",
@@ -162,7 +176,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       hold,
       gate: m.stage === "gate" && !m.resumeHold ? { kind: "pause", id: m.gate } : null,
       next,
-      actions: m.resumeHold ? ["continue"] : m.stage === "plan" ? ["plan-approve"] : m.stage === "gate" ? ["approve", "continue"] : m.stage === "execute" ? ["dispatch"] : [],
+      actions: m.quota && m.stage !== "plan" ? ["continue", "retry-model"] : m.resumeHold ? ["continue"] : m.stage === "plan" ? ["plan-approve"] : m.stage === "gate" ? ["approve", "continue"] : m.stage === "execute" ? ["dispatch"] : [],
       workers: m.resumeHold ? { live: 0, total: 3 } : m.stage === "execute" ? { live: 2, total: 3 } : m.stage === "plan" ? null : { live: 0, total: 3 },
       delivery: m.stage === "complete" ? { url: `https://github.example/demo/pull/${100 + (hash(m.ticket) % 50)}`, branch: m.branch } : null,
       complete: m.stage === "complete",
@@ -177,6 +191,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       },
       updatedAt,
       verify: null,
+      problem: m.quota ? { kind: "quota", source: "coordinator", detail: m.quota, retryAt: null, attempt: null, completed: null, total: null } : null,
     };
   };
 
@@ -238,6 +253,15 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
           if (m.stage !== "gate") throw new PortError("rejected", "No Pause gate is armed: nothing to approve");
           if (s.gate?.id !== m.gate) throw new PortError("stale", "That gate was replaced; reload and approve the current one");
           m.stage = "review";
+          m.stageStart = now();
+        } else if (op === "retry-model") {
+          if (!m.quota || m.stage === "plan") throw new PortError("rejected", "No retryable failed work, or a gate, ownership, verification, or resume hold prevents recovery");
+          if (!SIM_MODELS.some((model) => model.selector === args.model)) throw new PortError("rejected", `Selected recovery model is unavailable: ${String(args.model)}`);
+          m.model = String(args.model);
+          m.quota = null;
+          m.stageStart = now();
+        } else if (op === "continue" && m.quota) {
+          m.quota = null;
           m.stageStart = now();
         } else if (op === "continue" && m.resumeHold) {
           m.resumeHold = false;
@@ -327,7 +351,9 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
   // The lander pins and merges with real git; the simulation answers as git would for a conflicted merge.
   const run: Run = async (command, args, cwd) => {
     // Setup checks mock
-    if (command === "omp" && args[0] === "--version") return { stdout: "omp v18.4.4", stderr: "", code: 0 };
+    if (command === "omp" && args[0] === "--version") return { stdout: "omp v18.10.4", stderr: "", code: 0 };
+    if (command === "omp" && args[0] === "models") return { stdout: JSON.stringify({ models: SIM_MODELS }), stderr: "", code: 0 };
+    if (command === "omp" && args[0] === "usage") return { stdout: "", stderr: "usage reports are not simulated", code: 1 };
     if (command === "omp" && args[0] === "plugin" && args[1] === "list" && args[2] === "--json") {
       return { stdout: JSON.stringify({ npm: [{ name: "omp-mission" }] }), stderr: "", code: 0 };
     }

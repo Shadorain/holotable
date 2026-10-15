@@ -16,7 +16,7 @@ Repo and extension: `holotable`. Command: `/holotable`. An operation is one camp
 - Land on the integration worktree. Never merge inside a mission checkout. A conflict becomes a new local-graph mission. It is not a second copy of the ticket.
 - Do not close Linear issues or merge PRs except from an operator click or auto mode the operator switched on for that operation.
 - Queue stays visible. Blocked work does not launch and does not disappear.
-- The board edits and refines a pending plan through the control socket. Plan approval is sent only when the session advertises `plan-approve` in `status.actions` (OMP's `resolvePlanReview`; unreleased as of 18.10.3): by the operator's **Approve plan** click or the opt-in `auto.plans`. Otherwise it stays in the mission pane (`docs/omp-plan-approval.md`).
+- The board edits and refines a pending plan through the control socket. Plan approval is sent only when the session advertises `plan-approve` in `status.actions` (OMP's `resolvePlanReview`, since 18.10.4): by the operator's **Approve plan** click or the opt-in `auto.plans`. Otherwise it stays in the mission pane (`docs/omp-plan-approval.md`).
 - Auto decide is opt-in per operation: a decision contact takes its recommended option, or an omp pane decides and records its reasoning. The operator can change any decision; the board itself never picks an answer.
 - Stats are append-only events. Do not store a second copy of mission JSON.
 - Model fallback and session routing stay in OMP. This board may show the cap. It does not pick a model.

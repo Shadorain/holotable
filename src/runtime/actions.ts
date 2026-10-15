@@ -147,6 +147,8 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     if (!status) throw new ActionError(409, "owner-offline", `No mission status for ${ticket}; relaunch a dead pane instead`);
     if (recovering && (status.complete || status.hold !== "resume" || status.verify === "failed" || !status.actions.includes("continue")))
       throw new ActionError(409, "refused", "Automatic Continue requires a resumable mission without quota or failed verification");
+    if (op === "retry-model" && !status.actions.includes(op))
+      throw new ActionError(409, "refused", "Mission no longer offers model recovery; refresh its state or reload an older mission pane");
     await fleet.control(status, op, args);
   }
 
@@ -183,6 +185,12 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       case "review":
       case "dispatch":
         run = () => fleetOp(req.op, req.contact, req.action as OperatorOp, {}, req.by === "recover" && req.action === "continue");
+        break;
+      case "retry-model":
+        if (req.by !== undefined) throw new ActionError(403, "refused", "Model recovery requires an operator");
+        if (typeof req.args.model !== "string" || !req.args.model.trim() || req.args.model.length > 1000)
+          throw new ActionError(400, "bad-request", "Choose a concrete recovery model");
+        run = () => fleetOp(req.op, req.contact, "retry-model", { model: req.args.model });
         break;
       case "resend":
       case "release":

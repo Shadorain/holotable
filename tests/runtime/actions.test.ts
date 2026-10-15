@@ -131,3 +131,18 @@ test("the model tools never touch the fleet or the frontend", async () => {
   expect(t.fake.calls).toEqual([]);
   expect(t.requests).toEqual([]);
 });
+
+test("model recovery refuses automation and withdrawn capability without changing mission state", async () => {
+  const t = await setup();
+  const req = { op: "lab", contact: "a", action: "retry-model", args: { model: "p/new" } };
+  expect(await t.refused(t.act({ ...req, by: "auto" }))).toMatchObject({ status: 403 });
+  const before = readFileSync(t.file, "utf8");
+  expect(await t.refused(t.act(req))).toMatchObject({ status: 409 });
+  expect(readFileSync(t.file, "utf8")).toBe(before);
+  expect(t.requests.filter((request) => request.op === "retry-model")).toEqual([]);
+  const live = JSON.parse(before);
+  live.actions = ["retry-model"];
+  writeFileSync(t.file, JSON.stringify(live));
+  expect(await t.refused(t.act({ ...req, args: { model: "" } }))).toMatchObject({ status: 400 });
+  expect(t.requests.filter((request) => request.op === "retry-model")).toEqual([]);
+});

@@ -376,7 +376,7 @@ export function project(input: ProjectionInput): Projection {
       fleet: op.fleet,
       delivery: op.delivery,
       pause: op.pause,
-      auto: op.auto ? { ...op.auto, capacityWait, plansSupported: Object.values(input.statuses).some((s) => s?.actions.includes("plan-approve")) } : null,
+      auto: op.auto ? { ...op.auto, capacityWait } : null,
       recover: op.recover,
       project: input.project,
       zones: op.zones.map((z, i) => ({

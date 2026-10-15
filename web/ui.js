@@ -144,7 +144,7 @@ export function clock(iso) {
 
 // Action ids the server handles via POST /api/actions. plan-save/plan-refine are wired but
 // render inside the Plan tab, not the action bar (card.js filters them).
-const WIRED = new Set(["launch", "reap", "approve", "continue", "review", "dispatch", "resend", "release", "mode", "focus", "done", "land", "relaunch", "redecide", "decide-agent", "plan-save", "plan-refine"]);
+const WIRED = new Set(["launch", "reap", "approve", "continue", "review", "dispatch", "resend", "release", "retry-model", "mode", "focus", "done", "land", "relaunch", "redecide", "decide-agent", "plan-save", "plan-refine"]);
 // Shown while the request runs; launch and land can take a while against real tools.
 const BUSY_LABEL = {
   launch: "Launching…", land: "Landing…", approve: "Approving…", continue: "Continuing…",
@@ -157,7 +157,7 @@ const BUSY_LABEL = {
 const ACTION_ICON = {
   launch: "rocket", land: "git-merge", approve: "check", continue: "skip-forward", review: "eye",
   dispatch: "send", done: "check-check", reap: "circle-x", focus: "crosshair", relaunch: "rotate-cw", "decide-agent": "bot", redecide: "pencil",
-  resend: "rotate-cw", release: "skip-forward",
+  resend: "rotate-cw", release: "skip-forward", "retry-model": "rotate-cw",
 };
 // Actions that end something the operator cannot get back; they need a second click.
 export const CONFIRM = { reap: "Close terminal?" };

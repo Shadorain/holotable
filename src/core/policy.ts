@@ -67,8 +67,9 @@ export function launchRefusal(i: PolicyInput): string | null {
   return null;
 }
 
-const FLEET_OPS = ["approve", "continue", "review", "dispatch", "resend", "release", "plan-approve"] as const;
+const FLEET_OPS = ["approve", "continue", "review", "dispatch", "resend", "release", "plan-approve", "retry-model"] as const;
 const FLEET_OP_LABELS: Record<string, string> = {
+  "retry-model": "Switch model & retry",
   "plan-approve": "Approve plan",
   approve: "Approve",
   continue: "Continue",

@@ -13,6 +13,7 @@ export const OPERATOR_OPS = [
   "review",
   "dispatch",
   "resend",
+  "retry-model",
   "release",
   "reap",
   "relaunch",
@@ -538,7 +539,7 @@ export interface Projection {
     frontend: Frontend;
     tracker: Tracker;
     fleet: Fleet;
-    auto: (AutoMode & { plansSupported: boolean; landWait?: string | null; capacityWait?: string | null }) | null;
+    auto: (AutoMode & { landWait?: string | null; capacityWait?: string | null }) | null;
     recover: boolean;
     delivery: Delivery;
     pause: boolean;

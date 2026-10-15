@@ -20,6 +20,7 @@ import { icon } from "./icons.js";
 import { installTooltips } from "./tooltip.js";
 import { installLoadTip } from "./usage.js";
 import { connectLive } from "./live.js";
+import { openModelRecovery } from "./model-recovery.js";
 
 installTooltips();
 
@@ -243,6 +244,10 @@ function confirmOrRun(ticket, action) {
   const key = `${ticket}/${action}`;
   // Recording a decision needs the choice (and maybe why), so it opens a dialog first.
   const contact = state.projection?.contacts.find((c) => c.ticket === ticket);
+  if (action === "retry-model" && contact) {
+    openModelRecovery([contact], { api, opId, run: runAction });
+    return;
+  }
   if (contact?.kind === "decision" && (action === "done" || action === "redecide")) {
     const initialChoice = action === "done" ? getCardDecision(opId, ticket) : null;
     openDecide(contact, action, async (args) => {
