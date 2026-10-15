@@ -109,6 +109,26 @@ test("launch runs the steps in order, records the lane, and ends at socket-up", 
   expect(await t.events()).toEqual(["launched", "socket-up", "operator:launch:true"]);
 });
 
+test("first-terminal launch records one child and preserves its model across a socket timeout", async () => {
+  const t = await setup();
+  let workspaces = 0;
+  const first = { handle: "first", incarnationId: "first-inc" };
+  t.fake.ports.frontend.createWorkspaceWithTerminal = async ({ startup }) => {
+    workspaces++;
+    expect(startup.env).toEqual({ FAKE_LAUNCH: "a" });
+    return { worktree: "/wt/a", branch: "b/a", terminal: first };
+  };
+  const failed = await t.reject(t.act({ op: "lab", contact: "a", action: "launch", args: { model: "provider/model" } }));
+  expect(failed.message).toContain("socket: no control socket");
+  expect((await readOperation(t.home, "lab")).contacts[0]?.lane).toMatchObject({
+    worktree: "/wt/a", terminal: first, model: "provider/model",
+  });
+  expect(t.fake.count("frontend.openTerminal")).toBe(0);
+  expect((await readEvents(t.home, "lab")).filter((event) => event.kind === "launched")).toHaveLength(1);
+  await t.reject(t.act({ op: "lab", contact: "a", action: "launch", args: {} }));
+  expect(workspaces).toBe(1);
+});
+
 test("a tracker-less operation passes no ticket to the workspace", async () => {
   const t = await setup();
   t.readyChild();

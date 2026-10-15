@@ -115,19 +115,45 @@ export async function launchContact(
   }
 
   let lane = contact.lane;
+  let workspaceTerminal: TerminalRef | null = null;
+  let workspaceStartup: ReturnType<FleetPort["launch"]> | undefined;
+  const explicitModelOverride = extra.model !== undefined ? extra.model : lane?.model;
+  const selectedModel = explicitModelOverride !== undefined
+    ? explicitModelOverride
+    : (settings.ai.mission ?? settings.ai.model);
+  const startup = async (worktree: string) => ports.fleet.launch({
+    operation,
+    contact,
+    worktree,
+    overlay: await ensureLaunchOverlay(deps.home),
+    ...(conflictPaths.length ? { conflictPaths } : {}),
+    model: selectedModel,
+    thinking: settings.ai.thinking,
+  });
   if (!lane) {
     try {
       const name = contact.kind === "conflict" ? `conflict-${deps.token()}` : slug(ticket);
-      const created = await ports.frontend.createWorkspace({
+      const input = {
         repo: operation.repo,
         name,
         base: operation.base,
         ticket: operation.tracker === "linear" && contact.kind !== "conflict" ? ticket : null,
         delivery: operation.delivery,
-      });
+      };
+      let created;
+      if (ports.frontend.createWorkspaceWithTerminal) {
+        workspaceStartup = await startup(".");
+        const opened = await ports.frontend.createWorkspaceWithTerminal({ ...input, startup: workspaceStartup });
+        created = opened;
+        workspaceTerminal = opened.terminal;
+      } else {
+        created = await ports.frontend.createWorkspace(input);
+      }
       lane = { worktree: created.worktree, branch: created.branch, frontend: operation.frontend, terminal: null };
       await setLane(lane);
     } catch (error) {
+      if (workspaceTerminal && lane)
+        await ports.frontend.close(workspaceTerminal, lane.worktree).catch(() => undefined);
       return fail("workspace", error);
     }
   }
@@ -135,21 +161,8 @@ export async function launchContact(
   let terminal = lane.terminal;
   if (!terminal) {
     try {
-      const overlay = await ensureLaunchOverlay(deps.home);
-      const explicitModelOverride = extra.model !== undefined ? extra.model : lane.model;
-      const selectedModel = explicitModelOverride !== undefined
-        ? explicitModelOverride
-        : (settings.ai.mission ?? settings.ai.model);
-      const { argv, env } = ports.fleet.launch({
-        operation,
-        contact,
-        worktree: lane.worktree,
-        overlay,
-        ...(conflictPaths.length ? { conflictPaths } : {}),
-        model: selectedModel,
-        thinking: settings.ai.thinking,
-      });
-      terminal = await ports.frontend.openTerminal({
+      const { argv, env } = workspaceStartup ?? await startup(lane.worktree);
+      terminal = workspaceTerminal ?? await ports.frontend.openTerminal({
         worktree: lane.worktree,
         title: `${ticket} ${operation.name}`,
         argv,

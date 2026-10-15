@@ -51,17 +51,30 @@ export interface TrackerPort {
 
 export type ListedTerminal = TerminalRef & { worktree: string; connected: boolean };
 
+export interface WorkspaceInput {
+  repo: string;
+  name: string;
+  base: string;
+  ticket: string | null;
+  /** local-merge lands without pushing, so git-managed lanes prefer the local base ref. */
+  delivery?: Delivery;
+}
+
+export interface TerminalCommand {
+  argv: string[];
+  env: Record<string, string>;
+}
+
 export interface FrontendPort {
   readonly id: Frontend;
   ensureRepo(repo: string): Promise<void>;
-  createWorkspace(i: {
-    repo: string;
-    name: string;
-    base: string;
-    ticket: string | null;
-    /** local-merge lands without pushing, so git-managed lanes prefer the local base ref. */
-    delivery?: Delivery;
-  }): Promise<{ worktree: string; branch: string | null }>;
+  createWorkspace(i: WorkspaceInput): Promise<{ worktree: string; branch: string | null }>;
+  /** Startup runs in the new checkout; relative paths in its command resolve there. */
+  createWorkspaceWithTerminal?(i: WorkspaceInput & { startup: TerminalCommand }): Promise<{
+    worktree: string;
+    branch: string | null;
+    terminal: TerminalRef;
+  }>;
   openTerminal(i: {
     worktree: string;
     title: string;

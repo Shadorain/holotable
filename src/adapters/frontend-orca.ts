@@ -1,7 +1,9 @@
-import { realpath } from "node:fs/promises";
+import { mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { TerminalRef } from "../core/types.ts";
 import { isRecord } from "../core/validate.ts";
-import { PortError, type FrontendPort, type Run } from "../ports.ts";
+import { PortError, type FrontendPort, type Run, type TerminalCommand, type WorkspaceInput } from "../ports.ts";
 import { decode, shellQuote } from "./orca-envelope.ts";
 
 interface OrcaTerminalRow {
@@ -33,6 +35,13 @@ function parseTerminalList(payload: Record<string, unknown>): OrcaTerminalRow[] 
   return rows;
 }
 
+function shellCommand(i: TerminalCommand): string {
+  const envPrefix = Object.entries(i.env)
+    .map(([key, value]) => `${key}=${shellQuote(value)}`)
+    .join(" ");
+  return `${envPrefix ? `${envPrefix} ` : ""}${i.argv.map(shellQuote).join(" ")}`;
+}
+
 export function orcaFrontend(run: Run): FrontendPort {
   const cwd = process.cwd(); // orca commands do not depend on the caller cwd
 
@@ -54,6 +63,33 @@ export function orcaFrontend(run: Run): FrontendPort {
     }
     throw new PortError("terminal-missing", `Terminal ${t.handle} is gone`);
   }
+  async function createWorkspace(i: WorkspaceInput, startup?: TerminalCommand) {
+    const args = [
+      "worktree", "create",
+      "--repo", `path:${i.repo}`,
+      "--name", i.name,
+      "--base-branch", i.base,
+    ];
+    if (i.ticket !== null) args.push("--linear-issue", i.ticket);
+    if (startup) {
+      // The setup/startup wrapper can exceed terminal line limits with a long mission scope.
+      const dir = await mkdtemp(join(tmpdir(), "holotable-orca-start-"));
+      const script = join(dir, "launch.sh");
+      await writeFile(script, `#!/bin/sh\nrm -f -- ${shellQuote(script)}\nrmdir -- ${shellQuote(dir)}\nexec env ${shellCommand(startup)}\n`, { mode: 0o700 });
+      args.push("--command", `sh ${shellQuote(script)}`);
+    }
+    args.push("--no-parent", "--json");
+    const payload = decode(await run("orca", args, cwd));
+    const worktree = payload.worktree;
+    if (!isRecord(worktree) || typeof worktree.path !== "string")
+      throw new PortError("orca", "Orca worktree create omitted result.worktree.path");
+    const rawBranch = typeof worktree.branch === "string" ? worktree.branch : null;
+    return {
+      worktree: worktree.path,
+      branch: rawBranch === null ? null : rawBranch.replace(/^refs\/heads\//, ""),
+      startup: payload.startupTerminal,
+    };
+  }
 
   return {
     id: "orca",
@@ -72,30 +108,25 @@ export function orcaFrontend(run: Run): FrontendPort {
     },
 
     async createWorkspace(i) {
-      const args = [
-        "worktree", "create",
-        "--repo", `path:${i.repo}`,
-        "--name", i.name,
-        "--base-branch", i.base,
-      ];
-      if (i.ticket !== null) args.push("--linear-issue", i.ticket);
-      args.push("--no-parent", "--json");
-      const payload = decode(await run("orca", args, cwd));
-      const worktree = payload.worktree;
-      if (!isRecord(worktree) || typeof worktree.path !== "string")
-        throw new PortError("orca", "Orca worktree create omitted result.worktree.path");
-      const rawBranch = typeof worktree.branch === "string" ? worktree.branch : null;
-      return {
-        worktree: worktree.path,
-        branch: rawBranch === null ? null : rawBranch.replace(/^refs\/heads\//, ""),
-      };
+      const { worktree, branch } = await createWorkspace(i);
+      return { worktree, branch };
+    },
+
+    async createWorkspaceWithTerminal(i) {
+      const { worktree, branch, startup } = await createWorkspace(i, i.startup);
+      if (!isRecord(startup) || typeof startup.handle !== "string")
+        throw new PortError("orca", "Orca worktree create omitted result.startupTerminal.handle; CLI needs worktree create --command support");
+      const wanted = await realpath(worktree).catch(() => worktree);
+      for (const row of await terminalRows()) {
+        const path = await realpath(row.worktreePath).catch(() => row.worktreePath);
+        if (row.handle === startup.handle && path === wanted && row.connected)
+          return { worktree, branch, terminal: { handle: row.handle, incarnationId: row.incarnationId } };
+      }
+      throw new PortError("terminal-missing", `Startup terminal ${startup.handle} is not connected to ${worktree}`);
     },
 
     async openTerminal(i) {
-      const envPrefix = Object.entries(i.env)
-        .map(([key, value]) => `${key}=${shellQuote(value)}`)
-        .join(" ");
-      const command = `${envPrefix ? `${envPrefix} ` : ""}${i.argv.map(shellQuote).join(" ")}`;
+      const command = shellCommand(i);
       const payload = decode(
         await run(
           "orca",

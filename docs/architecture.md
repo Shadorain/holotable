@@ -153,6 +153,10 @@ emits no events just for waiting. Reasons clear when eligibility or operation in
 |Frontend|`orca`, `herdr`, `custom`, `none`|create worktrees, open/focus/close terminals|
 |Delivery|`github-pr`, `local-merge`, `none`|probe delivery state, land on the integration checkout|
 
+Orca supports the frontend's optional `createWorkspaceWithTerminal` capability. New lanes pass the fleet command and environment to `orca worktree create --command`, which uses the runtime's existing `startupCommand` field and returns the first terminal's handle. The adapter resolves that handle to a connected incarnation in the exact new checkout; it never chooses a terminal by title. The launcher records the workspace and returned mission terminal before waiting for its socket and does not open a second terminal. Existing lanes and relaunches still use `openTerminal`. The new checkout is supplied to the fleet as `.`; the child resolves it from its own working directory, preserving reuse-only mission binding.
+
+Startup is a short `sh <script>` command: a private mode-0700 temporary script contains the shell-quoted environment and argv, removes itself and its directory, then execs the child. This avoids terminal line limits when Orca wraps a long mission command to wait for setup. A script that never starts is retained in the host temp directory. Orca still owns setup ordering and failure behavior; no setup skip, gate approval, tab reaping or runtime restart is added. The execution host's CLI must expose `worktree create --command`; this is not the stock `--agent` launch path, which cannot carry the mission's complete environment.
+
 An operation names one adapter per port; all four can be `none`.
 
 ## Data flow

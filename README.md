@@ -384,12 +384,14 @@ Frontends (per operation, `--frontend` or `/holotable set frontend`):
 
 |Frontend|Worktrees|Terminal|
 |---|---|---|
-|`orca`|`orca worktree create … --no-parent`|`orca terminal create`|
+|`orca`|`orca worktree create … --no-parent --command …`|Mission runs in the first terminal; `orca terminal create` only for existing lanes and relaunches|
 |`herdr`|`git worktree add -b holotable/<name>` in the `worktrees.root` folder (default beside the repo)|`herdr tab create` + `herdr agent start`|
 |`custom`|same as herdr|shell templates `custom.terminal`, `custom.focus`, `custom.close` (`{cwd} {title} {command} {handle}`)|
 |`none`|never|never|
 
 Requirements: the launched `omp` must load `omp-mission` (install it as an OMP extension). Orca puts worktrees in its own project's worktree folder (Orca project settings) and ignores `worktrees.root`; it creates worktrees only for repos where that folder is set, and the settings drawer shows the folder or says it is missing. `cap` (default 8, maximum 64) counts live `omp` sessions across every open operation; an idle `omp` is about 600 MB. **Reap** closes the contact's terminal after checking its handle, incarnation and worktree against what the frontend lists; it never uses `--all` and never types into a terminal.
+
+New Orca workspaces start the mission in the workspace's first terminal instead of leaving an unused shell beside it. This requires an Orca CLI exposing `worktree create --command` (the host CLI extension forwards Orca's existing `startupCommand` RPC field). Setup is not skipped: Orca's repository setup/startup policy still applies. The separate Setup tab remains available for logs; this change does not auto-close it or touch existing tabs. Long mission commands use a private temporary startup script that removes itself when started; an unstarted script remains in the host's temporary directory for diagnosis.
 
 ## Operator actions
 

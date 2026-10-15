@@ -92,6 +92,29 @@ describe("orca frontend", () => {
     expect(noTicket.calls[0].args).not.toContain("--linear-issue");
   });
 
+  test("workspace startup binds only the terminal returned for the new checkout", async () => {
+    let path = "/wt/other";
+    const { run, calls } = fakeRun((call) => {
+      if (call.args[0] === "worktree") {
+        const command = call.args[call.args.indexOf("--command") + 1];
+        dirs.push(join(command.slice(4, -1), ".."));
+        return jsonReply({ ok: true, result: { worktree: { path: "/wt/new", branch: "refs/heads/new" }, startupTerminal: { handle: "first" } } });
+      }
+      return jsonReply({ ok: true, result: { terminals: [
+        { handle: "first", incarnationId: "inc", worktreePath: path, connected: true },
+        { handle: "setup", incarnationId: "setup-inc", worktreePath: "/wt/new", connected: true },
+      ] } });
+    });
+    const frontend = orcaFrontend(run);
+    const input = { repo: "/repo", name: "new", base: "main", ticket: null, startup: { argv: ["omp"], env: {} } };
+    await expect(frontend.createWorkspaceWithTerminal!(input)).rejects.toMatchObject({ code: "terminal-missing" });
+    path = "/wt/new";
+    expect(await frontend.createWorkspaceWithTerminal!(input)).toEqual({
+      worktree: "/wt/new", branch: "new", terminal: { handle: "first", incarnationId: "inc" },
+    });
+    expect(calls.some((call) => call.args[0] === "terminal" && call.args[1] === "create")).toBe(false);
+  });
+
   test("openTerminal builds an env-prefixed quoted command and parses result.terminal", async () => {
     const { run, calls } = fakeRun(() => jsonReply(fixture("orca-terminal-create.json")));
     const ref = await orcaFrontend(run).openTerminal({
