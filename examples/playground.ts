@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Access, ContactStatus, Operation, Settings, TerminalRef, Tracker } from "../src/core/types.ts";
+import type { Access, ContactStatus, MissionCheck, Operation, Settings, TerminalRef, Tracker } from "../src/core/types.ts";
 import { PortError, type Ports, type Run, type TrackerHit, type TrackerPort } from "../src/ports.ts";
 import { DEFAULT_SETTINGS, settingsFile } from "../src/settings.ts";
 import { readSettings } from "../src/store/settings.ts";
@@ -29,6 +29,11 @@ const REVIEW_S = 8;
 // Seeded Charidel lanes parked on provider quota: one running (recoverable), one still at its plan (not yet).
 const QUOTA_PARKED = new Set(["chr-167", "chr-157-conflict-1"]);
 const RED_CI = new Set(["CHR-156"]);
+// Fixed PR-check verdicts per ticket so the demo exercises more than "clean".
+const CHECK_VERDICTS: Record<string, { state: MissionCheck["state"]; detail: string; conflicts: string[]; threads: { open: number; total: number } }> = {
+  "CHR-157": { state: "conflict", detail: "Base moved under the PR; two files conflict.", conflicts: ["src/roster.ts", "docs/deploy.md"], threads: { open: 0, total: 0 } },
+  "CHR-156": { state: "threads", detail: "Two open review threads; one needs a reply, one a fix.", conflicts: [], threads: { open: 2, total: 3 } },
+};
 const SIM_MODELS = [
   { selector: "anthropic/claude-opus-4-5", name: "Claude Opus 4.5", provider: "anthropic", reasoning: true },
   { selector: "anthropic/claude-sonnet-4-5", name: "Claude Sonnet 4.5", provider: "anthropic", reasoning: true },
@@ -59,6 +64,8 @@ interface SimMission {
   /** Provider quota park: the error text, until Continue or Switch model & retry clears it. */
   quota: string | null;
   model: string | null;
+  /** Latest operator-requested PR check, set by the sim's `check` op. */
+  check: MissionCheck | null;
 }
 
 const hash = (text: string) => [...text].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
@@ -132,8 +139,8 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       gen: counter,
       quota: QUOTA_PARKED.has(name) ? "429 usage_limit_reached: weekly Anthropic quota exhausted" : null,
       model: null,
+      check: null,
     };
-    missions.set(worktree, m);
     return m;
   };
   const advance = (m: SimMission) => {
@@ -178,10 +185,11 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       hold,
       gate: m.stage === "gate" && !m.resumeHold ? { kind: "pause", id: m.gate } : null,
       next,
-      actions: m.quota && m.stage !== "plan" ? ["continue", "retry-model"] : m.resumeHold ? ["continue"] : m.stage === "plan" ? ["plan-approve"] : m.stage === "gate" ? ["approve", "continue"] : m.stage === "execute" ? ["dispatch"] : [],
+      actions: m.quota && m.stage !== "plan" ? ["continue", "retry-model"] : m.resumeHold ? ["continue"] : m.stage === "plan" ? ["plan-approve"] : m.stage === "gate" ? ["approve", "continue"] : m.stage === "execute" ? ["dispatch"] : m.stage === "complete" ? ["check"] : [],
       workers: m.resumeHold ? { live: 0, total: 3 } : m.stage === "execute" ? { live: 2, total: 3 } : m.stage === "plan" ? null : { live: 0, total: 3 },
       delivery: m.stage === "complete" ? { url: `https://github.example/demo/pull/${100 + (hash(m.ticket) % 50)}`, branch: m.branch } : null,
       complete: m.stage === "complete",
+      check: m.check,
       revision: updatedAt,
       plan: m.stage === "plan" && !m.resumeHold ? { path: `${m.worktree}/.plan.md`, revision: `rev-${m.planRev}` } : null,
       ctl: { socket: `sim:${m.id}`, generation: m.gen },
@@ -272,6 +280,11 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
           throw new PortError("rejected", "Pause gate: use approve");
         } else if (op === "mode") {
           m.mode = String(args.mode);
+        } else if (op === "check") {
+          if (m.stage !== "complete" || !m.branch) throw new PortError("rejected", "Only a delivered PR can be checked");
+          const verdict = CHECK_VERDICTS[m.ticket] ?? { state: "clean", detail: "PR is mergeable; no open threads.", conflicts: [], threads: { open: 0, total: 0 } };
+          m.check = { at: new Date().toISOString(), ...verdict };
+          m.stageStart = now();
         }
       },
     },
