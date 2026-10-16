@@ -119,6 +119,20 @@ describe("auto mode", () => {
     );
     expect((await t.op()).auto?.enabled).toBe(true);
   });
+  test("launches the ready contact that unblocks the most unlanded work", async () => {
+    const t = await setup([contact("a"), contact("b"), contact("c", { blockedBy: ["b"] })]);
+    t.liveWorktree("a");
+    t.liveWorktree("b");
+
+    await t.auto.pass();
+
+    const launched = (await t.events()).filter((e) => e.kind === "launched").map((e) => ("contact" in e ? e.contact : ""));
+    expect(launched).toEqual(["b"]);
+    await t.auto.pass();
+    const after = (await t.events()).filter((e) => e.kind === "launched").map((e) => ("contact" in e ? e.contact : ""));
+    expect(after).toEqual(["b", "a"]);
+  });
+
 
   test("respects maxLive: no launch while the operation is at its own ceiling", async () => {
     const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") }), contact("b")], {

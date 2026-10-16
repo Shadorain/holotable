@@ -151,9 +151,18 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
     }
 
     if (auto.launch && !auto.capacityWait && projection.header.live < auto.maxLive && projection.header.open < projection.header.cap) {
-      const next = projection.contacts.find(
-        (c) => c.group === "queue" && c.state === "ready" && c.actions.some((a) => a.id === "launch" && a.enabled),
-      );
+      // Ready contacts launch in declaration order, biased toward the one that unblocks
+      // the most unlanded work: long dependency chains cost more wall time than order.
+      const unblocks = new Map<string, number>();
+      for (const c of projection.contacts) {
+        if (c.state === "landed") continue;
+        for (const b of c.blockedBy) if (!b.landed) unblocks.set(b.ticket, (unblocks.get(b.ticket) ?? 0) + 1);
+      }
+      const next = projection.contacts.reduce<typeof projection.contacts[number] | undefined>((best, c) => {
+        if (c.group !== "queue" || c.state !== "ready" || !c.actions.some((a) => a.id === "launch" && a.enabled)) return best;
+        if (!best || (unblocks.get(c.ticket) ?? 0) > (unblocks.get(best.ticket) ?? 0)) return c;
+        return best;
+      }, undefined);
       if (next) {
         try {
           await deps.run({ op: opId, contact: next.ticket, action: "launch", args: {}, by: "auto" });
