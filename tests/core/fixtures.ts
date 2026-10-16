@@ -4,6 +4,8 @@ import type {
   Event,
   Lane,
   Operation,
+  Measurements,
+  UsageEvidence,
 } from "../../src/core/types.ts";
 
 export const T0 = Date.UTC(2026, 0, 1);
@@ -106,4 +108,11 @@ export function ev(
     ...(contact !== null ? { contact } : {}),
     ...extra,
   } as unknown as Event;
+}
+
+export function makeMeasurements(overrides:Partial<Measurements>={}):Measurements {
+  return {v:1,since:iso(0),recordedPassed:0,recordedFailed:0,repeatedFailedRevision:0,mergePreflightFailures:0,boundaryFailures:0,reviewFailures:0,acceptedRepairs:0,completedRounds:0,invalidatedRounds:0,findingOccurrences:0,latestActionable:0,latestRejected:0,severity:{critical:0,high:0,medium:0,low:0},workerAttempts:2,workerBeads:2,repairRound:1,repairLinks:0,config:{graph:"beads",frontend:"subagent",maxWorkers:2,reviewConcurrency:1,mode:"auto"},...overrides};
+}
+export function makeUsageEvidence(input:number,costUsd:number|null=input/100):UsageEvidence {
+  return {v:1,measuredAt:iso(input),sources:[{role:"coordinator",id:"coordinator:shared",tokens:{input,output:0,cacheRead:0,cacheWrite:0},costUsd,sessions:1,pricedMessages:costUsd===null?0:1,unpricedMessages:costUsd===null?1:0}],missing:0,unsupportedWorkers:0,malformedLines:0,resets:0,backlogBytes:0,partial:costUsd===null};
 }

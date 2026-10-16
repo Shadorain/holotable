@@ -1,3 +1,4 @@
+import { evaluateOperation, type Evaluation } from "./evaluation.ts";
 import { foldEvents, liveCount } from "./fold.ts";
 import { countTasks } from "./notes.ts";
 import { computeStats } from "./stats.ts";
@@ -32,6 +33,7 @@ export interface OperationReport {
   counts: { contacts: number; landed: number; conflicts: number; launches: number; landAttempts: number };
   contacts: ReportContact[];
   stats: Stats;
+  evaluation?: Evaluation;
   /** Task lines in notes.md at close. */
   notes: { done: number; total: number };
   /** notes.md at close, first 4000 chars; null when the operation kept no notes. */
@@ -98,6 +100,7 @@ export function buildReport(
     },
     contacts,
     stats,
+    ...(closed ? { evaluation: evaluateOperation(operation, derived, clock) } : {}),
     notes: countTasks(notesText),
     notesText: notesText === null ? null : notesText.slice(0, MAX_NOTES),
     brief: brief === null ? null : brief.slice(0, MAX_BRIEF),

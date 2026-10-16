@@ -6,6 +6,11 @@ import { ActionError } from "../../src/runtime/errors.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings.ts";
 import { readEvents } from "../../src/store/events.ts";
 import { contact, fakePorts, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
+import { createWatcher } from "../../src/runtime/watcher.ts";
+import { makeMeasurements, makeUsageEvidence } from "../core/fixtures.ts";
+import { foldEvents } from "../../src/core/fold.ts";
+import { evaluateOperation } from "../../src/core/evaluation.ts";
+import { readOperation } from "../../src/store/operations.ts";
 
 const dirs: string[] = [];
 afterEach(() => removeAll(dirs));
@@ -33,7 +38,8 @@ async function setup(contacts: Contact[], over: Parameters<typeof seedOperation>
     socketWaitMs: 0,
     run,
   };
-  const act = createActionRunner(deps);
+  const watcher=createWatcher({...deps,warn:()=>{}});
+  const act=createActionRunner({...deps,captureMetrics:watcher.capture});
   const kinds = async () => (await readEvents(home, "lab")).map((e) => e.kind);
   const failure = async (p: Promise<unknown>) => {
     try {
@@ -116,4 +122,18 @@ test("auto mode leaves an unmerged audit alone instead of pausing, and retries i
   await auto.pass();
   expect(requests).toEqual(["done", "done"]);
   expect((await t.kinds())).toContain("landed");
+});
+
+test.each(["land","done","reap"] as const)("%s retains final usage before terminal cleanup with only the required fleet read",async(action)=>{
+ const t=await setup([action==="done"?audit():contact("a",{lane:lane("/wt/a","t1","b/a")})]);
+ t.fake.world.statuses.set("/wt/a",status({phase:"complete",complete:true,ctl:null,measurements:makeMeasurements({recordedPassed:3}),usageEvidence:makeUsageEvidence(41)}));
+ const close=t.fake.ports.frontend.close;
+ t.fake.ports.frontend.close=async(...args)=>{t.fake.world.statuses.delete("/wt/a");await close(...args);};
+ await t.act({op:"lab",contact:"a",action,args:{}});
+ const events=await readEvents(t.home,"lab"),boundary=events.findIndex(e=>e.kind===(action==="reap"?"reaped":"landed")),sample=events.findIndex(e=>e.kind==="sample");
+ expect(sample).toBeGreaterThanOrEqual(0);expect(sample).toBeLessThan(boundary);
+ const result=evaluateOperation(await readOperation(t.home,"lab"),foldEvents(events),Date.parse("2026-01-01T03:00:00Z"));
+ expect(result.usage.tokens?.input).toBe(41);expect(result.quality?.recordedPassed).toBe(3);
+ expect(t.fake.count("fleet.read")).toBe(1);
+ expect(t.fake.count("tracker.sample")).toBe(0);expect(t.fake.count("fleet.ping")).toBe(0);
 });

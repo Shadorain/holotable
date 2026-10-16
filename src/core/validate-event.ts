@@ -7,6 +7,8 @@ import {
   type SampleFields,
 } from "./types.ts";
 import { enumPicker, invalidAt, isRecord } from "./validate.ts";
+import { parseMeasurements, parseUsageEvidence } from "./evaluation.ts";
+import { HOLDS, VERIFIES } from "./types.ts";
 
 const LAUNCH_STEPS = ["repo", "workspace", "terminal", "socket"] as const;
 const CLOSED_OUTCOMES = ["landed", "abandoned", "decision", "failed"] as const;
@@ -188,6 +190,22 @@ export function validateEvent(value: unknown, path = "events.jsonl"): Event {
       return { ...base, kind: "landed", via: inList("via", value.via, LANDED_VIA) };
     case "sample": {
       const sample: SampleFields = {};
+      if (value.mission !== undefined) {
+        const m=value.mission;
+        if(!isRecord(m)||typeof m.id!=="string"||!m.id||m.id.length>1000||!HOLDS.includes(m.hold as never)||!(m.verify===null||VERIFIES.includes(m.verify as never))||typeof m.complete!=="boolean")
+          return fail("sample.mission must carry bounded id, hold, verify and complete");
+        sample.mission={id:m.id,hold:m.hold as NonNullable<SampleFields["mission"]>["hold"],verify:m.verify as NonNullable<SampleFields["mission"]>["verify"],complete:m.complete};
+      }
+      if(value.measurements!==undefined){
+        const parsed=parseMeasurements(value.measurements);
+        if(value.measurements!==null&&!parsed)return fail("sample.measurements is invalid");
+        sample.measurements=parsed;
+      }
+      if(value.usageEvidence!==undefined){
+        const parsed=parseUsageEvidence(value.usageEvidence);
+        if(value.usageEvidence!==null&&!parsed)return fail("sample.usageEvidence is invalid");
+        sample.usageEvidence=parsed;
+      }
       if (value.tracker !== undefined) {
         const tr = value.tracker;
         if (!isRecord(tr) || typeof tr.state !== "string")

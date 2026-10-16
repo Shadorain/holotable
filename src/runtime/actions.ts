@@ -50,7 +50,8 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       const decision = decideArgs("done", contact, args);
       await appendEvent(deps.home, opId, { v: 1, at, kind: "decided", contact: ticket, by: "operator", ...decision });
     }
-    await appendEvent(deps.home, opId, { v: 1, at, kind: "landed", contact: ticket, via: "manual" });
+    if(contact?.lane)await deps.captureMetrics?.(operation,contact);
+    await appendEvent(deps.home,opId,{v:1,at:deps.now().toISOString(),kind:"landed",contact:ticket,via:"manual"});
     if (contact?.lane) await cleanupAfterLand(deps, opId, ticket);
   }
 
@@ -129,11 +130,12 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
 
   async function reap(opId: string, ticket: string): Promise<void> {
     const operation = await readOperation(deps.home, opId);
-    const lane = operation.contacts.find((c) => c.ticket === ticket)?.lane;
+    const contact=operation.contacts.find(c=>c.ticket===ticket),lane=contact?.lane;
     if (!lane?.terminal) throw new ActionError(409, "refused", "no terminal recorded");
     const derived = foldEvents(await readEvents(deps.home, opId));
     if (derived.contacts[ticket]?.reaped) throw new ActionError(409, "refused", "already reaped");
     const settings = await deps.settings();
+    await deps.captureMetrics?.(operation,contact!);
     try {
       await deps.portsFor(operation, settings).frontend.close(lane.terminal, lane.worktree);
     } catch (error) {

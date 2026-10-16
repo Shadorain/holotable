@@ -519,6 +519,11 @@ function render() {
     api,
     toast,
     notesChanged: () => poll(),
+    showEvidence: (ticket) => {
+      state.cardTab = "history";
+      select(ticket);
+      poll();
+    },
     refreshPlan: async () => {
       if (contact) planCache.delete(`${p.operation.id}/${contact.ticket}`);
       await poll();
@@ -540,7 +545,7 @@ function render() {
     region($("stage"), { op: p.operation.id, contacts: p.contacts.map((c) => [c.ticket, c.title, c.zone, c.group, c.state, c.attention, c.detail, c.blockedBy.map(b => [b.ticket, b.landed]), c.conflictOf]), zones: p.operation.zones, selected }, () =>
       radar.update(p, selected));
   else if (state.view === "board")
-    region($("ops"), { op: p.operation, notes: p.notes, notesKey: notesKey(p.operation.id), stats: opsStatsSig(p.stats), counts: p.contacts.map((c) => [c.state, c.group, c.attention]), busy }, (root) => renderOps(root, p, ctx));
+    region($("ops"), { op: p.operation, notes: p.notes, notesKey: notesKey(p.operation.id), stats: opsStatsSig(p.stats), evaluation: p.evaluation, counts: p.contacts.map((c) => [c.state, c.group, c.attention]), busy }, (root) => renderOps(root, p, ctx));
   else {
     // Plan view: map | op | new
     const tabs = $("planTabs");

@@ -1,5 +1,6 @@
 import { HOLDS, MODES, VERIFIES, type ContactStatus, type Hold, type Mode, type UsageTotals, type Verify } from "./types.ts";
 import { invalidAt, isRecord } from "./validate.ts";
+import { parseMeasurements, parseUsageEvidence } from "./evaluation.ts";
 
 /** Producer-written status file contract (C5); unknown fields are ignored. */
 export function validateStatus(
@@ -169,6 +170,30 @@ export function validateStatus(
     };
   }
 
+  let review: ContactStatus["review"] = null;
+  if (value.review !== undefined && value.review !== null) {
+    const r = value.review;
+    const count = (key: string): number | null => {
+      const n = (r as Record<string, unknown>)[key];
+      return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : null;
+    };
+    if (!isRecord(r) || typeof r.startedAt !== "string" || !Number.isFinite(Date.parse(r.startedAt)) ||
+        typeof r.deadlineAt !== "string" || !Number.isFinite(Date.parse(r.deadlineAt)) ||
+        count("active") === null || count("completed") === null || count("total") === null ||
+        !Array.isArray(r.models) || r.models.some((m) => typeof m !== "string"))
+      return fail("review must carry startedAt, deadlineAt, active, completed, total and models");
+    review = {
+      startedAt: r.startedAt, deadlineAt: r.deadlineAt,
+      active: r.active as number, completed: r.completed as number, total: r.total as number,
+      models: [...r.models] as string[],
+    };
+  }
+  let model: ContactStatus["model"] = null;
+  if (value.model !== undefined && value.model !== null) {
+    if (typeof value.model !== "string") return fail("model must be a string or null");
+    model = value.model;
+  }
+
   let check: ContactStatus["check"] = null;
   if (value.check !== undefined && value.check !== null) {
     const k = value.check;
@@ -207,7 +232,11 @@ export function validateStatus(
     mode,
     usage,
     verify,
+    ...(value.measurements === undefined ? {} : { measurements: parseMeasurements(value.measurements) }),
+    ...(value.usageEvidence === undefined ? {} : { usageEvidence: parseUsageEvidence(value.usageEvidence) }),
     ...(value.problem === undefined ? {} : { problem }),
     ...(value.check === undefined ? {} : { check }),
+    ...(value.review === undefined ? {} : { review }),
+    ...(value.model === undefined ? {} : { model }),
   };
 }

@@ -1,5 +1,5 @@
 import { foldEvents } from "../core/fold.ts";
-import type { Operation, Settings } from "../core/types.ts";
+import type { Contact, ContactStatus, Operation, Settings } from "../core/types.ts";
 import { PortError, type Ports, type Run } from "../ports.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { readOperation } from "../store/operations.ts";
@@ -12,6 +12,7 @@ export interface WinddownDeps {
   run: Run;
   /** Shared action-runner keys (op/ticket → action); End refuses while any op action runs. */
   inFlight?: Map<string, string>;
+  captureMetrics?(operation:Operation,contact:Contact,status?:ContactStatus|null):Promise<void>;
 }
 
 /**
@@ -50,6 +51,7 @@ export async function windDown(deps: WinddownDeps, opId: string, op: "abort" | "
     const d = derived.contacts[contact.ticket];
 
     if (lane.terminal && !d?.reaped) {
+      await deps.captureMetrics?.(operation,contact);
       try {
         await (await frontend()).close(lane.terminal, lane.worktree);
         await appendEvent(deps.home, opId, { v: 1, at: at(), kind: "reaped", contact: contact.ticket });

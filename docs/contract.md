@@ -55,16 +55,18 @@ interface ContactStatus {
     conflicts: string[];           // paths conflicting with the base, if any
     threads: { open: number; total: number };  // unresolved PR review threads
   } | null;
-  usage?: {                                           // cumulative across the coordinator and worker sessions; null until any is recorded
+  usage?: {                                           // associated coordinator, mission-owned subagents and independent reviewer sessions
     tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
     costUsd: number | null;                           // sum of omp's per-message cost estimates; null when none carried a cost
     sessions: number;
   } | null;
+  measurements?: Measurements | null;
+  usageEvidence?: UsageEvidence | null;
   updatedAt: string;
 }
 ```
 
-Unknown fields are ignored. An invalid file is skipped (and counted), never fatal.
+Unknown fields are ignored. An invalid control/status file is skipped (and counted), never fatal. Invalid optional `measurements` or `usageEvidence` instead become explicit `null` (unknown evidence); they must not hide valid controls. Append-only sample events validate these groups strictly: malformed non-null evidence is rejected rather than silently changing historical meaning.
 
 Join: among status files whose `worktree` realpath equals the contact's `lane.worktree` realpath, the newest `updatedAt` wins. A lane hosts one mission at a time.
 
@@ -73,6 +75,67 @@ As implemented by `omp-mission`: `next` may carry `/mission <verb> — <text>` (
 `problem` is display and scheduling evidence, not a capability. Only advertised `actions` authorize socket controls. Missing fields from older panes do not authorize board retries or model switching.
 
 While the main mission agent's `ask` tool is waiting, `hold: question` replaces plan approval, `next` carries the question text, and `actions` is empty. The board offers **Answer in mission** (frontend focus), not answer submission. Matching tool completion clears the hold; unrelated tool completions do not. Recovery must not continue or relaunch it. The producer rejects mutating socket operations with `question-waiting` until answered. Planning provider blockers publish blocked/quota holds and no plan-approval action until a new turn clears the blocker.
+
+### Optional evaluation evidence (v1)
+
+The two new status groups together are at most 4 KiB after normalization. Counts are nonnegative safe integers, USD estimates finite and nonnegative or null, timestamps at most 64 characters, and opaque source ids at most 128 characters. No transcripts, paths, finding text or model-generated summaries are copied. Older producers may omit both groups.
+
+```ts
+interface MeasurementConfig {
+  graph: "local" | "beads";
+  frontend: "none" | "orca" | "herdr" | "custom" | "subagent";
+  maxWorkers: number; reviewConcurrency: number; // 1..64; current producer config permits 1..8
+  mode: "auto" | "pause" | "force";
+}
+interface Measurements {
+  v: 1; since: string;
+  recordedPassed: number; recordedFailed: number; repeatedFailedRevision: number;
+  mergePreflightFailures: number; boundaryFailures: number; reviewFailures: number;
+  acceptedRepairs: number; completedRounds: number; invalidatedRounds: number;
+  findingOccurrences: number; latestActionable: number; latestRejected: number;
+  severity: { critical: number; high: number; medium: number; low: number };
+  workerAttempts: number; workerBeads: number; repairRound: number; repairLinks: number;
+  config: MeasurementConfig;
+}
+interface UsageSource {
+  role: "coordinator" | "worker" | "review"; id: string;
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  costUsd: number | null; sessions: number;
+  pricedMessages: number; unpricedMessages: number;
+}
+interface UsageEvidence {
+  v: 1; measuredAt: string; sources: UsageSource[]; // at most three, unique roles
+  missing: number; unsupportedWorkers: number; malformedLines: number;
+  resets: number; backlogBytes: number; partial: boolean;
+}
+```
+
+`since` marks persisted counter coverage, not mission creation on legacy runs. Only accepted explicit verification calls increment recorded pass/fail; a consecutive failed captured revision increments the repeat counter. Merge preflight and coordinator boundary failures are separate. Review rounds include invalidated rounds; finding/severity counts are occurrences, not unique defects. Current actionable/rejected findings use only the latest round and become zero when it is invalidated. Worker reservations and attempts are utilization/retry proxies, not measured CPU activity.
+
+Usage is associated spend, not exclusive mission cost or exact billing. Independent reviewer sessions (including failed/aborted runs) are included. Terminal-worker usage is unsupported. The producer lazily samples on existing publication, with bounded incremental reads and explicit backlog; it forces a sample once at Complete and at detach. Cold restarts rebuild without a usage ledger. Holotable takes component high-water marks per `(role,id)` and deduplicates a shared coordinator across contacts. Decreases are flagged, never invented as additional spend. Legacy aggregates cannot resolve cross-contact overlap and are omitted for a contact once scoped evidence exists.
+
+Missing/unsupported source counts and backlog are current-run gauges: fully reconstructed evidence can clear a temporary launch or cold-scan gap. Malformed/reset evidence remains conservative. An unresolved gap when the contact switches missions stays partial; a healthy new run cannot erase the old run's uncertainty.
+
+The existing watcher records `mission: {id, hold, verify, complete}` and changed counters before the slow sampling gate. Usage stays on that gate except final capture. Each group deduplicates by its values, not publication timestamps or JSON key order; restart seeds from the folded merged sample. Mission changes clear the previous run's sampled counters/usage. Land captures after merge verification, Done before `landed`, and Reap/Close/Abort before closing each unreaped pane. Capture shares the watcher serialization chain, reads only the target status when needed, and performs no ping, tracker, delivery or terminal scan. An already-closed recovery uses persisted history only. Capture failure is warned and cannot prevent the requested action.
+
+## Comparison manifest (v1)
+
+`holotable compare --manifest FILE` is an explicit, offline A/B read: it loads only the archive keys the manifest names, writes nothing, and never starts the board. Version 1 supports `variable: "maxWorkers"` only.
+
+```json
+{
+  "v": 1,
+  "variable": "maxWorkers",
+  "baseline": "A",
+  "groups": {"A": 1, "B": 2},
+  "trials": [
+    {"archive": "ARCHIVE_KEY", "group": "A", "pair": "workload-01", "repo": "/canonical/repo", "baseCommit": "FULL_COMMIT", "workload": "fixture-v1", "acceptance": "smoke-v1", "environment": "host-settings-v1", "externalOutcome": "unassessed"}
+  ]
+}
+```
+
+Exactly groups A/B with limits 1..64; baseline A or B; at most 100 trials; no repeated archive or `(pair, group)`. `repo` must literally equal the archive report's repo; the other identity fields are operator attestations Holotable does not verify. `externalOutcome` (`pass|fail|unassessed`) is the operator's judgment, kept separate from landed/check status. A valid manifest with fewer than five complete pairs, mismatched attestations or configs, non-beads graphs, or missing worker-dispatch evidence exits 0 with `comparable: false` and reasons plus raw per-trial facts — never fabricated deltas. Invalid manifests, missing archives, or repo mismatches exit 1. Deltas are candidate minus baseline per pair: delivery, queue-to-land lead, and cost-per-delivered (only over pairs with clean scoped usage coverage; figures stay "known associated estimates"). Incomplete arms remain in denominators; `--json` returns the typed `comparison` object.
+
 
 ## Control socket
 

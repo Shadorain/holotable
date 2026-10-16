@@ -1,11 +1,13 @@
 import { fileURLToPath } from "node:url";
 import type { CommandOutcome } from "../commands.ts";
+import type { ComparisonResult } from "../core/compare.ts";
 import type { ServiceHealth } from "../plugin/client.ts";
 import type { Run } from "../ports.ts";
 import { createRun } from "../run.ts";
 
 export interface CliReply extends CommandOutcome {
   service?: ServiceHealth;
+  comparison?: ComparisonResult;
 }
 
 export interface CliContext {

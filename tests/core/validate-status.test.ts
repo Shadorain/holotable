@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { validateStatus } from "../../src/core/validate-status.ts";
-import { makeStatus } from "./fixtures.ts";
+import { makeStatus, makeMeasurements, makeUsageEvidence } from "./fixtures.ts";
 import { missionProblem } from "../../src/core/mission-problem.ts";
 import type { MissionCheck } from "../../src/core/types.ts";
 
@@ -65,5 +65,45 @@ describe("validateStatus check", () => {
     expect(() => validateStatus({ ...makeStatus(), check: { ...check, state: "ok" } })).toThrow();
     expect(() => validateStatus({ ...makeStatus(), check: { ...check, threads: { open: 4, total: 3 } } })).toThrow();
     expect(() => validateStatus({ ...makeStatus(), check: { ...check, conflicts: [1] } })).toThrow();
+  });
+});
+
+test("malformed optional evaluation groups become unknown without removing valid mission controls",()=>{
+ const legacy=validateStatus(makeStatus({actions:["approve"]}));
+ expect(legacy.measurements).toBeUndefined();expect(legacy.usageEvidence).toBeUndefined();
+ for(const bad of [{v:2},null,"bad",[]]){
+  const parsed=validateStatus({...makeStatus({actions:["approve"]}),measurements:bad,usageEvidence:bad});
+  expect(parsed.measurements).toBeNull();expect(parsed.usageEvidence).toBeNull();expect(parsed.actions).toEqual(["approve"]);
+ }
+ const m=makeMeasurements(),u=makeUsageEvidence(4);
+ expect(validateStatus({...makeStatus(),measurements:m,usageEvidence:u})).toMatchObject({measurements:m,usageEvidence:u});
+});
+
+test("non-string optional enum values cannot throw away valid controls",()=>{
+ const m=makeMeasurements(),u=makeUsageEvidence(4),invalid={toString:null};
+ const parsed=validateStatus({...makeStatus({actions:["approve"]}),measurements:{...m,config:{...m.config,graph:invalid}},usageEvidence:{...u,sources:[{...u.sources[0],role:invalid}]}});
+ expect(parsed.measurements).toBeNull();expect(parsed.usageEvidence).toBeNull();expect(parsed.actions).toEqual(["approve"]);
+});
+
+describe("validateStatus review/model", () => {
+  const review = { startedAt: "2026-10-16T00:00:00.000Z", deadlineAt: "2026-10-16T00:05:00.000Z", active: 1, completed: 0, total: 3, models: ["p/m"] };
+
+  test("older producers omit them; valid values are kept", () => {
+    const s = validateStatus(makeStatus());
+    expect(s.review).toBeUndefined();
+    expect(s.model).toBeUndefined();
+    const parsed = validateStatus({ ...makeStatus(), review, model: "p/m" });
+    expect(parsed.review).toEqual(review);
+    expect(parsed.model).toBe("p/m");
+    const cleared = validateStatus({ ...makeStatus(), review: null, model: null });
+    expect(cleared.review).toBeNull();
+    expect(cleared.model).toBeNull();
+  });
+
+  test("malformed review cannot enter the board", () => {
+    expect(() => validateStatus({ ...makeStatus(), review: { ...review, deadlineAt: "soon" } })).toThrow();
+    expect(() => validateStatus({ ...makeStatus(), review: { ...review, active: -1 } })).toThrow();
+    expect(() => validateStatus({ ...makeStatus(), review: { ...review, models: "p/m" } })).toThrow();
+    expect(() => validateStatus({ ...makeStatus(), model: 42 })).toThrow();
   });
 });

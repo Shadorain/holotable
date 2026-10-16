@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PortError, type Ports, type Run } from "../../src/ports.ts";
 import { abortPreview, createEnder, endOperation } from "../../src/runtime/end.ts";
@@ -11,6 +11,9 @@ import { listArchive, readArchive } from "../../src/store/archive.ts";
 import { appendEvent, readEvents } from "../../src/store/events.ts";
 import { archiveOperation, listOperations } from "../../src/store/operations.ts";
 import { contact, fakePorts, lane, removeAll, seedOperation, tempDir, T0 } from "../helpers.ts";
+import { status } from "../helpers.ts";
+import { createWatcher } from "../../src/runtime/watcher.ts";
+import { makeMeasurements, makeUsageEvidence } from "../core/fixtures.ts";
 
 const dirs: string[] = [];
 afterEach(() => removeAll(dirs));
@@ -247,4 +250,44 @@ describe("endOperation / ender", () => {
     expect(list[0].report.outcome).toBe("failed");
     expect(readdirSync(join(archiveDir(home), key))).not.toContain("report.json");
   });
+});
+
+test.each(["failed","abandoned"] as const)("ending %s freezes final evidence before producer files disappear",async(outcome)=>{
+ const home=tempDir("end-evidence",dirs),wt=join(home,"wt");mkdirSync(wt,{recursive:true});
+ await seedOperation(home,{contacts:[contact("a",{lane:lane(wt,"terminal","branch")})]});
+ const fake=fakePorts();
+ fake.world.statuses.set(wt,status({measurements:makeMeasurements({recordedFailed:2}),usageEvidence:makeUsageEvidence(12)}));
+ const close=fake.ports.frontend.close;
+ fake.ports.frontend.close=async(...args)=>{fake.world.statuses.delete(wt);await close(...args);};
+ const deps=windDeps(home,fake.ports),watcher=createWatcher({...deps,warn:()=>{}});
+ const key=await endOperation({...deps,captureMetrics:watcher.capture},"lab",outcome);
+ expect(fake.world.statuses.has(wt)).toBe(false);
+ const entry=await readArchive(home,key,new Date("2099-01-01"));
+ expect(entry?.report.evaluation?.quality?.recordedFailed).toBe(2);
+ expect(entry?.report.evaluation?.usage.tokens?.input).toBe(12);
+ const sample=entry!.events.findIndex(e=>e.kind==="sample"),reaped=entry!.events.findIndex(e=>e.kind==="reaped");
+ expect(sample).toBeLessThan(reaped);expect(sample).toBeGreaterThanOrEqual(0);
+ const calls=fake.calls.length;
+ expect((await readArchive(home,key,new Date("2100-01-01")))?.report.evaluation).toEqual(entry!.report.evaluation);
+ expect(fake.calls.length).toBe(calls);
+});
+
+test("crashed close recovery archives persisted evidence without touching any producer",async()=>{
+ const home=tempDir("end-evidence",dirs);await seedOperation(home,{contacts:[contact("a",{lane:lane("/gone","terminal","branch")})]});
+ await appendEvent(home,"lab",{v:1,at:T0,kind:"sample",contact:"a",mission:{id:"run",hold:"none",verify:"failed",complete:false},measurements:makeMeasurements({recordedFailed:1})});
+ await appendEvent(home,"lab",{v:1,at:T0,kind:"closed",outcome:"failed"});
+ const fake=fakePorts(),key=await endOperation({...windDeps(home,fake.ports),captureMetrics:async()=>{throw Error("must not read producer");}},"lab","failed");
+ expect(fake.calls).toEqual([]);
+ expect((await readArchive(home,key,new Date()))?.report.evaluation?.quality?.recordedFailed).toBe(1);
+});
+
+test("malformed optional archived evaluation is omitted without recomputing or rewriting its base report",async()=>{
+ const home=tempDir("end-evidence",dirs);await seedOperation(home,{contacts:[]});
+ const key=await endOperation(windDeps(home,fakePorts().ports),"lab","failed"),file=join(archiveDir(home),key,"report.json");
+ const stored=JSON.parse(readFileSync(file,"utf8"));
+ stored.counts.contacts=47;stored.evaluation.usage.basis={toString:null};
+ const bytes=JSON.stringify(stored);writeFileSync(file,bytes);
+ const loaded=await readArchive(home,key,new Date("2099-01-01"));
+ expect(loaded?.report.evaluation).toBeUndefined();expect(loaded?.report.counts.contacts).toBe(47);
+ expect(readFileSync(file,"utf8")).toBe(bytes);
 });

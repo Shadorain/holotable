@@ -21,3 +21,8 @@
 
 - `bun run demo` serves the real board over simulated ports (every button works, nothing touches git or Orca); open one of the printed URLs and play Launch → Approve → Land, including the conflict path.
 - Launch against Orca needs a repo whose Orca project has a worktree base path, and a launched `omp` that loads `omp-mission`. Close terminals by exact handle (never `--all`); an idle `omp` pane is about 600 MB.
+
+## Benchmarks (read-only, reproducible)
+
+- `memcap 512M -- bun examples/benchmark-evaluation.ts [pure|watch|append]` measures fold/evaluate CPU, per-pass watcher cost and append tail reads on generated fixtures; prints JSON, exits 1 when a gate fails.
+- omp-mission: `memcap 2G -- bun examples/benchmark-usage.ts` measures `UsageProbe` cold/warm/append/throttle reads and the 4 MiB budget.

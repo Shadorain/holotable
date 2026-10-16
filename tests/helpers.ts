@@ -9,6 +9,8 @@ import type {
   Operation,
   TerminalRef,
 } from "../src/core/types.ts";
+import type { Evaluation } from "../src/core/evaluation.ts";
+import type { OperationReport, ReportContact } from "../src/core/report.ts";
 import type { Ports, Run, TrackerHit } from "../src/ports.ts";
 import { appendEvent } from "../src/store/events.ts";
 import { createOperation } from "../src/store/operations.ts";
@@ -31,6 +33,54 @@ export const terminal = (handle = "t1"): TerminalRef => ({ handle, incarnationId
 export function lane(worktree: string, handle: string | null = "t1", branch: string | null = null): Contact["lane"] {
   return { worktree, branch, frontend: "orca", terminal: handle ? terminal(handle) : null };
 }
+
+/** One fully-typed evaluation for compare/archive tests; override only what the case varies. */
+export function evaluation(over: Partial<Evaluation> = {}): Evaluation {
+  const dist = { n: 0, medianMs: null, p90Ms: null };
+  return {
+    v: 1, asOf: 0, deliveredWork: 0, throughputPerHour: null,
+    queue: { ...dist }, queued: { n: 0, totalMs: 0, maxMs: null },
+    delivery: { ...dist }, lead: { ...dist }, unfinished: { n: 0, totalMs: 0, maxMs: null },
+    dependencyWaitMs: null, phaseMs: {}, gateWaitMs: null, offlineMs: null, deliveryReadyMs: null, holdMs: {},
+    connectivity: { observedMs: 0, connectedContactMs: 0, peak: 0, mean: null },
+    workers: { coveredMs: 0, nonclosedWorkerMs: 0 },
+    attempts: { launches: 0, relaunches: 0, launchFailures: 0, landAttempts: 0, conflicts: 0 },
+    fleet: { workerAttempts: 2, workerBeads: 2, redispatches: 0, repairRound: 1, repairLinks: 0, boardResendRequests: 0 },
+    usage: {
+      basis: "scoped", tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      knownCostUsd: 1, costPerDelivered: null,
+      missingSources: 0, unsupportedWorkers: 0, pricedMessages: 1, unpricedMessages: 0,
+      malformedLines: 0, resets: 0, backlogBytes: 0, coordinatorSessionAssociated: true, partial: false,
+    },
+    quality: {
+      since: T0, recordedPassed: 0, recordedFailed: 0, repeatedFailedRevision: 0,
+      mergePreflightFailures: 0, boundaryFailures: 0, reviewFailures: 0, acceptedRepairs: 0,
+      completedRounds: 0, invalidatedRounds: 0, findingOccurrences: 0,
+      latestActionable: 0, latestRejected: 0, severity: { critical: 0, high: 0, medium: 0, low: 0 },
+    },
+    config: { value: { graph: "beads", frontend: "subagent", maxWorkers: 1, reviewConcurrency: 1, mode: "auto" }, mixed: false },
+    coverage: { timed: 0, launched: 0, usageReported: 0, legacyUsage: 0, producerEvidence: 0, clockAnomalies: 0, counterResets: 0 },
+    recommendations: [],
+    ...over,
+  };
+}
+
+/** Minimal duck-typed archived report; stats is unused by comparisons. */
+export function reportFixture(over: Partial<OperationReport> = {}): OperationReport {
+  return {
+    v: 1, id: "trial", name: "Trial", repo: "/repo", base: "main", outcome: "landed",
+    createdAt: T0, closedAt: "2026-01-02T00:00:00.000Z", durationMs: 86_400_000,
+    counts: { contacts: 0, landed: 0, conflicts: 0, launches: 0, landAttempts: 0 },
+    contacts: [], stats: null as unknown as OperationReport["stats"],
+    notes: { done: 0, total: 0 }, notesText: null, brief: null,
+    ...over,
+  };
+}
+
+export function reportContact(ticket: string, final: ReportContact["final"], kind = "implement"): ReportContact {
+  return { ticket, title: null, description: null, zone: "ops", kind, final, landedVia: final === "landed" ? "manual" : null, landedAt: final === "landed" ? T0 : null, trackerUrl: null, prUrl: null };
+}
+
 
 export function operation(over: Partial<Operation> = {}): Operation {
   return {

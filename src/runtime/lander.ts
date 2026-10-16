@@ -1,4 +1,4 @@
-import type { Contact, Operation } from "../core/types.ts";
+import type { Contact, ContactStatus, Operation } from "../core/types.ts";
 import { PortError, type Run } from "../ports.ts";
 import { loadProjection } from "../snapshot.ts";
 import { appendEvent } from "../store/events.ts";
@@ -9,6 +9,7 @@ import { launchContact, type LauncherDeps } from "./launcher.ts";
 
 export interface LanderDeps extends LauncherDeps {
   run: Run;
+  captureMetrics?(operation:Operation,contact:Contact,status?:ContactStatus|null):Promise<void>;
 }
 
 /** Highest `-conflict-<n>` contact opened for `ticket`, if any. */
@@ -47,10 +48,13 @@ export async function landContact(deps: LanderDeps, opId: string, ticket: string
     // The delivery said it landed; only the base branch itself is allowed to confirm that (queued/auto merges, hooks).
     const verdict = await ports.delivery.verifyMerged({ operation, contact, branch: contact.lane?.branch ?? sourceBranch });
     if (!verdict.merged) throw new ActionError(409, "not-merged", `${ticket} is not merged into ${operation.base}: ${verdict.reason}`);
+    await deps.captureMetrics?.(operation,contact,status);
     await appendEvent(deps.home, opId, { v: 1, at: at(), kind: "land-attempt", contact: ticket, outcome: "clean" });
     await appendEvent(deps.home, opId, { v: 1, at: at(), kind: "landed", contact: ticket, via: result.via });
-    if (resolution && resolution.lane?.branch === sourceBranch)
-      await appendEvent(deps.home, opId, { v: 1, at: at(), kind: "landed", contact: resolution.ticket, via: result.via });
+    if(resolution&&resolution.lane?.branch===sourceBranch){
+      await deps.captureMetrics?.(operation,resolution);
+      await appendEvent(deps.home,opId,{v:1,at:at(),kind:"landed",contact:resolution.ticket,via:result.via});
+    }
     await cleanupAfterLand(deps, opId, ticket);
     return;
   }

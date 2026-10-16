@@ -1,4 +1,4 @@
-import { appendFile, readFile, truncate } from "node:fs/promises";
+import { appendFile, open, readFile, truncate } from "node:fs/promises";
 import { join } from "node:path";
 import type { Event } from "../core/types.ts";
 import { notifyChanged } from "../core/notify.ts";
@@ -9,24 +9,58 @@ function eventsFile(home: string, opId: string): string {
   return join(operationDir(home, opId), "events.jsonl");
 }
 
+const pending = new Map<string, Promise<void>>();
+
+async function repairTail(path: string): Promise<void> {
+  let file;
+  try {
+    file = await open(path, "r");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  let tornFrom: number | null = null;
+  try {
+    const { size } = await file.stat();
+    if (size === 0) return;
+    const last = Buffer.allocUnsafe(1);
+    const end = await file.read(last, 0, 1, size - 1);
+    if (end.bytesRead !== 1) throw new Error(`Cannot read event tail at ${path}`);
+    if (last[0] === 0x0a) return;
+    const buffer = Buffer.allocUnsafe(Math.min(size, 64 * 1024));
+    let offset = size;
+    tornFrom = 0;
+    while (offset > 0) {
+      const length = Math.min(offset, buffer.length);
+      offset -= length;
+      const { bytesRead } = await file.read(buffer, 0, length, offset);
+      if (bytesRead !== length) throw new Error(`Cannot read event tail at ${path}`);
+      const newline = buffer.subarray(0, bytesRead).lastIndexOf(0x0a);
+      if (newline !== -1) {
+        tornFrom = offset + newline + 1;
+        break;
+      }
+    }
+  } finally {
+    await file.close();
+  }
+  if (tornFrom !== null) await truncate(path, tornFrom);
+}
+
 export async function appendEvent(home: string, opId: string, e: Event): Promise<void> {
   const path = eventsFile(home, opId);
   const event = validateEvent(e, path);
-  // A crash or full disk can leave a torn final line; drop it before appending
-  // so a complete record never glues onto a partial fragment.
-  let tornFrom: number | null = null;
+  const next = (pending.get(path) ?? Promise.resolve()).catch(() => {}).then(async () => {
+    await repairTail(path);
+    await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
+    notifyChanged();
+  });
+  pending.set(path, next);
   try {
-    const existing = await readFile(path, "utf8");
-    if (existing.length > 0 && !existing.endsWith("\n")) {
-      const nl = existing.lastIndexOf("\n");
-      tornFrom = Buffer.byteLength(nl === -1 ? "" : existing.slice(0, nl + 1), "utf8");
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    await next;
+  } finally {
+    if (pending.get(path) === next) pending.delete(path);
   }
-  if (tornFrom !== null) await truncate(path, tornFrom);
-  await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
-  notifyChanged();
 }
 
 /** Parse JSONL events; `path` is only used in error messages. */

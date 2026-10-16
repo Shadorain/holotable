@@ -1,3 +1,5 @@
+import type { ContactEvaluation, Evaluation, FoldEvaluation } from "./evaluation.ts";
+
 export const TRACKERS = ["linear", "github", "none"] as const;
 export const FLEETS = ["omp-mission", "none"] as const;
 export const FRONTENDS = ["orca", "herdr", "custom", "none"] as const;
@@ -201,6 +203,9 @@ export interface SampleFields {
   omp?: number;
   /** Sampled from status.usage when it changes; sessions stays status-side. */
   usage?: { tokens: UsageTotals["tokens"]; costUsd: number | null };
+  mission?: { id: string; hold: Hold; verify: Verify | null; complete: boolean };
+  measurements?: Measurements | null;
+  usageEvidence?: UsageEvidence | null;
 }
 interface EventBase {
   v: 1;
@@ -353,6 +358,16 @@ export interface MissionProblem {
   total: number | null;
 }
 
+/** Producer-reported live review round (omp-mission ≥ this contract); absent on older panes. */
+export interface MissionReview {
+  startedAt: string;
+  deadlineAt: string;
+  active: number;
+  completed: number;
+  total: number;
+  models: string[];
+}
+
 /** Producer's latest PR check (omp-mission `/mission check`); absent from older panes. */
 export interface MissionCheck {
   at: string;
@@ -388,7 +403,13 @@ export interface ContactStatus {
   /** Latest verification outcome; 'failed' means `continue` would re-open broken work. */
   verify: Verify | null;
   problem?: MissionProblem | null;
+  /** Live independent-review progress; null until the producer reports one. */
+  review?: MissionReview | null;
+  /** Effective coordinator model selector as provider/id; null when unknown. */
+  model?: string | null;
   check?: MissionCheck | null;
+  measurements?: Measurements | null;
+  usageEvidence?: UsageEvidence | null;
   ctl: { socket: string; generation: number } | null;
   updatedAt: string;
 }
@@ -430,11 +451,13 @@ export interface ContactDerived {
   /** The lane's worktree was deleted after landing (settings.cleanup). */
   removed: boolean;
   decision: { choice: string; rationale: string | null; by: "operator" | "agent" | "recommended"; at: string } | null;
+  evaluation?: ContactEvaluation;
 }
 export interface Derived {
   contacts: Record<string, ContactDerived>;
   peakOmp: number;
   closed: boolean;
+  evaluation?: FoldEvaluation;
 }
 
 export type Owner = "live" | "offline" | "none";
@@ -532,6 +555,10 @@ export interface ContactView {
   hold: Hold | null;
   detail: string;
   problem?: MissionProblem | null;
+  /** Live review progress from the producer; null while no review runs. */
+  review?: MissionReview | null;
+  /** Effective coordinator model (provider/id) reported by the producer. */
+  model?: string | null;
   /** Latest PR check the producer reported; null until the first /mission check. */
   check?: MissionCheck | null;
   progress: { step: number; of: number } | null;
@@ -576,6 +603,54 @@ export interface Projection {
   notes: { done: number; total: number };
   selection: string | null;
   stats: Stats;
+  evaluation?: Evaluation;
   /** Newest first, at most 50; the full list is GET /api/history. */
   log: HistoryEntry[];
+}
+
+export interface MeasurementConfig {
+  graph: "local" | "beads";
+  frontend: "none" | "orca" | "herdr" | "custom" | "subagent";
+  maxWorkers: number;
+  reviewConcurrency: number;
+  mode: Mode;
+}
+export interface Measurements {
+  v: 1;
+  since: string;
+  recordedPassed: number;
+  recordedFailed: number;
+  repeatedFailedRevision: number;
+  mergePreflightFailures: number;
+  boundaryFailures: number;
+  reviewFailures: number;
+  acceptedRepairs: number;
+  completedRounds: number;
+  invalidatedRounds: number;
+  findingOccurrences: number;
+  latestActionable: number;
+  latestRejected: number;
+  severity: { critical: number; high: number; medium: number; low: number };
+  workerAttempts: number;
+  workerBeads: number;
+  repairRound: number;
+  repairLinks: number;
+  config: MeasurementConfig;
+}
+export interface UsageSource extends UsageTotals {
+  role: "coordinator" | "worker" | "review";
+  id: string;
+  pricedMessages: number;
+  unpricedMessages: number;
+}
+export interface UsageEvidence {
+  v: 1;
+  measuredAt: string;
+  sources: UsageSource[];
+  missing: number;
+  unsupportedWorkers: number;
+  malformedLines: number;
+  resets: number;
+  backlogBytes: number;
+  partial: boolean;
 }

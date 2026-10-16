@@ -11,6 +11,10 @@ import { DEFAULT_SETTINGS } from "../../src/settings.ts";
 import { readEvents } from "../../src/store/events.ts";
 import { readOperation } from "../../src/store/operations.ts";
 import { contact, fakePorts, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
+import { createWatcher } from "../../src/runtime/watcher.ts";
+import { makeUsageEvidence } from "../core/fixtures.ts";
+import { foldEvents } from "../../src/core/fold.ts";
+import { evaluateOperation } from "../../src/core/evaluation.ts";
 
 const dirs: string[] = [];
 afterEach(() => removeAll(dirs));
@@ -26,7 +30,7 @@ const git = async (cwd: string, ...args: string[]) => {
   return out.stdout.trim();
 };
 
-async function setup() {
+async function setup(capture=false) {
   const root = tempDir("land", dirs);
   const repo = join(root, "repo");
   await run("git", ["init", "-q", "-b", "main", repo], root);
@@ -59,6 +63,7 @@ async function setup() {
     delivery: localMergeDelivery(run),
     frontend: { ...fake.ports.frontend, createWorkspace: gitWorkspaces(run).createWorkspace },
   });
+  const watcher=createWatcher({home,now:()=>new Date("2026-01-01T03:00:00Z"),settings:async()=>DEFAULT_SETTINGS,portsFor,warn:()=>{}});
   const act = createActionRunner({
     home,
     now: () => new Date("2026-01-01T03:00:00Z"),
@@ -69,6 +74,7 @@ async function setup() {
     token: () => "abc123",
     socketWaitMs: 0,
     run,
+    captureMetrics:capture?watcher.capture:undefined,
   });
   const events = async () => (await readEvents(home, "lab")).map((e) => e.kind);
   const refused = async (p: Promise<unknown>) => {
@@ -126,7 +132,7 @@ test("a conflicting land leaves integration clean and opens one conflict mission
 });
 
 test("once the conflict mission is complete, Land merges its resolution branch", async () => {
-  const t = await setup();
+  const t=await setup(true);
   await t.branch("feat/a", "f.txt", "one\ntwo from a\nthree\n");
   writeFileSync(join(t.repo, "f.txt"), "one\ntwo from main\nthree\n");
   await git(t.repo, "commit", "-qam", "main moves");
@@ -138,7 +144,7 @@ test("once the conflict mission is complete, Land merges its resolution branch",
   writeFileSync(join(t.conflictWt, "f.txt"), "one\ntwo resolved\nthree\n");
   await git(t.conflictWt, "add", "f.txt");
   await git(t.conflictWt, "commit", "-qm", "resolve");
-  t.statuses.set("a-conflict-1", status({ id: "run-c", worktree: t.conflictWt, complete: true, phase: "complete", ctl: null }));
+  t.statuses.set("a-conflict-1",status({id:"run-c",worktree:t.conflictWt,complete:true,phase:"complete",ctl:null,usageEvidence:makeUsageEvidence(31)}));
   t.fake.world.statuses.set(t.conflictWt, t.statuses.get("a-conflict-1") as ContactStatus);
 
   await t.act({ op: "lab", contact: "a", action: "land", args: {} });
@@ -147,6 +153,9 @@ test("once the conflict mission is complete, Land merges its resolution branch",
   const events = await readEvents(t.home, "lab");
   expect(events.filter((e) => e.kind === "land-attempt").map((e) => (e.kind === "land-attempt" ? e.outcome : ""))).toEqual(["conflict", "clean"]);
   expect(events.filter((e) => e.kind === "landed").map((e) => ("contact" in e ? e.contact : ""))).toEqual(["a", "a-conflict-1"]);
+  const sampled=events.findIndex(e=>e.kind==="sample"&&e.contact==="a-conflict-1"),landed=events.findIndex(e=>e.kind==="landed"&&e.contact==="a-conflict-1");
+  expect(sampled).toBeGreaterThanOrEqual(0);expect(sampled).toBeLessThan(landed);
+  expect(evaluateOperation(await readOperation(t.home,"lab"),foldEvents(events),Date.parse("2026-01-01T03:00:00Z")).usage.tokens?.input).toBe(31);
   expect(events.filter((e) => e.kind === "conflict-opened")).toHaveLength(1);
 });
 

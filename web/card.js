@@ -234,6 +234,12 @@ function facts(contact, projection) {
     lane("Terminal", contact.lane.frontend === "external" ? ["adopted checkout, no terminal"] : contact.lane.terminal ? `open in ${contact.lane.frontend}` : ["none"]);
   }
   lane("Workers", contact.workers ? `${contact.workers.live} running of ${contact.workers.total}` : ["none reported"]);
+  lane("Model", contact.model ? el("span", "mono", contact.model) : ["not reported"]);
+  if (contact.review) {
+    const r = contact.review;
+    const stale = Date.parse(r.deadlineAt) <= Date.now();
+    lane("Review", `${r.completed}/${r.total} targets done, ${r.active} running${r.models.length ? ` on ${r.models.join(", ")}` : ""}${stale ? ` — stalled past ${new Date(r.deadlineAt).toLocaleString()}` : ` · deadline ${new Date(r.deadlineAt).toLocaleString()}`}`);
+  }
   return root;
 }
 
@@ -582,6 +588,8 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan) {
     next.append(el("div", "kicker", contact.state === "waiting" && problem ? "Retry scheduled" : contact.attention ? "Your move" : "Status"), el("div", "next-text", message));
     if (problem?.completed !== null && problem?.completed !== undefined && problem.total !== null)
       next.append(el("div", "set-note", `${problem.completed}/${problem.total} reviewers retained${problem.attempt ? ` · failed attempt ${problem.attempt}` : ""}`));
+    if (contact.review)
+      next.append(el("div", "set-note", `${contact.review.completed}/${contact.review.total} reviewers finished · ${contact.review.active} running${contact.review.models.length ? ` on ${contact.review.models.join(", ")}` : ""}`));
     if (problem && problem.detail !== contact.detail) {
       const details = el("details", "mission-error");
       details.append(el("summary", "", "Failure details"), el("pre", "", problem.detail));

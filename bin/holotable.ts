@@ -12,6 +12,8 @@ import { createHolotableCore } from "../src/plugin/core.ts";
 import { stopService } from "../src/plugin/client.ts";
 import { installService, startBoard, uninstallService } from "../src/service.ts";
 import type { InstallOptions } from "../src/service.ts";
+import { compareArchives } from "../src/compare.ts";
+import type { ComparisonResult } from "../src/core/compare.ts";
 import { readSelection, writeSelection } from "../src/store/board.ts";
 
 const SCRIPT = fileURLToPath(import.meta.url);
@@ -55,6 +57,7 @@ Global options precede the command. --current overrides selection without changi
   holotable serve [--access A] [--port P]   foreground board
   holotable install [--now]               install the Linux systemd user service
   holotable uninstall                     stop and remove that service; keep data
+  holotable compare --manifest FILE       offline A/B comparison of named archives; no board needed
 ${HELP.replaceAll("/holotable", "holotable")}` });
     case "serve": {
       if (json) throw new Error("serve is a foreground process; use --json start for machine control.");
@@ -93,6 +96,12 @@ ${HELP.replaceAll("/holotable", "holotable")}` });
       if (!service.running) return print({ service, message: "Board is not running. Start it with holotable start." }, 3);
       return print({ service, message: verb === "url" ? formatUrls(service.urls ?? [service.url as string]) : `running (pid ${service.pid})\n${formatUrls(service.urls ?? [service.url as string])}` });
     }
+
+    case "compare": {
+      if (rest.length !== 2 || rest[0] !== "--manifest") throw new Error("Usage: holotable compare --manifest FILE");
+      const comparison = await compareArchives(home, resolve(rest[1]), new Date());
+      return print({ message: formatComparison(comparison), comparison });
+    }
     case "install":
     case "uninstall": {
       if (platform() !== "linux") throw new Error("Systemd installation is Linux-only; holotable start/stop/restart work without it.");
@@ -123,6 +132,26 @@ ${HELP.replaceAll("/holotable", "holotable")}` });
       print(outcome);
     }
   }
+}
+
+function formatComparison(c: ComparisonResult): string {
+  const ms = (v: number | null) => v === null ? "—" : `${Math.round(v)}ms`;
+  const usd = (v: number | null) => v === null ? "—" : `$${v.toFixed(2)}`;
+  const delta = (d: { n: number; median: number | null; medianPercent: number | null }, unit: (v: number | null) => string) =>
+    `${unit(d.median)} (${d.medianPercent === null ? "—" : `${d.medianPercent.toFixed(1)}%`}) · n=${d.n}`;
+  const lines = [
+    `Compare ${c.variable} — ${c.comparable ? "comparable" : "NOT comparable"} · ${c.pairs} complete pairs · baseline ${c.baseline}`,
+  ];
+  for (const reason of c.reasons) lines.push(`  reason: ${reason}`);
+  for (const g of ["A", "B"] as const) {
+    const r = c.groups[g];
+    lines.push(`group ${g}: ${r.trials} trials · ${r.deliveredWork} delivered · ${r.incompleteTrials} incomplete · delivery ${ms(r.delivery.medianMs)} (n=${r.delivery.n}) · lead ${ms(r.lead.medianMs)} (n=${r.lead.n}) · known cost ${usd(r.knownCostUsd)} · ${usd(r.costPerDelivered)}/delivered · external ${r.external.pass}p/${r.external.fail}f/${r.external.unassessed}u${r.partialUsageTrials || r.missingEvaluationTrials ? ` · ${r.partialUsageTrials} partial usage · ${r.missingEvaluationTrials} missing evaluation` : ""}`);
+  }
+  if (c.differences) lines.push(
+    `delta (${c.baseline === "A" ? "B" : "A"} minus ${c.baseline}): delivery ${delta(c.differences.deliveryMs, ms)} · lead ${delta(c.differences.leadMs, ms)} · cost/delivered ${delta(c.differences.costPerDeliveredUsd, usd)}`,
+  );
+  lines.push("Descriptive only: attested inputs are unverified, deltas are not causal, external outcomes stay operator-judged.");
+  return lines.join("\n");
 }
 
 await main().catch((error: unknown) => {

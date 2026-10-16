@@ -466,3 +466,23 @@ test("review failure remains visible even when the producer does not offer a ret
   expect(recovered.problem).toBeNull();
   expect(recovered.attention).toBe(false);
 });
+
+test("a live review reports progress and model; past its deadline it asks for a relaunch", () => {
+ const op = makeOp([makeContact("a", { lane: live() })], { frontend: "orca", fleet: "omp-mission" });
+ const liveReview = { startedAt: iso(-60_000), deadlineAt: iso(200_000), active: 2, completed: 1, total: 3, models: ["p/m"] };
+ const running = viewOf(op, "a", {
+   statuses: { a: makeStatus({ phase: "review", next: "Independent review running", review: liveReview, model: "p/m" }) },
+   owners: { a: "live" },
+ });
+ expect(running.state).toBe("review");
+ expect(running.attention).toBe(false);
+ expect(running.review).toEqual(liveReview);
+ expect(running.model).toBe("p/m");
+ const stalled = viewOf(op, "a", {
+   statuses: { a: makeStatus({ phase: "review", next: "Independent review running", review: { ...liveReview, deadlineAt: iso(-1) }, model: "p/m" }) },
+   owners: { a: "live" },
+ });
+ expect(stalled.state).toBe("review");
+ expect(stalled.attention).toBe(true);
+ expect(stalled.detail).toContain("Review stalled");
+});

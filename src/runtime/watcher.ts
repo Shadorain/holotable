@@ -1,5 +1,6 @@
 import { foldEvents } from "../core/fold.ts";
 import { unmetBlockers } from "../core/graph.ts";
+import { MEASUREMENT_COUNTS } from "../core/evaluation.ts";
 import type {
   Contact,
   ContactDerived,
@@ -38,7 +39,8 @@ interface Seen {
   gate: string | null;
   up: boolean;
   generation: number | null;
-  sample: string | null;
+  sample:Partial<Record<keyof SampleFields,string>>;
+  missionId:string|null;
   /** Last blocked/unblocked event: true while the queue shows this contact as blocked. */
   blocked: boolean;
 }
@@ -96,8 +98,27 @@ function openCount(op: Operation, folded: Derived, state: OpState): number {
   return n;
 }
 
-function sampleKey(fields: SampleFields): string {
-  return JSON.stringify([fields.tracker ?? null, fields.delivery ?? null, fields.workers ?? null, fields.omp ?? null, fields.usage ?? null]);
+const SAMPLE_GROUPS=["tracker","delivery","workers","omp","usage","mission","measurements","usageEvidence"] as const;
+function sampleKey(key:keyof SampleFields,fields:SampleFields):string {
+  if(fields[key]===null)return "null";
+  if(key==="mission"){
+    const m=fields.mission!;return JSON.stringify([m.id,m.hold,m.verify,m.complete]);
+  }
+  if(key==="measurements"){
+    const m=fields.measurements!,c=m.config,s=m.severity;
+    return JSON.stringify([m.v,m.since,...MEASUREMENT_COUNTS.map(k=>m[k]),s.critical,s.high,s.medium,s.low,c.graph,c.frontend,c.maxWorkers,c.reviewConcurrency,c.mode]);
+  }
+  if(key==="usageEvidence"){
+    const e=fields.usageEvidence!;
+    const sources=[...e.sources].sort((a,b)=>a.role<b.role?-1:a.role>b.role?1:0).map(s=>[s.role,s.id,s.tokens.input,s.tokens.output,s.tokens.cacheRead,s.tokens.cacheWrite,s.costUsd,s.sessions,s.pricedMessages,s.unpricedMessages]);
+    return JSON.stringify([e.v,sources,e.missing,e.unsupportedWorkers,e.malformedLines,e.resets,e.backlogBytes,e.partial]);
+  }
+  if(key==="usage"){
+    const u=fields.usage!;return JSON.stringify([u.tokens.input,u.tokens.output,u.tokens.cacheRead,u.tokens.cacheWrite,u.costUsd]);
+  }
+  if(key==="tracker"){const t=fields.tracker!;return JSON.stringify([t.state,t.url]);}
+  if(key==="delivery"){const d=fields.delivery!;return JSON.stringify([d.url,d.state,d.mergeable,d.checks]);}
+  return JSON.stringify(fields[key]);
 }
 
 /** What the events already say per contact, so repeated passes and restarts emit nothing twice. */
@@ -107,7 +128,8 @@ function seedAll(events: Event[], derived: Derived): (ticket: string) => Seen {
     let seen = seeds.get(ticket);
     if (!seen) {
       const d = derived.contacts[ticket];
-      seen = { phase: d?.lastPhase ?? null, gate: null, up: d?.socketUp ?? false, generation: null, sample: null, blocked: false };
+      seen={phase:d?.lastPhase??null,gate:null,up:d?.socketUp??false,generation:null,sample:{},missionId:d?.lastSample?.mission?.id??null,blocked:false};
+      for(const key of SAMPLE_GROUPS)if(d?.lastSample?.[key]!==undefined)seen.sample[key]=sampleKey(key,d.lastSample);
       seeds.set(ticket, seen);
     }
     return seen;
@@ -118,14 +140,6 @@ function seedAll(events: Event[], derived: Derived): (ticket: string) => Seen {
     else if (e.kind === "unblocked") of(e.contact).blocked = false;
     else if (e.kind === "gate-armed") of(e.contact).gate = e.gate;
     else if (e.kind === "socket-up") of(e.contact).generation = e.generation;
-    else if (e.kind === "sample")
-      of(e.contact).sample = sampleKey({
-        ...(e.tracker ? { tracker: e.tracker } : {}),
-        ...(e.delivery ? { delivery: e.delivery } : {}),
-        ...(e.workers !== undefined ? { workers: e.workers } : {}),
-        ...(e.omp !== undefined ? { omp: e.omp } : {}),
-        ...(e.usage !== undefined ? { usage: e.usage } : {}),
-      });
   }
   return of;
 }
@@ -133,6 +147,8 @@ function seedAll(events: Event[], derived: Derived): (ticket: string) => Seen {
 export interface Watcher {
   /** One serialized pass over every open operation, or just `only`; `force` samples now. */
   pass(only?: string | null, force?: boolean): Promise<void>;
+  /** Capture only final status evidence on the same chain; no tracker, delivery, ping or terminal probes. */
+  capture(operation:Operation,contact:Contact,status?:ContactStatus|null):Promise<void>;
   extras(opId: string): Required<ProjectionExtras>;
 }
 
@@ -154,6 +170,33 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     }
   }
 
+  async function sample(op:Operation,ticket:string,seen:Seen,fields:SampleFields):Promise<void>{
+    const changes:SampleFields={};
+    const keys:Partial<Record<keyof SampleFields,string>>={};
+    const newRun=!!fields.mission&&fields.mission.id!==seen.missionId;
+    for(const key of SAMPLE_GROUPS){
+      const value=fields[key];if(value===undefined)continue;
+      const serialized=sampleKey(key,fields);
+      if(serialized!==seen.sample[key]||(newRun&&(key==="measurements"||key==="usageEvidence"||key==="usage"))){
+        Object.assign(changes,{[key]:value});keys[key]=serialized;
+      }
+    }
+    if(!Object.keys(changes).length)return;
+    await appendEvent(deps.home,op.id,{v:1,at:deps.now().toISOString(),kind:"sample",contact:ticket,...changes});
+    if(newRun){delete seen.sample.measurements;delete seen.sample.usageEvidence;delete seen.sample.usage;}
+    Object.assign(seen.sample,keys);
+    if(fields.mission)seen.missionId=fields.mission.id;
+  }
+  function statusFields(status:ContactStatus|null,usage:boolean):SampleFields{
+    if(!status)return {};
+    return {
+      mission:{id:status.id,hold:status.hold,verify:status.verify??null,complete:status.complete},
+      ...(status.measurements!==undefined?{measurements:status.measurements}:{}),
+      ...(usage&&status.workers?{workers:status.workers.live}:{}),
+      ...(usage&&status.usage?{usage:{tokens:status.usage.tokens,costUsd:status.usage.costUsd}}:{}),
+      ...(usage&&status.usageEvidence!==undefined?{usageEvidence:status.usageEvidence}:{}),
+    };
+  }
   async function passContact(
     op: Operation,
     contact: Contact,
@@ -206,26 +249,22 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       seen.up = false;
     }
 
-    if (!sampling) return;
-    const fields: SampleFields = {};
+    const fields=statusFields(status,sampling);
+    if(!sampling){await sample(op,ticket,seen,fields);return;}
     if (op.tracker !== "none") {
       const tracked = await guard(`tracker ${ticket}`, () => ports.tracker.sample(ticket, op.repo));
       if (tracked) fields.tracker = tracked;
     }
     if (status && (status.delivery?.branch || status.delivery?.url || lane.branch)) {
       const probe = await guard(`delivery ${ticket}`, () => ports.delivery.probe({ operation: op, contact, status }));
-      if (probe !== undefined) state.probes[ticket] = probe;
+      // A probe that ran and found nothing reports null; a probe that could not run
+      // (guard) or has no answer yet keeps the last known delivery in the sample.
+      if (probe) state.probes[ticket] = probe;
       const live = state.probes[ticket];
       if (live) fields.delivery = { url: live.url, state: live.state, mergeable: live.mergeable, checks: live.checks };
     }
-    if (status?.workers) fields.workers = status.workers.live;
-    if (status?.usage) fields.usage = { tokens: status.usage.tokens, costUsd: status.usage.costUsd };
     fields.omp = omp;
-    const key = sampleKey(fields);
-    if (key !== seen.sample && (fields.tracker || fields.delivery || fields.workers !== undefined || fields.usage !== undefined)) {
-      await appendEvent(deps.home, op.id, { v: 1, at: at(), kind: "sample", contact: ticket, ...fields });
-      seen.sample = key;
-    }
+    if(Object.keys(fields).some(key=>key!=="omp"))await sample(op,ticket,seen,fields);
   }
 
   async function passOperation(
@@ -236,9 +275,9 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     omp: number,
     settings: Settings,
     getTerminals: (ports: Ports) => Promise<ListedTerminal[] | null>,
+    folded:Derived,
   ): Promise<void> {
     const now = deps.now().getTime();
-    const folded = foldEvents(events);
     const sampling = force || now - state.lastSampleAt >= settings.sampleMs;
     const ports = deps.portsFor(op, settings);
     const seeds = seedAll(events, folded);
@@ -362,7 +401,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     const rows = await listOperations(deps.home);
     for (const known of [...ops.keys()]) if (!rows.some((row) => row.id === known)) ops.delete(known);
     // Load first, across every operation, so a sample's omp count does not depend on pass order.
-    const loaded: Array<{ op: Operation; events: Event[]; state: OpState }> = [];
+    const loaded:Array<{op:Operation;events:Event[];state:OpState;folded:Derived}>=[];
     for (const row of rows) {
       const read = await guard(`operation ${row.id}`, async () => {
         const op = await readOperation(deps.home, row.id);
@@ -379,7 +418,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       const folded = foldEvents(read.events);
       clearStaleVanished(read.op, folded, state);
       state.open = openCount(read.op, folded, state);
-      loaded.push({ ...read, state });
+      loaded.push({...read,state,folded});
     }
     const omp = loaded.reduce((sum, item) => sum + item.state.open, 0);
     const terminalCache = new Map<string, Promise<ListedTerminal[] | null>>();
@@ -398,13 +437,13 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     };
     for (const item of loaded) {
       if (only && item.op.id !== only) continue;
-      await guard(`operation ${item.op.id}`, () => passOperation(item.op, item.events, item.state, force, omp, settings, getTerminals));
+      await guard(`operation ${item.op.id}`,()=>passOperation(item.op,item.events,item.state,force,omp,settings,getTerminals,item.folded));
     }
   }
 
   /** Serialized: a slow pass is never overlapped by the next tick. */
   function pass(only: string | null = null, force = false): Promise<void> {
-    const next = (running ?? Promise.resolve()).then(() => run(only, force));
+    const next=(running??Promise.resolve()).catch(()=>undefined).then(()=>run(only,force));
     const tracked = next.finally(() => {
       if (running === tracked) running = null;
     });
@@ -414,6 +453,18 @@ export function createWatcher(deps: WatcherDeps): Watcher {
 
   return {
     pass,
+    capture(operation,contact,status){
+      const next=(running??Promise.resolve()).catch(()=>undefined).then(async()=>{
+        if(!contact.lane)return;
+        const events=await readEvents(deps.home,operation.id);
+        if(events.some(e=>e.kind==="closed"))return;
+        const folded=foldEvents(events),seen=seedAll(events,folded)(contact.ticket);
+        const current=status===undefined?await deps.portsFor(operation,await deps.settings()).fleet.read({worktree:contact.lane.worktree}):status;
+        await sample(operation,contact.ticket,seen,statusFields(current,true));
+      });
+      const tracked=next.finally(()=>{if(running===tracked)running=null;});
+      running=tracked;return tracked;
+    },
     extras(opId: string): Required<ProjectionExtras> {
       const state = ops.get(opId);
       const open = [...ops.values()].reduce((sum, s) => sum + s.open, 0);

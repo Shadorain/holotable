@@ -81,6 +81,32 @@ describe("appendEvent/readEvents", () => {
     await appendEvent(home, "demo", queued);
     expect(await readEvents(home, "demo")).toEqual([queued, queued]);
   });
+  test("concurrent appends preserve every event while repairing a multibyte tail", async () => {
+    const home = tempHome();
+    await createDir(home);
+    const file = join(home, "operations", "demo", "events.jsonl");
+    await Bun.write(file, `${JSON.stringify(queued)}\n${"é".repeat(110_000)}`);
+    const events = Array.from({ length: 100 }, (_, i): Event => ({ ...queued, contact: `ticket-${i}` }));
+    await Promise.all(events.map((event) => appendEvent(home, "demo", event)));
+    expect(await readEvents(home, "demo")).toEqual([queued, ...events]);
+  });
+
+  test("a parseable tail without newline is discarded before appending", async () => {
+    const home = tempHome();
+    await createDir(home);
+    await Bun.write(join(home, "operations", "demo", "events.jsonl"), JSON.stringify(queued));
+    const next: Event = { ...queued, contact: "next" };
+    await appendEvent(home, "demo", next);
+    expect(await readEvents(home, "demo")).toEqual([next]);
+  });
+
+  test("an append failure does not poison later requests for the same path", async () => {
+    const home = tempHome();
+    await expect(appendEvent(home, "demo", queued)).rejects.toThrow();
+    await createDir(home);
+    await appendEvent(home, "demo", queued);
+    expect(await readEvents(home, "demo")).toEqual([queued]);
+  });
 });
 
 async function createDir(home: string): Promise<void> {

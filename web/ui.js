@@ -118,6 +118,7 @@ export function stateLabel(contact) {
   if (state === "offline" || state === "landed") return STATE_WORDS[state];
   if (state === "hold" && hold === "question") return "Decision";
   if (problem?.kind === "quota") return "Quota exhausted";
+  if (contact.review && Date.parse(contact.review.deadlineAt) <= Date.now()) return "Review stalled";
   if (problem?.kind === "rate-limit") return "Rate limited";
   if (problem && state === "waiting") return "Retry waiting";
   if (state === "hold" && hold === "plan-approval") return "Plan";

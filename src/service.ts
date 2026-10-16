@@ -15,7 +15,7 @@ import { createAuto } from "./runtime/auto.ts";
 import { createEnder } from "./runtime/end.ts";
 import { createRecover } from "./runtime/recover.ts";
 import { createUsage } from "./usage.ts";
-import { createWatcher } from "./runtime/watcher.ts";
+import { createWatcher, type Watcher } from "./runtime/watcher.ts";
 import { startServer, type BoardServer } from "./server.ts";
 import { readSettings } from "./store/settings.ts";
 import { acquireBoard, ensureToken, type BoardInfo, type BoardLock } from "./store/board.ts";
@@ -123,6 +123,9 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     console.error(`holotable: ${message}`);
   };
   const watcher = createWatcher({ home, now: () => new Date(), settings: settingsFn, portsFor, warn, run });
+  const captureMetrics:Watcher["capture"]=async(...args)=>{
+    try{await watcher.capture(...args);}catch(error){warn(`evaluation capture ${args[0].id}/${args[1].ticket}: ${error instanceof Error?error.message:String(error)}`);}
+  };
   const inFlight = new Map<string, string>();
   const action = createActionRunner({
     home,
@@ -139,6 +142,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     run,
     inFlight,
     availableMemory: availableMemoryBytes,
+    captureMetrics,
   });
   const auto = createAuto({
     home,
@@ -159,7 +163,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     availableMemory: availableMemoryBytes,
     settle: (id) => watcher.pass(id),
   });
-  const ender = createEnder({ home, now: () => new Date(), settings: settingsFn, portsFor, run, inFlight });
+  const ender=createEnder({home,now:()=>new Date(),settings:settingsFn,portsFor,run,inFlight,captureMetrics});
 
   let bootSettings: Settings;
   try {

@@ -1,3 +1,4 @@
+import { createFoldEvaluation, foldEvaluation } from "./evaluation.ts";
 import type {
   ContactDerived,
   Derived,
@@ -43,6 +44,7 @@ export function foldEvents(events: Event[]): Derived {
     contacts: {},
     peakOmp: 0,
     closed: false,
+    evaluation: createFoldEvaluation(),
   };
   const at = (e: Event): number => Date.parse(e.at);
   const openPhase = (d: ContactDerived) =>
@@ -58,7 +60,8 @@ export function foldEvents(events: Event[]): Derived {
     const s = d.downSpans[d.downSpans.length - 1];
     if (s && s.to === null) s.to = t;
   };
-  for (const e of events) {
+  for (const [index, e] of events.entries()) {
+    foldEvaluation(derived.evaluation!, e, index);
     // Legacy "workflow" ticks fold to nothing: notes.md replaced the checklist.
     if (e.kind === "closed") {
       derived.closed = true;
@@ -71,6 +74,7 @@ export function foldEvents(events: Event[]): Derived {
       derived.contacts[e.contact] ??
       (derived.contacts[e.contact] = emptyContactDerived());
     const t = at(e);
+    d.evaluation = derived.evaluation!.contacts[e.contact];
     switch (e.kind) {
       case "queued":
         if (d.queuedAt === null) d.queuedAt = t;
@@ -143,6 +147,9 @@ export function foldEvents(events: Event[]): Derived {
         break;
       case "sample": {
         // Merge fields: tracker and delivery arrive in different samples.
+        if(e.mission&&d.lastSample?.mission?.id!==e.mission.id&&d.lastSample){
+          delete d.lastSample.measurements;delete d.lastSample.usageEvidence;delete d.lastSample.usage;
+        }
         d.lastSample = {
           ...(d.lastSample ?? {}),
           ...(e.tracker !== undefined ? { tracker: e.tracker } : {}),
@@ -151,6 +158,9 @@ export function foldEvents(events: Event[]): Derived {
           ...(e.omp !== undefined ? { omp: e.omp } : {}),
           // Usage is a changing-cost sample: keep the newest, never sum events.
           ...(e.usage !== undefined ? { usage: e.usage } : {}),
+          ...(e.mission !== undefined ? { mission: e.mission } : {}),
+          ...(e.measurements !== undefined ? { measurements: e.measurements } : {}),
+          ...(e.usageEvidence !== undefined ? { usageEvidence: e.usageEvidence } : {}),
         };
         if (e.omp !== undefined) {
           d.lastOmp = e.omp;

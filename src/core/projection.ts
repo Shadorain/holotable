@@ -1,3 +1,4 @@
+import { evaluateOperation } from "./evaluation.ts";
 import { foldEvents, contactDerived } from "./fold.ts";
 import { countTasks } from "./notes.ts";
 import { actionsFor, contactState, launchRefusal } from "./policy.ts";
@@ -267,6 +268,10 @@ function contactView(
   const status = statuses[contact.ticket] ?? null;
   const owner = owners[contact.ticket] ?? "none";
   const probe = probes[contact.ticket] ?? null;
+  // A live review past its producer deadline means the pane stopped enforcing it:
+  // either the producer died mid-round or it is stuck. The operator needs to see that.
+  const review = state === "landed" ? null : status?.review ?? null;
+  const reviewStale = review !== null && Date.parse(review.deadlineAt) <= input.now;
   const problem = state === "landed" ? null : missionProblem(status);
   const policy: PolicyInput = {
     operation: op,
@@ -296,6 +301,8 @@ function contactView(
   });
   if (state === "waiting" && problem?.retryAt)
     detail = `Review retry at ${problem.retryAt.slice(0, 16).replace("T", " ")} UTC`;
+  if (reviewStale)
+    detail = `Review stalled past its deadline (${review!.deadlineAt.slice(0, 16).replace("T", " ")} UTC); the pane may be stuck — Relaunch it`;
   const actions = actionsFor(policy);
 
   const group: ContactView["group"] =
@@ -332,12 +339,14 @@ function contactView(
       : null,
     plan: status?.hold === "plan-approval" && status.plan ? { revision: status.plan.revision } : null,
     options: contact.options,
+    review,
+    model: status?.model ?? null,
     recommended: contact.recommended,
     decision: d.decision,
     decisionPane: decisionPaneOpen,
     // A decision an agent is working on is not waiting on the operator.
     attention: (ATTENTION_STATES.includes(state) && !(state === "decision" && decisionPaneOpen) &&
-      (state !== "review" || status?.actions.includes("review") === true)) ||
+      (state !== "review" || status?.actions.includes("review") === true || reviewStale)) ||
       (state === "complete" && actions.some((a) => a.primary && a.enabled)),
     actions,
   };
@@ -397,6 +406,7 @@ export function project(input: ProjectionInput): Projection {
     notes: countTasks(input.notesText),
     selection,
     stats: computeStats(derived, input.now, input.load.live),
+    evaluation: evaluateOperation(op, derived, input.now),
     log,
   };
 }

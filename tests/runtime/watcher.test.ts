@@ -4,6 +4,10 @@ import { DEFAULT_SETTINGS } from "../../src/settings.ts";
 import { writeDecisionPane } from "../../src/store/decisions.ts";
 import { appendEvent, readEvents } from "../../src/store/events.ts";
 import { contact, fakePorts, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
+import { readOperation } from "../../src/store/operations.ts";
+import { foldEvents } from "../../src/core/fold.ts";
+import { evaluateOperation } from "../../src/core/evaluation.ts";
+import { makeMeasurements, makeUsageEvidence } from "../core/fixtures.ts";
 
 const dirs: string[] = [];
 afterEach(() => removeAll(dirs));
@@ -38,11 +42,14 @@ test("one phase, gate and socket-up event per change, however many passes run", 
   const { watcher, fake, kinds } = await setup();
   await watcher.pass();
   await watcher.pass();
-  expect(await kinds("CHR-1")).toEqual(["queued", "launched", "phase", "socket-up"]);
+  expect((await kinds("CHR-1")).filter(k=>k==="phase")).toHaveLength(1);
+  expect((await kinds("CHR-1")).filter(k=>k==="socket-up")).toHaveLength(1);
   fake.world.statuses.set("/wt/a", status({ phase: "execute", gate: { kind: "pause", id: "abc123" }, hold: "gate" }));
   await watcher.pass();
   await watcher.pass();
-  expect(await kinds("CHR-1")).toEqual(["queued", "launched", "phase", "socket-up", "phase", "gate-armed"]);
+  expect((await kinds("CHR-1")).filter(k=>k==="phase")).toHaveLength(2);
+  expect((await kinds("CHR-1")).filter(k=>k==="gate-armed")).toHaveLength(1);
+  expect((await kinds("CHR-1")).filter(k=>k==="socket-up")).toHaveLength(1);
 });
 
 test("a restart replays nothing: state is seeded from the events", async () => {
@@ -59,15 +66,15 @@ test("owner loss records socket-down once; a new generation is down then up", as
   fake.world.alive.clear();
   await watcher.pass();
   await watcher.pass();
-  expect(await kinds("CHR-1")).toEqual(["queued", "launched", "phase", "socket-up", "socket-down"]);
+  expect((await kinds("CHR-1")).filter(k=>k.startsWith("socket-"))).toEqual(["socket-up","socket-down"]);
   expect(watcher.extras("lab").owners["CHR-1"]).toBe("offline");
   fake.world.alive.add("/tmp/x.sock");
   fake.world.statuses.set("/wt/a", status({ ctl: { socket: "/tmp/x.sock", generation: 200 } }));
   await watcher.pass();
-  expect(await kinds("CHR-1")).toEqual(["queued", "launched", "phase", "socket-up", "socket-down", "socket-up"]);
+  expect((await kinds("CHR-1")).filter(k=>k.startsWith("socket-"))).toEqual(["socket-up","socket-down","socket-up"]);
   fake.world.statuses.set("/wt/a", status({ ctl: { socket: "/tmp/x.sock", generation: 300 } }));
   await watcher.pass();
-  expect((await kinds("CHR-1")).slice(-2)).toEqual(["socket-down", "socket-up"]);
+  expect((await kinds("CHR-1")).filter(k=>k.startsWith("socket-")).slice(-2)).toEqual(["socket-down","socket-up"]);
 });
 
 test("a clean session exit (status ctl: null) after a seen socket is an offline owner", async () => {
@@ -274,4 +281,62 @@ test("decision panes trigger terminal listing when needed", async () => {
   expect(fake.count("frontend.listTerminals")).toBe(2);
   const events = await readEvents(home, "lab");
   expect(events.some((e) => e.kind === "operator" && "error" in e && e.error === "pane closed before deciding")).toBe(true);
+});
+
+test("counter and hold changes bypass slow usage sampling; restart seeds all merged groups",async()=>{
+ const t=await setup(),m=makeMeasurements(),u=makeUsageEvidence(4);
+ t.fake.world.statuses.set("/wt/a",status({measurements:m,usageEvidence:u}));
+ await t.watcher.pass();
+ t.tick(1000);
+ t.fake.world.statuses.set("/wt/a",status({hold:"gate",measurements:{...m,recordedFailed:1},usageEvidence:makeUsageEvidence(9)}));
+ await t.watcher.pass();
+ let samples=(await readEvents(t.home,"lab")).filter(e=>e.kind==="sample"&&e.contact==="CHR-1");
+ expect(samples.at(-1)).toMatchObject({mission:{hold:"gate"},measurements:{recordedFailed:1}});
+ expect(samples.at(-1)).not.toHaveProperty("usageEvidence");
+ const restarted=t.make();await restarted.pass();
+ samples=(await readEvents(t.home,"lab")).filter(e=>e.kind==="sample"&&e.contact==="CHR-1");
+ expect(samples.at(-1)).toMatchObject({usageEvidence:{sources:[{tokens:{input:9}}]}});
+ expect(samples.at(-1)).not.toHaveProperty("measurements");
+ expect(samples.at(-1)).not.toHaveProperty("mission");
+ const before=await readEvents(t.home,"lab");
+ t.fake.world.statuses.set("/wt/a",status({hold:"gate",measurements:{...m,recordedFailed:1},usageEvidence:{...makeUsageEvidence(9),measuredAt:"2026-01-02T00:00:00Z"}}));
+ await t.make().pass();
+ expect(await readEvents(t.home,"lab")).toEqual(before);
+});
+
+test("identical counters on a different mission are not deduplicated or merged across runs",async()=>{
+ const t=await setup(),m=makeMeasurements({recordedFailed:1});
+ t.fake.world.statuses.set("/wt/a",status({id:"first",measurements:m}));
+ await t.watcher.pass();
+ t.fake.world.statuses.set("/wt/a",status({id:"second",measurements:m}));
+ t.tick(1000);await t.watcher.pass();
+ const op=await readOperation(t.home,"lab"),events=await readEvents(t.home,"lab");
+ expect(events.filter(e=>e.kind==="sample"&&e.contact==="CHR-1"&&e.measurements)).toHaveLength(2);
+ expect(evaluateOperation(op,foldEvents(events),Date.parse("2026-01-01T00:11:00Z")).quality?.recordedFailed).toBe(2);
+});
+
+test("serialized terminal capture reuses supplied status and preserves final Complete evidence without a full pass",async()=>{
+ const t=await setup(),op=await readOperation(t.home,"lab"),c=op.contacts[0]!;
+ const final=status({phase:"complete",complete:true,measurements:makeMeasurements({recordedPassed:1}),usageEvidence:makeUsageEvidence(9)});
+ const calls=t.fake.calls.length;
+ await Promise.all([t.watcher.capture(op,c,final),t.watcher.capture(op,c,final),t.watcher.capture(op,c,final)]);
+ expect(t.fake.calls.length).toBe(calls);
+ const samples=(await readEvents(t.home,"lab")).filter(e=>e.kind==="sample"&&e.contact===c.ticket);
+ expect(samples).toHaveLength(1);expect(samples[0]).toMatchObject({mission:{complete:true},measurements:{recordedPassed:1}});
+ t.tick(5000);await appendEvent(t.home,"lab",{v:1,at:"2026-01-01T00:10:05Z",kind:"landed",contact:c.ticket,via:"manual"});
+ const result=evaluateOperation(op,foldEvents(await readEvents(t.home,"lab")),Date.parse("2026-01-01T00:10:10Z"));
+ expect(result.deliveryReadyMs).toBe(5000);expect(result.usage.tokens?.input).toBe(9);
+});
+
+test("terminal capture performs one fleet read, recovers its queue after failure and never reads closed operations",async()=>{
+ const t=await setup(),op=await readOperation(t.home,"lab"),c=op.contacts[0]!;
+ t.fake.world.fail.set("fleet.read",Error("offline"));
+ await expect(t.watcher.capture(op,c)).rejects.toThrow("offline");
+ t.fake.world.fail.clear();
+ const before=t.fake.calls.length;await t.watcher.capture(op,c);
+ expect(t.fake.calls.slice(before).map(c=>c.method)).toEqual(["read"]);
+ await appendEvent(t.home,"lab",{v:1,at:"2026-01-01T00:11:00Z",kind:"closed",outcome:"abandoned"});
+ const closedCalls=t.fake.calls.length,closed=await readEvents(t.home,"lab");
+ await t.watcher.capture(op,c);
+ expect(t.fake.calls.length).toBe(closedCalls);expect(await readEvents(t.home,"lab")).toEqual(closed);
 });

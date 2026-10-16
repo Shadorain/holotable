@@ -338,3 +338,13 @@ Fleet buttons require `status.ctl !== null`. Holotable never computes mission le
 
 ## Provenance
 Every history entry has an actor: `operator` (your commands and board clicks, and `--from` seeds), `model` (the `holotable_queue` tool), `mission` (phase, gate and session changes the watcher reads from the mission's status), or `board` (blocking and unblocking, conflict contacts the lander opens, auto mode, and recovery). `operator` events fired by auto mode carry `by: "auto"`, those fired by recovery `by: "recover"`; a `decided` event's `by` is `operator`, `agent` (the decision pane answered) or `recommended` (auto mode took the recommended option). `ContactView.origin` is the contact's first `queued`/`adopted` event. `GET /api/history?op=<id>` returns the full history, newest first; the projection carries only the last 50.
+
+## Deterministic evaluation
+
+`core/evaluation.ts` accumulates numerical evidence inside the existing event fold, without another history read or replay. Evaluation uses a nondecreasing observation clock and scalar open intervals; terminal events stop occupancy, and operation close freezes queue ages and reports. Finished queue latency is separate from unfinished queue age. Delivery counts exclude decisions and conflict-helper contacts; delivery and self-verification are proxies, not externally verified correctness.
+
+Projections and new closed reports carry optional `evaluation.v: 1`. Stored evaluations remain close-time snapshots. Invalid optional evaluations are omitted on archive read without changing the base report or writing files. Legacy reports without evaluation show unknown data; an archive without a report and without a closed event cannot supply a reproducible historical evaluation.
+The same fold emits at most three `recommendations` per evaluation: `usage-coverage`, `repeat-verification`, `review-retries`, `integration-conflicts`, `approval-wait`, `delivery-wait`, in that priority order. Each rule is a plain threshold check over the fold's scalars — no model call, no action, no scheduling — and carries its numerator, denominator, observed time where relevant, up to three contact tickets, and bounded event indexes back into the source history. Small or missing samples suppress the rule except coverage: scoped usage gaps always surface as informational. Caveats are fixed wording that state what the evidence cannot prove; rules never claim correctness, root cause, or causality.
+
+Event appends serialize repair plus append per file. Clean history inspection reads its final byte only; torn tails scan backward in 64 KiB chunks. Complete history is never rewritten, and interior invalid records still fail validation.
+

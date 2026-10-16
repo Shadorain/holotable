@@ -1,3 +1,4 @@
+import { parseEvaluation } from "../core/evaluation.ts";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { isReport, buildReport, type OperationReport } from "../core/report.ts";
@@ -58,7 +59,12 @@ async function reportFor(path: string, now: Date): Promise<OperationReport | nul
   try {
     const stored = await readFile(join(path, "report.json"), "utf8");
     const value: unknown = JSON.parse(stored);
-    if (isReport(value)) return value;
+    if (isReport(value)) {
+      if (value.evaluation === undefined) return value;
+      const evaluation = parseEvaluation(value.evaluation);
+      const { evaluation: _invalid, ...base } = value;
+      return evaluation ? { ...base, evaluation } : base;
+    }
   } catch {
     // Older archives have no report.json; a malformed one is rebuilt below.
   }
