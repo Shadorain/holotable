@@ -87,7 +87,7 @@ are needed or created. Contacts have short titles and self-contained description
 scope and acceptance checks; the brief records the campaign plan for review.
 
 Drafting does not execute work or approve mission plans. After **Create**, each launched mission
-develops its own detailed plan; approval and Pause gates stay in its OMP pane. With Linear/GitHub
+develops its own detailed plan; approve it on the card's Plan tab or in its OMP pane.
 tracking, drafts use real fetched tickets only. New unticketed work needs a local project or
 tickets you create first. Check the draft: agent-generated dependencies and scope still need
 operator review.
@@ -183,10 +183,10 @@ Discovery is bound to its home: a copied `board.json`/`token` cannot let one hom
 The page has three views over one projection. Each shows only what it is for; detail sits one tab or key away instead of on screen.
 
 - **Table** (`1`): the radar and the selected contact's card. Zones are sectors; rings are lifecycle stages from the outside in (queued, planning, active, complete), so distance from the centre is progress. Contacts that need you pulse and are listed as chips across the top; selecting one draws its dependency chain. Move between orbs with **WASD**, **HJKL** or the arrow keys: each press goes to the nearest contact in that direction. One canvas: static when idle, about 30 fps with live missions or attention. Animation stops on other views, in a hidden tab, or with reduced motion.
-- **Board** (`2`): the contact list, the card, and the operation panel (progress, notes, metrics, time in phase and wiring, each foldable). The list is ordered by what needs you: **Needs you**, **In flight**, **Queue**, and a collapsed **Landed**; each row is one line of title and one line of state, with its obvious next action (Approve, Approve plan, Land, Launch, Mark decided, or Focus).
+- **Board** (`2`): the contact list, the card, and the operation panel (progress, notes and wiring). The list is ordered by what needs you: **Needs you**, **In flight**, **Queue**, and a collapsed **Landed**; each row is one line of title and one line of state, with its obvious next action (Approve, Approve plan, Land, Launch, Mark decided, or Focus).
 - **Plan** (`3`): compact dependency cards with state, ticket, a short title and a blocker cue, arranged by zone. Arrows show what waits on what (green once landed, red dashed for conflicts). Click to trace a chain and filter its history; double-click to open the full card. Its description is shown directly below the title, with no expand/collapse control.
 
-Board **Metrics** separates finished queue waits from unfinished queue ages, shows delivered work and delivery latency, and labels observed waits and known associated spend. **Evidence and coverage** expands timing, usage gaps and rework proxies. These measurements use existing history with no additional model calls or model-context tokens; they never change approvals, execution or scheduling. Delivery, self-checks and model reviews are not externally verified correctness. Archived reports freeze evaluation at close; older reports without it show **Evaluation not recorded**.
+**Holotable Intel** is separate: click **Intel** in the header to open the on-demand dashboard for the selected operation or archive. No Intel scripts, styles or evaluation payloads load in the base board. Evidence continues to be collected whether Intel is open or not; the execution views stay focused on running work.
 
 The card has three tabs (`[` and `]` switch): **Overview** (progress, what happens next, actions, what it waits for and unblocks, conflict links), **Details** (origin, kind, tracker, delivery, workers, branch, worktree, terminal) and **History** (every event for this contact, with who caused it).
 
@@ -312,7 +312,7 @@ The header has the project breadcrumb (opens the project page), the operation pi
 Toggle views with the header buttons or `1 2 3` / `t b p`. The Plan view has two sub-views (Map | Operation); `Shift+P` flips between them.
 
 - **Table**: radar with live pins inside the well and queued pins on the outer ring. Click a pin or use WASD/HJKL to select; Enter focuses its primary action.
-- **Board**: what needs you, in flight and queued on the left (Add contact, at the foot of the Queue, queues a new ticket mid-flight; when the operation has a tracker, the Ticket field searches it, fills the title and marks tickets already on the board; Waits for picks from the operation's contacts); the selected contact's card in the middle; on the right the operation's progress, notes, metrics and wiring. When every contact has landed, Board and Table show a Close prompt.
+- **Board**: what needs you, in flight and queued on the left (Add contact, at the foot of the Queue, queues a new ticket mid-flight; when the operation has a tracker, the Ticket field searches it, fills the title and marks tickets already on the board; Waits for picks from the operation's contacts); the selected contact's card in the middle; on the right the operation's progress, notes and wiring. When every contact has landed, Board and Table show a Close prompt.
 - **Plan**: the dependency map with history beside it. Selecting a node focuses its chain and dims the rest; clicking it again or Esc undoes that.
 
 Keys (`?` or Settings → Help shows them): WASD/HJKL/arrows move, Enter acts, `[` `]` cycle card tabs (Overview, Plan when one waits, Details, History), `1 2 3 t b p` switch views, `Shift+P` toggles the Plan sub-view, `,` opens settings, Esc clears notices and focus. Cmd/Ctrl+click on any ticket opens it at its tracker (or its pull request) in a new tab.
@@ -392,7 +392,7 @@ Adapters: tracker `linear` (`lin`) and `github` (`gh`); fleet `omp-mission` (sta
 
 ## Launching missions
 
-Launch is a click on a ready contact. The board refuses first (decision tickets, blockers, `cap`, no frontend, no fleet), then runs: ensure the repo with the frontend, create a worktree on the operation's base, open a terminal running `omp` with `OMP_MISSION_AUTOSTART=/mission …` and a plan-mode overlay, then wait up to 90 s for the child's control socket. The child opens a pending plan and waits: **plan approval stays in its pane**. Every step is written to the lane as it happens, so a failed launch resumes at the failed step instead of recreating anything. A contact whose socket never answered shows `offline`, with Focus and Reap.
+Launch is a click on a ready contact. The board refuses first (decision tickets, blockers, `cap`, no frontend, no fleet), then runs: ensure the repo with the frontend, create a worktree on the operation's base, open a terminal running `omp` with `OMP_MISSION_AUTOSTART=/mission …` and a plan-mode overlay, then wait up to 90 s for the child's control socket. The child opens a pending plan and waits: its native plan review can be approved from the card's Plan tab or in the pane. Every step is written to the lane as it happens, so a failed launch resumes at the failed step instead of recreating anything. A contact whose socket never answered shows `offline`, with Focus and Reap.
 
 Frontends (per operation, `--frontend` or `/holotable set frontend`):
 
@@ -459,7 +459,7 @@ Per operation (`/holotable set auto on`, or the auto card on the Operation page)
 Per operation, off by default and never inherited from a project: `/holotable set recover on` (or `new <id> --recover`, `POST /api/operation-config {op, field: "recover", value: "on"}`, or `recover: true` in `POST /api/operations`). Switching it is recorded in history as yours. With it on, the board keeps missions running through a closed or crashed pane without you watching:
 
 - **Resume.** A board-launched session sitting at resume hold with a live owner gets `Continue`, at most once every 30 s per contact (a crashed session's ownership lock stays stale for about 30 s, so the first try may fail with `ELOCKED`; failures are recorded and retried). The pacing is read from the events, so a board restart keeps it.
-- **Relaunch.** A contact is relaunched when its pane vanished from a frontend that lists terminals, or when its session has been down for 60 s while the pane is still listed (omp exited, crashed or hung inside it: the old pane is closed first). A session that exited cleanly counts: its status file says so, and a lane whose socket the board has seen is offline from then on. Relaunches run in the background, one at a time (a whole operation dying at once does not start eight frontend CLIs together), and respect the global `cap`; at the cap nothing is attempted and nothing is recorded.
+- **Relaunch.** An offline contact whose recorded pane vanished can reopen only when a fresh frontend inventory shows no terminals at all in its worktree. A changed handle, an expired status/review deadline, or a dead socket never proves an existing pane is safe to replace. If any pane remains, or inventory is unavailable, inspect it and use manual Relaunch if needed. Recovery never closes a listed pane. Relaunches run in the background, one at a time, and respect the global `cap`.
 - A responding mission socket takes precedence over a missing or changed terminal identity. Recovery does not replace that live session, and it still counts against the cap; Focus stays disabled if its recorded pane is gone. Relaunch rechecks the socket immediately before touching any terminal.
 - A manually resumed pane can publish activity without a board control socket. The board shows its reported phase with an observed-activity indicator and counts it against capacity, but sends no mission commands and does not relaunch it while activity is current. Ordinary status is current for 90 seconds; an active independent review remains current until its advertised deadline, since progress can be quiet between reviewer results.
 - **Give-up.** At most 3 recovery relaunches per contact in 30 minutes. The next candidate records one `gave up: 3 relaunches in 30 min` event and recovery leaves that contact alone until you press Relaunch yourself, which resets the count.
@@ -489,9 +489,21 @@ Two ways, one path. **Close** (the End card on the Operation page, or `/holotabl
 
 The archive keeps everything the operation had — `operation.json`, `events.jsonl`, `brief.md`, `seed.json` — plus `report.json`: outcome, per-contact final states (`landed`, `aborted`, `not-launched`) with where each landing went (`landedVia`, tracker and PR URLs), counts (contacts, landed, conflicts, launches, land attempts), the full stats, the note task tally and the notes, and the first 2000 characters of the brief. Archives are browsable from the picker's Archive link; an archive written before reports existed still shows one, rebuilt on read.
 
-## Stats
+## Holotable Intel
 
-Everything in the Board view's Metrics is computed from `events.jsonl` alone (the same events always give the same numbers): queue wait per contact and on average, time in each mission phase, gate wait, land attempts and conflict rate, socket downtime, current and peak live `omp`, and tokens and estimated cost. A figure with no data is left out, never shown as 0. Tokens and cost come from the mission status file's `usage` (omp-mission sums assistant-message usage across the coordinator session and its worker sessions); the watcher samples each contact's latest total, and the metric adds them. Cost is omp's per-message price estimate, so a subscription plan is not billed this way. The header shows `open/cap omp` across all open operations and done/total note tasks.
+Open **Intel** in the header. The standalone `/intel` dashboard loads only when visited and reads only the selected operation's evaluation. Choose an open operation or frozen archive; **Refresh snapshot** is explicit. No polling, live stream, chart library, new process or database. Returning to Holotable unloads the dashboard.
+
+Four headlines show delivered work, median delivery time, recorded check failures and known spend. Recommendations show bounded evidence and caveats; expand them for contact history. Facet tabs cover:
+
+- **Delivery & speed:** finished queue and end-to-end lead times, unfinished queue ages and incomplete work; phase timings and coverage stay collapsed.
+- **Quality & rework:** recorded verification outcomes, repeated failed revisions, review rounds/failures, findings and repairs. Missing instrumentation is unknown, not zero.
+- **Tokens & cost:** input/output/cache usage, known associated estimate per delivery and accounting coverage. Missing sources, unpriced messages, resets and backlog are tucked into diagnostics.
+- **Bottlenecks:** approval/dependency/offline waits, review time, delivery delay and integration conflicts. Intervals may overlap.
+- **Fleet effectiveness:** connectivity, sampled worker occupancy, relaunches and dispatch reservations. These are capacity proxies, not productive CPU time or proof that concurrency caused a result.
+
+All evaluation uses recorded history with no additional model calls or model-context tokens; nothing changes approvals, execution or scheduling. Landing, self-checks and model reviews are not externally verified correctness. Cost is an associated estimate, not an invoice or subscription bill. Archived reports freeze evaluation at close; legacy reports without it show **Evaluation not recorded**. The optional controlled-comparison fold explains `holotable compare --manifest FILE`, explicit baselines and matched `maxWorkers` trials; it never schedules an experiment.
+
+The base header still shows operational `open/cap omp` and note task progress. Detailed analytics belong only in Intel.
 
 ## Playground
 
@@ -538,7 +550,7 @@ Ending an operation moves its directory to `archive/<id>-<timestamp>` and adds `
 <details>
 <summary>More views</summary>
 
-![Board view: queue, selected contact and operation metrics](docs/board.webp)
+![Board view: queue, selected contact and operation panel](docs/board.webp)
 
 ![Plan view: dependencies and operation history](docs/plan.webp)
 
