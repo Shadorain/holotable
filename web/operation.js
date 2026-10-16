@@ -393,7 +393,7 @@ function zonesContactsSection(p, ctx) {
     kind.append(kindPill(c.kind));
     row.append(tk, el("span", "ctable-title", c.title ?? "—"), el("span", "", zoneLabel(c.zone)), kind);
     const st = el("span", "");
-    st.append(statePill(c.state, c.problem));
+    st.append(statePill(c));
     row.append(st);
     const waits = c.blockedBy.filter((b) => !b.landed).map((b) => b.ticket).join(", ");
     row.append(el("span", "dim", waits || "—"));

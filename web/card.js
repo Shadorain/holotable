@@ -39,7 +39,7 @@ function header(contact, zoneLabel) {
   const titleEl = el("h2", "card-title", titleText);
   head.append(titleEl);
   const status = el("div", "card-status");
-  status.append(statePill(contact.state, contact.problem));
+  status.append(statePill(contact));
   const owner = OWNER_COPY[contact.owner];
   if (owner) {
     const dot = el("span", `owner o-${owner[0]}`);

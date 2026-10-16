@@ -486,7 +486,7 @@ export function createRadar(stage, opts) {
     if (hovered) {
       const hb = blips.find((b) => b.c.ticket === hovered);
       if (hb) {
-        const word = stateLabel(hb.c.state, hb.c.problem);
+        const word = stateLabel(hb.c);
         const line1 = hb.c.ticket;
         const line2 = `${hb.c.title ?? "—"} · ${word}`;
         ctx.font = `600 12px Inter, system-ui, sans-serif`;

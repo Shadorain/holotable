@@ -113,19 +113,27 @@ const STATE_ICON = {
   conflict: "triangle-alert", landed: "git-merge", offline: "wifi-off", waiting: "clock",
 };
 
-export function stateLabel(state, problem) {
+export function stateLabel(contact) {
+  const { state, problem, hold, phase } = contact;
   if (state === "offline" || state === "landed") return STATE_WORDS[state];
+  if (state === "hold" && hold === "question") return "Decision";
   if (problem?.kind === "quota") return "Quota exhausted";
   if (problem?.kind === "rate-limit") return "Rate limited";
   if (problem && state === "waiting") return "Retry waiting";
+  if (state === "hold" && hold === "plan-approval") return "Plan";
+  if (state === "hold" && phase === "verify") return "Verify";
   if (problem && state === "hold") return "Failed";
   return STATE_WORDS[state] ?? state;
 }
 
-export function statePill(state, problem) {
+export function statePill(contact) {
+  const { state, problem, hold, phase } = contact;
+  const presentation = state === "hold"
+    ? hold === "question" ? "decision" : hold === "plan-approval" ? "planning" : phase === "verify" ? "verify" : state
+    : state;
   const pill = el("span", `pill s-${problem ? "hold" : state}`);
-  if (STATE_ICON[state]) pill.append(icon(STATE_ICON[state], { size: 10 }));
-  pill.append(document.createTextNode(stateLabel(state, problem)));
+  if (STATE_ICON[presentation]) pill.append(icon(STATE_ICON[presentation], { size: 10 }));
+  pill.append(document.createTextNode(stateLabel(contact)));
   return pill;
 }
 

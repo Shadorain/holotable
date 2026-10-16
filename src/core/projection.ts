@@ -309,6 +309,7 @@ function contactView(
     kind: contact.kind,
     group,
     state,
+    hold: status?.hold ?? null,
     detail,
     problem,
     check: status?.check ?? null,

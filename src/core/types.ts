@@ -529,6 +529,7 @@ export interface ContactView {
   kind: Kind;
   group: "queue" | "live";
   state: ContactState;
+  hold: Hold | null;
   detail: string;
   problem?: MissionProblem | null;
   /** Latest PR check the producer reported; null until the first /mission check. */

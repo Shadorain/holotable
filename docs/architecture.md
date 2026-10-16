@@ -129,6 +129,8 @@ their queued action begins, so a newly reported exhausted quota cannot trigger a
 
 Producer `hold: question` is also an operator hold. Projection shows the question under Needs you with a primary Focus action labeled **Answer in mission**, suppressing plan approval and Continue even if stale actions are advertised. Recovery never continues or relaunches that hold, including queued relaunches and offline panes.
 
+`ContactView.hold` preserves the producer's explicit hold subtype (`null` without a status). Shared UI labels distinguish **Decision** (`question`), **Plan** (`plan-approval`), and **Verify** (a verification-phase hold) while retaining lifecycle state `hold` and Needs you placement. Question presentation takes precedence over an earlier verification failure; quota/rate-limit labels still override other phase labels. Running mission processes must load question publication support themselves; restarting the board cannot upgrade their extensions or infer pending dialogs from old verification status.
+
 `core/mission-problem.ts` reads structured producer problems and uses older panes' next-step text only for presentation. Failed reviews are Hold/Needs you even without a retry capability; scheduled retries are Waiting, never running or relaunchable live panes. Recovery capacity waits remain distinct. Projection exposes an operation-level `auto.capacityWait` for current quota/rate-limit problems: Auto suppresses new mission launches, native plan approvals and paid decision panes but continues landing and recommended decisions. No deadline inferred from text authorizes an action.
 
 Mission launch and relaunch admission reads Linux `MemAvailable` without scanning the
