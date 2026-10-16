@@ -1,6 +1,7 @@
 import { foldEvents } from "../core/fold.ts";
 import { unmetBlockers } from "../core/graph.ts";
 import { MEASUREMENT_COUNTS } from "../core/evaluation.ts";
+import { hasRecentUncontrolledStatus } from "../core/policy.ts";
 import type {
   Contact,
   ContactDerived,
@@ -92,7 +93,7 @@ function openCount(op: Operation, folded: Derived, state: OpState): number {
   let n = state.decisionPanes.size;
   for (const contact of op.contacts) {
     if (!contact.lane?.terminal || folded.contacts[contact.ticket]?.reaped) continue;
-    if (state.owners[contact.ticket] !== "live" && (state.vanished.has(contact.ticket) || state.owners[contact.ticket] === "offline")) continue;
+    if (state.owners[contact.ticket] !== "live" && state.owners[contact.ticket] !== "observed" && (state.vanished.has(contact.ticket) || state.owners[contact.ticket] === "offline")) continue;
     n += 1;
   }
   return n;
@@ -219,8 +220,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
 
     let owner: Owner = "none";
     if (status?.ctl) owner = (await guard(`ping ${ticket}`, () => ports.fleet.ping(status))) ? "live" : "offline";
-    // A session that exits cleanly publishes ctl: null. For a lane whose socket the board has seen, that is
-    // a dead owner like any other, not "no control socket", or Recovery would never see the closed pane.
+    else if (hasRecentUncontrolledStatus(status, deps.now().getTime())) owner = "observed";
     else if (status && (seen.up || derived?.socketEver)) owner = "offline";
     state.owners[ticket] = owner;
 
@@ -326,7 +326,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       if (!terminal || folded.contacts[contact.ticket]?.reaped || folded.contacts[contact.ticket]?.landed) continue;
       if (listed.some((row) => row.handle === terminal.handle && row.incarnationId === terminal.incarnationId)) continue;
       state.vanished.add(contact.ticket);
-      if (state.owners[contact.ticket] !== "live") state.owners[contact.ticket] = "offline";
+      if (state.owners[contact.ticket] !== "live" && state.owners[contact.ticket] !== "observed") state.owners[contact.ticket] = "offline";
     }
   }
 

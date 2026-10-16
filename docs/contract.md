@@ -2,6 +2,13 @@
 
 The board reads missions through one producer-written status file per mission run and mutates them only through a unix control socket the owning session listens on. `omp-mission` implements the producer side (`omp-mission/src/holotable.ts`). Holotable owns the schema (`src/core/validate-status.ts`). The board never reads mission JSON and never imports `omp-mission` code.
 
+`ctl: null` means no board control authority, not necessarily an exited mission. A manually
+resumed pane can continue publishing snapshots without its launch environment. The board marks
+current socket-free activity `owner: observed` in projections (not in producer status): status
+updated within 90 seconds, or an active review before its declared deadline. Such contacts show
+their reported phase without allowing fleet commands or automatic recovery. They count against
+capacity; after the activity window expires they are offline.
+
 ## Status file
 
 Path: `<agentDir>/missions/<workspace-key>/status/<run-id>.json`, mode `0600` in a `0700` directory, written by tmp file + rename.

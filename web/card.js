@@ -7,6 +7,7 @@ import { actionButton, clock, el, isWired, safeLink, statePill } from "./ui.js";
 
 const OWNER_COPY = {
   live: ["live", "Mission session connected"],
+  observed: ["live", "Mission reports activity; board control is unavailable in this manually restarted pane"],
   offline: ["offline", "Mission session not answering: showing its last snapshot"],
 };
 

@@ -10,6 +10,16 @@ import type {
   PolicyInput,
 } from "./types.ts";
 
+/** Observation is not control authority; an active review can stay quiet until its deadline. */
+export function hasRecentUncontrolledStatus(status: PolicyInput["status"], now: number): boolean {
+  if (!status || status.ctl !== null) return false;
+  const age = now - Date.parse(status.updatedAt);
+  if (age < 0) return false;
+  if (status.phase === "review" && status.review && status.review.active > 0 &&
+      now < Date.parse(status.review.deadlineAt)) return true;
+  return age <= 90_000;
+}
+
 /**
  * C7 state table, first match wins. `conflictContacts` are the contacts whose
  * `conflictOf` names this ticket, with their already-computed states.

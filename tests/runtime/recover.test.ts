@@ -220,6 +220,15 @@ describe("recovery: relaunch", () => {
     expect(t.fake.count("frontend.openTerminal")).toBe(0);
   });
 
+  test("relaunch refuses a fresh manually resumed mission without a control socket", async () => {
+    const t = await setup();
+    t.dead("a", { ctl: null, phase: "review", updatedAt: iso(T) });
+    t.vanished.add("a");
+    await expect(t.act({ op: "lab", contact: "a", action: "relaunch", args: {} })).rejects.toThrow("publishing status without board control");
+    expect(t.fake.count("frontend.close")).toBe(0);
+    expect(t.fake.count("frontend.openTerminal")).toBe(0);
+  });
+
   test.each(["quota", "question"] as const)("does not relaunch a vanished pane at an operator %s hold", async (hold) => {
     const t = await setup();
     t.fake.world.terminals = [];

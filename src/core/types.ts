@@ -1,4 +1,4 @@
-import type { ContactEvaluation, Evaluation, FoldEvaluation } from "./evaluation.ts";
+import type { ContactEvaluation, FoldEvaluation } from "./evaluation.ts";
 
 export const TRACKERS = ["linear", "github", "none"] as const;
 export const FLEETS = ["omp-mission", "none"] as const;
@@ -460,7 +460,7 @@ export interface Derived {
   evaluation?: FoldEvaluation;
 }
 
-export type Owner = "live" | "offline" | "none";
+export type Owner = "live" | "observed" | "offline" | "none";
 export interface Load {
   live: number;
   open: number;
@@ -603,7 +603,6 @@ export interface Projection {
   notes: { done: number; total: number };
   selection: string | null;
   stats: Stats;
-  evaluation?: Evaluation;
   /** Newest first, at most 50; the full list is GET /api/history. */
   log: HistoryEntry[];
 }

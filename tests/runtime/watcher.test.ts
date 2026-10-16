@@ -8,6 +8,8 @@ import { readOperation } from "../../src/store/operations.ts";
 import { foldEvents } from "../../src/core/fold.ts";
 import { evaluateOperation } from "../../src/core/evaluation.ts";
 import { makeMeasurements, makeUsageEvidence } from "../core/fixtures.ts";
+import { loadProjection } from "../../src/snapshot.ts";
+import { hasRecentUncontrolledStatus } from "../../src/core/policy.ts";
 
 const dirs: string[] = [];
 afterEach(() => removeAll(dirs));
@@ -179,6 +181,36 @@ test("a live mission remains owned when its recorded terminal incarnation is sta
   expect(watcher.extras("lab").owners["CHR-1"]).toBe("live");
   expect(watcher.extras("lab").load.open).toBe(1);
   expect(watcher.extras("lab").vanished.has("CHR-1")).toBe(true);
+});
+
+test("a manually resumed review without a socket is observed until its status heartbeat expires", async () => {
+  const { watcher, fake, home, tick } = await setup();
+  await appendEvent(home, "lab", { v: 1, at: "2026-01-01T00:00:00Z", kind: "socket-up", contact: "CHR-1", generation: 1 });
+  fake.world.statuses.set("/wt/a", status({
+    phase: "review", ctl: null, updatedAt: "2026-01-01T00:10:00Z",
+  }));
+  fake.world.terminals = [];
+  await watcher.pass();
+  expect(watcher.extras("lab").owners["CHR-1"]).toBe("observed");
+  expect(watcher.extras("lab").load.open).toBe(1);
+  expect(watcher.extras("lab").vanished.has("CHR-1")).toBe(true);
+  const projection = await loadProjection(home, "lab", DEFAULT_SETTINGS, Date.parse("2026-01-01T00:10:00Z"), watcher.extras("lab"));
+  const review = projection.contacts.find(c => c.ticket === "CHR-1")!;
+  expect(review.state).toBe("review");
+  expect(review.actions.some(a => a.enabled && ["continue", "review", "relaunch"].includes(a.id))).toBe(false);
+  tick(90_001);
+  await watcher.pass();
+  expect(watcher.extras("lab").owners["CHR-1"]).toBe("offline");
+  expect(watcher.extras("lab").load.open).toBe(0);
+});
+
+test("a quiet uncontrolled review remains observed until its producer deadline, not indefinitely", () => {
+  const now = Date.parse("2026-01-01T00:10:00Z");
+  const review = status({ phase: "review", ctl: null, updatedAt: "2026-01-01T00:00:00Z",
+    review: { startedAt: "2026-01-01T00:00:00Z", deadlineAt: "2026-01-01T00:15:00Z", active: 1, completed: 4, total: 5, models: ["p/m"] } });
+  expect(hasRecentUncontrolledStatus(review, now)).toBe(true);
+  expect(hasRecentUncontrolledStatus(review, now + 300_000)).toBe(false);
+  expect(hasRecentUncontrolledStatus({ ...review, review: { ...review.review!, active: 0 } }, now)).toBe(false);
 });
 
 test("a frontend that cannot list terminals leaves owners and load alone", async () => {

@@ -5,7 +5,7 @@ import { appendEvent, readEvents } from "../store/events.ts";
 import { ensureLaunchOverlay } from "../store/launch.ts";
 import { mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
-import { memoryLaunchRefusal } from "../core/policy.ts";
+import { hasRecentUncontrolledStatus, memoryLaunchRefusal } from "../core/policy.ts";
 
 export interface LauncherDeps {
   home: string;
@@ -223,6 +223,8 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
   const saved = await ports.fleet.read({ worktree: lane.worktree });
   if (saved?.ctl && await ports.fleet.ping(saved))
     throw new ActionError(409, "refused", "Mission already has a live control socket; focus or continue it instead");
+  if (hasRecentUncontrolledStatus(saved, deps.now().getTime()))
+    throw new ActionError(409, "refused", "Mission is publishing status without board control; use its existing pane");
 
   // Close the recorded terminal when the frontend still lists it; a crashed pane is already gone.
   const listed = await ports.frontend.listTerminals();

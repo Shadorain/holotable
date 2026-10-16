@@ -87,6 +87,14 @@ when the recorded terminal handle/incarnation is absent. Missing identities disa
 do not free that session's capacity or trigger Recovery. Relaunch reads and pings the current
 mission before closing or opening panes, refusing a live socket even if the watcher queued stale work.
 
+An absent control socket does not imply an absent process: manual OMP resumes can lose the
+launch environment while continuing to publish status. Watcher owner `observed` separates this
+passive activity evidence from `live` socket authority. A socket-free snapshot is current for
+90 seconds, or through an active review's producer deadline. It retains the reported phase and
+capacity even when the recorded terminal incarnation is stale, but never enables fleet commands
+or Recovery. A stale queued relaunch rechecks the same activity evidence before touching panes.
+Expired snapshots revert to offline; this is bounded observation, not a claim of process liveness.
+
 `POST /api/drafts` accepts optional `model`; `launch` and `decide-agent` accept `args.model`.
 The server rejects non-string, non-null overrides. Browser action picks are keyed by operation
 and ticket and cleared after success, so identical ticket ids in different operations cannot
