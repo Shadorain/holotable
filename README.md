@@ -497,7 +497,7 @@ Four headlines show delivered work, median delivery time, recorded check failure
 
 - **Delivery & speed:** finished queue and end-to-end lead times, unfinished queue ages and incomplete work; phase timings and coverage stay collapsed.
 - **Quality & rework:** recorded verification outcomes, repeated failed revisions, review rounds/failures, findings and repairs. Missing instrumentation is unknown, not zero.
-- **Tokens & cost:** input/output/cache usage, known associated estimate per delivery and accounting coverage. Missing sources, unpriced messages, resets and backlog are tucked into diagnostics.
+- **Tokens & cost:** input/output/cache usage, known associated estimate per delivery, per-phase attributed usage and accounting coverage. Phase attribution assigns each usage-sample delta to the phase active when the sample arrived; boundaries are approximate. Missing sources, unpriced messages, resets and backlog are tucked into diagnostics.
 - **Bottlenecks:** approval/dependency/offline waits, review time, delivery delay and integration conflicts. Intervals may overlap.
 - **Fleet effectiveness:** connectivity, sampled worker occupancy, relaunches and dispatch reservations. These are capacity proxies, not productive CPU time or proof that concurrency caused a result.
 

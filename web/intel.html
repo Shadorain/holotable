@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="referrer" content="no-referrer">
+<title>Holotable Intel</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>document.documentElement.dataset.theme = localStorage.getItem("holotable.theme") || "holo";</script>
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/intel.css">
+<script type="module" src="/intel.js"></script>
+</head>
+<body class="intel-body">
+<header class="intel-header">
+  <a id="back" class="crumb" href="/">← Holotable</a>
+  <span class="intel-brand">HOLOTABLE <b>INTEL</b></span>
+  <span class="intel-readonly">Read-only · no model calls</span>
+</header>
+<main class="intel-main">
+  <div class="intel-intro">
+    <div><p class="intel-eyebrow">OPERATION INTELLIGENCE</p><h1>What’s helping. What’s holding work up.</h1><p class="intel-muted">Delivery, rework and resource use from recorded evidence. No scores. No automatic changes.</p></div>
+  </div>
+  <section class="intel-toolbar" aria-label="Snapshot selection">
+    <label for="source">Operation<select id="source" disabled><option>Loading operations…</option></select></label>
+    <button id="refresh" class="btn" type="button">Refresh snapshot</button>
+    <p id="snapshotTime" class="intel-muted" role="status">Loads only when opened or refreshed. No background updates.</p>
+  </section>
+  <div id="message" role="status" aria-live="polite"></div>
+  <section id="rollup" aria-label="Fleet rollup"></section>
+  <div id="dashboard" aria-busy="true"></div>
+  <footer class="intel-footer">Self-checks, reviews and landing are evidence of process—not externally verified correctness. Known cost is an estimate, not a bill.</footer>
+</main>
+</body>
+</html>

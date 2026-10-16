@@ -3,7 +3,6 @@
 import { icon } from "./icons.js";
 import { renderMarkdown } from "./markdown.js";
 import { clock, el, fmtMs, safeLink } from "./ui.js";
-import { renderEvaluationMetrics } from "./board.js";
 
 const OUTCOME = { landed: "Landed", abandoned: "Aborted", decision: "Decided", failed: "Failed" };
 const OUTCOME_STATE = { landed: "landed", abandoned: "conflict", decision: "decision", failed: "conflict" };
@@ -93,13 +92,9 @@ function reportView(root, entry, ctx) {
   };
   add("Contacts", String(report.counts.contacts));
   add("Landed", String(report.counts.landed));
-  add("Launches", String(report.counts.launches));
-  add("Land attempts", String(report.counts.landAttempts));
-  add("Conflicts", String(report.counts.conflicts));
   const notes = report.notes ?? report.workflow ?? { done: 0, total: 0 };
   add("Notes", `${notes.done}/${notes.total}`);
   sum.append(kv);
-  renderEvaluationMetrics(sum, report.evaluation);
   root.append(sum);
 
   if (report.brief) {

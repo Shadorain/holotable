@@ -8,9 +8,11 @@ import { archiveDir, operationDir } from "../paths.ts";
 import { writeFileAtomic } from "./atomic.ts";
 import { parseEvents } from "./events.ts";
 
-export interface ArchiveEntry {
+export interface ArchiveReport {
   key: string;
   report: OperationReport;
+}
+export interface ArchiveEntry extends ArchiveReport {
   events: Event[];
 }
 
@@ -77,7 +79,7 @@ async function reportFor(path: string, now: Date): Promise<OperationReport | nul
 }
 
 /** The archived operation dirs, newest close first. Directories that cannot produce a report are skipped. */
-export async function listArchive(home: string, now: Date): Promise<ArchiveEntry[]> {
+export async function listArchive(home: string, now: Date): Promise<ArchiveReport[]> {
   let names: string[];
   try {
     names = await readdir(archiveDir(home));
@@ -85,22 +87,21 @@ export async function listArchive(home: string, now: Date): Promise<ArchiveEntry
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
-  const entries: ArchiveEntry[] = [];
+  const entries: ArchiveReport[] = [];
   for (const name of names) {
     const path = join(archiveDir(home), name);
     const info = await stat(path).catch(() => null);
     if (!info?.isDirectory()) continue;
     const report = await reportFor(path, now);
     if (!report) continue;
-    const events = await readArchiveEvents(path).catch(() => [] as Event[]);
-    entries.push({ key: name, report, events });
+    entries.push({ key: name, report });
   }
   entries.sort((a, b) => b.report.closedAt.localeCompare(a.report.closedAt) || b.key.localeCompare(a.key));
   return entries;
 }
 
 /** The key must name a real archive entry: that check alone makes `..` and slashes dead ends. */
-export async function readArchive(home: string, key: string, now: Date): Promise<ArchiveEntry | null> {
+export async function readArchiveReport(home: string, key: string, now: Date): Promise<ArchiveReport | null> {
   let names: string[];
   try {
     names = await readdir(archiveDir(home));
@@ -112,8 +113,14 @@ export async function readArchive(home: string, key: string, now: Date): Promise
   const path = join(archiveDir(home), key);
   const report = await reportFor(path, now);
   if (!report) return null;
-  const events = await readArchiveEvents(path).catch(() => [] as Event[]);
-  return { key, report, events };
+  return { key, report };
+}
+
+export async function readArchive(home: string, key: string, now: Date): Promise<ArchiveEntry | null> {
+  const entry = await readArchiveReport(home, key, now);
+  if (!entry) return null;
+  const events = await readArchiveEvents(join(archiveDir(home), key)).catch(() => [] as Event[]);
+  return { ...entry, events };
 }
 
 /** report.json next to the still-open operation's files; archiveOperation then moves them together. */

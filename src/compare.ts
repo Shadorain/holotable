@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { compareManifest, parseManifest, type ComparisonResult, type LoadedTrial } from "./core/compare.ts";
-import { readArchive } from "./store/archive.ts";
+import { readArchiveReport } from "./store/archive.ts";
 
 /**
  * Explicit offline comparison: reads the operator's manifest and only the
@@ -22,7 +22,7 @@ export async function compareArchives(home: string, manifestPath: string, now: D
   const manifest = parseManifest(value);
   const loaded: LoadedTrial[] = [];
   for (const trial of manifest.trials) {
-    const entry = await readArchive(home, trial.archive, now);
+    const entry = await readArchiveReport(home, trial.archive, now);
     if (entry === null) throw new Error(`archive "${trial.archive}" does not exist or has no readable report`);
     loaded.push({ trial, report: entry.report });
   }

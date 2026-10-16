@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import { ActionError } from "../src/runtime/errors.ts";
 import { endOperation } from "../src/runtime/end.ts";
 import { startServer, type BoardServer } from "../src/server.ts";
 import { DEFAULT_SETTINGS } from "../src/settings.ts";
+import { archiveDir, operationDir } from "../src/paths.ts";
 import { appendEvent } from "../src/store/events.ts";
 import { archiveOperation, createOperation } from "../src/store/operations.ts";
 import { createProject } from "../src/store/projects.ts";
@@ -507,4 +508,51 @@ test("POST /api/actions rejects malformed args.model", async () => {
     body: { op: "lab", contact: "a", action: "launch", args: { model: 42 } },
   });
   expect(badAction.status).toBe(400);
+});
+
+test("Intel evaluates selected evidence without loading other histories or changing runtime state", async () => {
+  const now = Date.parse("2026-01-01T00:01:00Z");
+  const { home, api, base } = await boot({ now: () => now, refresh: async () => { throw new Error("Intel must not refresh missions"); } });
+  await createOperation(home, operation({ id: "other", name: "Other" }));
+  writeFileSync(join(operationDir(home, "other"), "events.jsonl"), "malformed interior history\n");
+  const before = readFileSync(join(operationDir(home, "lab"), "events.jsonl"), "utf8");
+  const sources = await (await api("/api/intel/sources")).json() as { operations: Array<{ id: string }> };
+  expect(sources.operations.map(row => row.id).sort()).toEqual(["lab", "other"]);
+  const snapshot = await (await api("/api/intel?op=lab")).json() as { closedAt: string | null; evaluation: { queued: { n: number; maxMs: number }; quality: unknown; asOf: number } };
+  expect(snapshot.closedAt).toBeNull();
+  expect(snapshot.evaluation.queued).toMatchObject({ n: 2, maxMs: 60_000 });
+  expect(snapshot.evaluation.quality).toBeNull();
+  expect(snapshot.evaluation.asOf).toBe(now);
+  expect(readFileSync(join(operationDir(home, "lab"), "events.jsonl"), "utf8")).toBe(before);
+  const projection = await (await api("/api/projection?op=lab")).json() as Record<string, unknown>;
+  expect(projection).not.toHaveProperty("evaluation");
+  expect((await fetch(`${base}/api/intel?op=lab`)).status).toBe(401);
+  expect((await fetch(`${base}/api/intel/sources`)).status).toBe(401);
+  for (const query of ["", "?op=", "?op=lab&archive=x", "?op=lab&op=other", "?archive=x&archive=y"])
+    expect((await api(`/api/intel${query}`)).status).toBe(400);
+  expect((await api("/api/intel?op=missing")).status).toBe(404);
+  expect((await api("/api/intel?archive=..")).status).toBe(404);
+});
+
+test("Intel archives keep frozen evidence without reading histories and leave legacy evaluation unknown", async () => {
+  let clock = Date.parse("2026-01-04T00:00:00Z");
+  const { home, api } = await boot({ now: () => clock });
+  const fake = fakePorts();
+  await endOperation({ home, now: () => new Date(clock), settings: async () => DEFAULT_SETTINGS, portsFor: () => fake.ports, run: noRun }, "lab", "abandoned");
+  const sources = await (await api("/api/intel/sources")).json() as { archives: Array<{ key: string }> };
+  const key = sources.archives[0].key;
+  const first = await (await api(`/api/intel?archive=${key}`)).json() as { evaluation: { asOf: number }; closedAt: string };
+  expect(first.evaluation.asOf).toBe(clock);
+  expect(first.closedAt).toBe(new Date(clock).toISOString());
+  writeFileSync(join(archiveDir(home), key, "events.jsonl"), "broken historical payload\n");
+  clock += 86_400_000;
+  expect(await (await api(`/api/intel?archive=${key}`)).json()).toEqual(first);
+  expect((await api("/api/intel/sources")).status).toBe(200);
+  const file = join(archiveDir(home), key, "report.json");
+  const stored = JSON.parse(readFileSync(file, "utf8"));
+  delete stored.evaluation;
+  writeFileSync(file, JSON.stringify(stored));
+  const legacy = await (await api(`/api/intel?archive=${key}`)).json() as { evaluation: unknown };
+  expect(legacy.evaluation).toBeNull();
+  expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(stored);
 });

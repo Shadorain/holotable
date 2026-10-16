@@ -21,6 +21,7 @@ const ASSET_TYPES: Record<string, string> = {
 };
 function assetFor(pathname: string): readonly [string, string] | null {
   if (pathname === "/") return ["index.html", ASSET_TYPES.html as string];
+  if (pathname === "/intel") return ["intel.html", ASSET_TYPES.html as string];
   const match = /^\/([a-z0-9][a-z0-9-]*)\.(js|css|svg)$/.exec(pathname);
   return match ? [`${match[1]}.${match[2]}`, ASSET_TYPES[match[2] as string] as string] : null;
 }
@@ -292,6 +293,17 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         return respond(res, 200, JSON.stringify(await service.setup()));
       if (method === "GET" && pathname === "/api/operations")
         return respond(res, 200, JSON.stringify(await service.operations()));
+      if (method === "GET" && pathname === "/api/intel/sources")
+        return respond(res, 200, JSON.stringify(await service.intelSources()));
+      if (method === "GET" && pathname === "/api/intel/rollup")
+        return respond(res, 200, JSON.stringify(await service.intelRollup()));
+      if (method === "GET" && pathname === "/api/intel") {
+        const op = url.searchParams.get("op");
+        const archive = url.searchParams.get("archive");
+        if ((!op && !archive) || (op !== null && archive !== null) || url.searchParams.getAll("op").length > 1 || url.searchParams.getAll("archive").length > 1)
+          return fail(res, 400, "Provide exactly one op or archive");
+        return respond(res, 200, JSON.stringify(await service.intel(op ? { op } : { archive: archive! })));
+      }
       if (method === "POST" && pathname === "/api/operations") {
         if (!service.createOperation) return fail(res, 404, "Operation creation is unavailable");
         const body = await readBody(req);

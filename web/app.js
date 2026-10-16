@@ -310,24 +310,13 @@ function region(root, data, build) {
   root.scrollTop = scroll;
   if (key) root.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus();
 }
-function opsStatsSig(s) {
-  if (!s) return null;
-  return [
-    s.omp?.current,
-    s.omp?.peak,
-    s.queueWaitAvgMs !== undefined ? fmtMs(s.queueWaitAvgMs) : null,
-    s.gateWaitMs !== undefined ? fmtMs(s.gateWaitMs) : null,
-    s.landAttempts,
-    s.conflictRate !== undefined ? Math.round(s.conflictRate * 100) : null,
-    s.socketDownMs !== undefined ? fmtMs(s.socketDownMs) : null,
-    s.tokens ? `${s.tokens.input},${s.tokens.output},${s.tokens.cacheRead},${s.tokens.cacheWrite}` : null,
-    s.costUsd !== undefined && s.costUsd !== null ? s.costUsd.toFixed(2) : null,
-    s.phaseMs ? Object.entries(s.phaseMs).map(([k, v]) => `${k}:${fmtMs(v)}`).sort().join(";") : null,
-  ];
-}
 
 let lastHeaderSig = "";
 function renderHeader() {
+  const intelQuery = state.view === "archive" && state.archiveKey
+    ? `archive=${encodeURIComponent(state.archiveKey)}`
+    : state.opId ? `op=${encodeURIComponent(state.opId)}` : "";
+  $("intelLink").href = `/intel${intelQuery ? `?${intelQuery}` : ""}#${token}`;
   const p = state.projection;
   const current = state.operations.find((o) => o.id === state.opId);
   const shown =
@@ -545,7 +534,7 @@ function render() {
     region($("stage"), { op: p.operation.id, contacts: p.contacts.map((c) => [c.ticket, c.title, c.zone, c.group, c.state, c.attention, c.detail, c.blockedBy.map(b => [b.ticket, b.landed]), c.conflictOf]), zones: p.operation.zones, selected }, () =>
       radar.update(p, selected));
   else if (state.view === "board")
-    region($("ops"), { op: p.operation, notes: p.notes, notesKey: notesKey(p.operation.id), stats: opsStatsSig(p.stats), evaluation: p.evaluation, counts: p.contacts.map((c) => [c.state, c.group, c.attention]), busy }, (root) => renderOps(root, p, ctx));
+    region($("ops"), { op: p.operation, notes: p.notes, notesKey: notesKey(p.operation.id), counts: p.contacts.map((c) => [c.state, c.group, c.attention]), busy }, (root) => renderOps(root, p, ctx));
   else {
     // Plan view: map | op | new
     const tabs = $("planTabs");

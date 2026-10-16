@@ -1,4 +1,3 @@
-import { evaluateOperation } from "./evaluation.ts";
 import { foldEvents, contactDerived } from "./fold.ts";
 import { countTasks } from "./notes.ts";
 import { actionsFor, contactState, launchRefusal } from "./policy.ts";
@@ -406,7 +405,6 @@ export function project(input: ProjectionInput): Projection {
     notes: countTasks(input.notesText),
     selection,
     stats: computeStats(derived, input.now, input.load.live),
-    evaluation: evaluateOperation(op, derived, input.now),
     log,
   };
 }

@@ -20,6 +20,7 @@
 ## Smokes (real programs)
 
 - `bun run demo` serves the real board over simulated ports (every button works, nothing touches git or Orca); open one of the printed URLs and play Launch → Approve → Land, including the conflict path.
+- Intel: open the header link from Board and an archive report. Confirm the base page never requests `/intel.js`, `/intel.css` or `/api/intel`; Intel requests sources plus one selected snapshot, never `/api/stream` or normal projections. Switch each facet, open diagnostics and recommendation history, refresh explicitly, return to the board. Check unknown legacy quality, partial cost, frozen archives, an unavailable source, keyboard tabs and a 390px viewport. Observe at least 30 seconds idle with zero extra API requests; record browser task time and heap separately from the watcher/service.
 - Launch against Orca needs a repo whose Orca project has a worktree base path, and a launched `omp` that loads `omp-mission`. Close terminals by exact handle (never `--all`); an idle `omp` pane is about 600 MB.
 
 ## Benchmarks (read-only, reproducible)

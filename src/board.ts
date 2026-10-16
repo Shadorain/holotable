@@ -18,6 +18,9 @@ import {
 import { addContact as addContactStore, type NewContact } from "./contacts.ts";
 import { history } from "./core/projection.ts";
 import type { UsageReport } from "./core/usage.ts";
+import { foldEvents } from "./core/fold.ts";
+import { evaluateOperation, type Evaluation } from "./core/evaluation.ts";
+import { computeRollup, type IntelRollup, type RollupEntry } from "./core/rollup.ts";
 import type { OperationReport } from "./core/report.ts";
 import {
   DELIVERIES,
@@ -43,7 +46,7 @@ import { createDraftDir, draftEntry, draftPrompt, listDrafts, MAX_DRAFT_INPUT, n
 import { validateProject } from "./core/validate-project.ts";
 import { normalizeTicket } from "./core/validate-operation.ts";
 import type { FrontendPort, Run, TrackerHit, TrackerPort } from "./ports.ts";
-import { listArchive, readArchive } from "./store/archive.ts";
+import { listArchive, readArchive, readArchiveReport } from "./store/archive.ts";
 import { readBrief, writeBrief } from "./store/brief.ts";
 import { readEvents } from "./store/events.ts";
 import { displaySettingsPath, RESTART_KEYS, setSettingKey } from "./settings.ts";
@@ -143,6 +146,10 @@ export interface BoardService {
   /** Create an operation from the same spec `/holotable new` uses. */
   createOperation?(spec: NewOperationSpec): Promise<Operation>;
   projection(opId: string): Promise<Projection>;
+  intelSources(): Promise<{ operations: Array<{ id: string; name: string }>; archives: Array<{ key: string; id: string; name: string; closedAt: string }> }>;
+  intel(selection: { op: string } | { archive: string }): Promise<IntelSnapshot>;
+  /** Ranked cross-operation failure/wait/cost rollup; folds open ops, reuses archive evaluations. */
+  intelRollup(): Promise<IntelRollup>;
   /** Every human-readable event of the operation, newest first. */
   history(opId: string): Promise<HistoryEntry[]>;
   /** Run one watcher pass for the operation now. */
@@ -267,6 +274,13 @@ export interface DraftInfo {
   seed?: { name?: string; brief?: string; notes?: string; zones?: unknown[]; contacts?: unknown[] };
   error?: string;
 }
+export interface IntelSnapshot {
+  id: string;
+  name: string;
+  closedAt: string | null;
+  evaluation: Evaluation | null;
+}
+
 export interface ArchiveSummary {
   key: string;
   id: string;
@@ -564,6 +578,38 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
     async createOperation(spec) {
       return asBadRequest(() => createFromSpec(home, new Date(now()), spec));
     },
+    async intelSources() {
+      const [operations, archives] = await Promise.all([listOperations(home), listArchive(home, new Date(now()))]);
+      return {
+        operations: operations.map(({ id, name }) => ({ id, name })),
+        archives: archives.map(({ key, report }) => ({ key, id: report.id, name: report.name, closedAt: report.closedAt })),
+      };
+    },
+    async intel(selection) {
+      if ("archive" in selection) {
+        const entry = await readArchiveReport(home, selection.archive, new Date(now()));
+        if (!entry) throw new HttpError(404, `No archive "${selection.archive}"`);
+        const report = entry.report;
+        return { id: report.id, name: report.name, closedAt: report.closedAt, evaluation: report.evaluation ?? null };
+      }
+      await knownOperation(selection.op);
+      const [operation, events] = await Promise.all([readOperation(home, selection.op), readEvents(home, selection.op)]);
+      return { id: operation.id, name: operation.name, closedAt: null, evaluation: evaluateOperation(operation, foldEvents(events), now()) };
+    },
+    async intelRollup() {
+      const [operations, archives] = await Promise.all([listOperations(home), listArchive(home, new Date(now()))]);
+      const entries: RollupEntry[] = archives.map(({ report }) => ({ name: report.name, closedAt: report.closedAt, source: "archive" as const, evaluation: report.evaluation ?? null }));
+      for (const row of operations) {
+        try {
+          const [operation, events] = await Promise.all([readOperation(home, row.id), readEvents(home, row.id)]);
+          entries.push({ name: operation.name, closedAt: null, source: "open", evaluation: evaluateOperation(operation, foldEvents(events), now()) });
+        } catch {
+          // An operation that vanishes or fails to fold mid-list counts as missing evidence, not a rollup failure.
+          entries.push({ name: row.name, closedAt: null, source: "open", evaluation: null });
+        }
+      }
+      return computeRollup(entries, now());
+    },
     async archive() {
       const entries = await listArchive(home, new Date(now()));
       return entries.map((e) => ({ key: e.key, id: e.report.id, name: e.report.name, outcome: e.report.outcome, closedAt: e.report.closedAt, counts: e.report.counts }));
@@ -571,7 +617,8 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
     async archiveReport(key) {
       const entry = await readArchive(home, key, new Date(now()));
       if (!entry) throw new HttpError(404, `No archive "${key}"`);
-      return { report: entry.report, history: history(entry.events).reverse() };
+      const { evaluation: _evaluation, ...report } = entry.report;
+      return { report, history: history(entry.events).reverse() };
     },
     async projects() {
       const [projects, ops] = await Promise.all([listProjects(home), listOperations(home)]);
