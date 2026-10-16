@@ -277,8 +277,11 @@ provider is a different subscription. Some accounts do not expose usage, so a pa
 cannot prove that all accounts are exhausted.
 
 The catalog and quotas load only when a picker opens or you request them: there is no quota
-polling. **Refresh subscription quotas** reloads OMP's current report and updates the pickers;
-the report timestamp shows its upstream age. Browser and server caches expire after 30 seconds.
+polling. Model choices appear as soon as the catalog arrives; subscription checks update them
+separately, so a slow or failed quota report does not hold the picker open on a loading state.
+**Refresh subscription quotas** reloads OMP's current report and updates the pickers; recent
+exhaustion remains visible while that refresh is pending. The report timestamp shows its upstream
+age. Browser and server caches expire after 30 seconds.
 Choices apply to new panes, not running coordinators, bead workers or reviewers. No fallback,
 account selection, subscription reset credits or global OMP settings are changed automatically.
 Prices are catalog input/output dollars per million tokens, not spend limits or a promise of

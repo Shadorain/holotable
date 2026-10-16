@@ -34,7 +34,7 @@ export function openModelRecovery(contacts, { api, opId, run }) {
     check.addEventListener("change", update);
     return { contact, check, result, eligible, done: false };
   });
-  const notice = el("p", "set-note", "Loading current subscription quotas…");
+  const notice = el("p", "set-note", "Loading available models…");
   const picker = modelDropdown({ api, value: null, allowOmpDefault: false, label: "Recovery model", placeholder: "Choose a recovery model", onChange: update });
   const field = el("div", "modal-field");
   field.append(el("span", "modal-label", "Use this model for selected missions"), picker.root, notice);
@@ -82,11 +82,17 @@ export function openModelRecovery(contacts, { api, opId, run }) {
   });
   modal.step([explanation, list, field, error], [modalButton("Close", { onClick: modal.close }), apply], picker.btn);
   update();
-  void getModelCatalog(api, { refresh: true }).then((catalog) => {
+  void getModelCatalog(api, { refresh: true }).then(async (catalog) => {
     if (closed) return;
     picker.setCatalog(catalog);
     loaded = !catalog.error;
-    notice.textContent = catalog.error ?? catalog.usageError ?? "Available subscriptions first; low balances marked; exhausted subscriptions disabled. Unknown capacity is not a guarantee.";
+    notice.textContent = catalog.error ?? "Models ready; checking subscription quotas… Unknown capacity is not a guarantee.";
+    update();
+    if (catalog.error) return;
+    const capacity = await getModelCatalog(api, { refresh: true, includeUsage: true });
+    if (closed) return;
+    picker.setCatalog(capacity);
+    notice.textContent = capacity.error ?? capacity.usageError ?? "Available subscriptions first; low balances marked; exhausted subscriptions disabled. Unknown capacity is not a guarantee.";
     update();
   });
 }

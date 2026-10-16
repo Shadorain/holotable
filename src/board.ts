@@ -218,7 +218,7 @@ export interface BoardService {
   /** Detect project fields and reasons for a repo path. */
   detect(repo: string): Promise<DetectionResult>;
   /** Model catalog from real omp models CLI; cached ~30s. */
-  models(refresh?: boolean): Promise<ModelsResult>;
+  models(refresh?: boolean, includeUsage?: boolean): Promise<ModelsResult>;
 }
 export interface ProjectRow {
   id: string;
@@ -822,6 +822,6 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
           },
         }
       : {}),
-    models: (refresh) => modelCatalog.getModels(refresh),
+    models: (refresh, includeUsage) => modelCatalog.getModels(refresh, includeUsage),
   };
 }

@@ -6,28 +6,39 @@ import { fetchJson } from "./ui.js";
 let catalogCache = null;
 let catalogPromise = null;
 let catalogAt = 0;
+let usagePromise = null;
+let usageAt = 0;
 
 /**
  * Fetches the model catalog on demand. Returns cached copy once fetched.
  * Catalog shape: { models: [{ selector, name, provider, cost?: { input, output }, reasoning?: boolean }], error?: string }
  */
-export async function getModelCatalog(api, { refresh = false } = {}) {
-  if (catalogPromise) return catalogPromise;
-  if (!refresh && catalogCache && Date.now() - catalogAt < 30_000) return catalogCache;
-  catalogPromise = (async () => {
+export async function getModelCatalog(api, { refresh = false, includeUsage = false } = {}) {
+  const pending = includeUsage ? usagePromise : catalogPromise;
+  if (pending) return pending;
+  const updatedAt = includeUsage ? usageAt : catalogAt;
+  if (!refresh && catalogCache && Date.now() - updatedAt < 30_000) return catalogCache;
+  const request = (async () => {
     try {
-      const res = await api(refresh ? "/api/models?refresh=1" : "/api/models");
+      const query = new URLSearchParams();
+      if (refresh) query.set("refresh", "1");
+      if (includeUsage) query.set("usage", "1");
+      const res = await api(`/api/models${query.size ? `?${query}` : ""}`);
       const data = await fetchJson(res);
       catalogCache = data;
       catalogAt = Date.now();
+      if (includeUsage) usageAt = catalogAt;
       return data;
     } catch (err) {
       return { models: [], error: err instanceof Error ? err.message : String(err) };
     } finally {
-      catalogPromise = null;
+      if (includeUsage) usagePromise = null;
+      else catalogPromise = null;
     }
   })();
-  return catalogPromise;
+  if (includeUsage) usagePromise = request;
+  else catalogPromise = request;
+  return request;
 }
 
 const priceFormat = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 5 });
@@ -70,7 +81,7 @@ export function subscriptionPanel(api, onCatalog) {
     load.disabled = true;
     result.textContent = "Checking OMP subscription quotas…";
     try {
-      const catalog = await getModelCatalog(api, { refresh: true });
+      const catalog = await getModelCatalog(api, { refresh: true, includeUsage: true });
       onCatalog?.(catalog);
       result.replaceChildren();
       if (catalog.usageError) result.append(el("p", "set-warn", catalog.usageError));
@@ -210,8 +221,10 @@ export function modelDropdown({
     }), dd.value);
   }
 
-  function loadCatalog(refresh = false) {
-    if (api) void getModelCatalog(api, { refresh }).then(setCatalog);
+  async function loadCatalog(refresh = false) {
+    if (!api) return;
+    setCatalog(await getModelCatalog(api, { refresh }));
+    setCatalog(await getModelCatalog(api, { refresh, includeUsage: true }));
   }
   dd.setCatalog = setCatalog;
 

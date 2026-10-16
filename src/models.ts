@@ -10,7 +10,7 @@ export interface ModelCatalogOptions {
 }
 
 export interface ModelCatalog {
-  getModels(refresh?: boolean): Promise<ModelsResult>;
+  getModels(refresh?: boolean, includeUsage?: boolean): Promise<ModelsResult>;
 }
 
 const DEFAULT_TTL_MS = 30_000;
@@ -24,6 +24,20 @@ export function createModelCatalog(run: Run, options: ModelCatalogOptions = {}):
 
   let cached: { timestamp: number; result: ModelsResult } | null = null;
   let inFlight: Promise<ModelsResult> | null = null;
+  let catalog: { timestamp: number; result: ModelsResult } | null = null;
+  let catalogFlight: Promise<ModelsResult> | null = null;
+  let lastUsage: { timestamp: number; payload?: unknown; error?: string } | null = null;
+
+  function getCatalog(refresh: boolean): Promise<ModelsResult> {
+    if (catalogFlight) return catalogFlight;
+    if (!refresh && catalog && now() - catalog.timestamp < ttlMs) return Promise.resolve(catalog.result);
+    catalogFlight = fetchModels().then(result => {
+      catalog = { timestamp: now(), result };
+      cached = null;
+      return result;
+    }).finally(() => { catalogFlight = null; });
+    return catalogFlight;
+  }
 
   async function fetchModels(): Promise<ModelsResult> {
     let timer: NodeJS.Timeout | undefined;
@@ -118,15 +132,21 @@ export function createModelCatalog(run: Run, options: ModelCatalogOptions = {}):
   }
 
   return {
-    async getModels(refresh = false): Promise<ModelsResult> {
+    async getModels(refresh = false, includeUsage = false): Promise<ModelsResult> {
+      if (!includeUsage) {
+        if (!refresh && cached && now() - cached.timestamp < ttlMs) return cached.result;
+        const models = await getCatalog(refresh);
+        const usage = lastUsage && now() - lastUsage.timestamp < ttlMs ? lastUsage : undefined;
+        return { ...models, ...subscriptionCapacity(models.models, usage?.payload, now()), ...(usage?.error ? { usageError: usage.error } : {}) };
+      }
       if (inFlight) return inFlight;
       const current = now();
       if (!refresh && cached && current - cached.timestamp < ttlMs) return cached.result;
       inFlight = (async () => {
         try {
-          // CLI startups share the board's CPU budget; parallel reads can exhaust their deadlines.
-          const models = await fetchModels();
+          const models = await getCatalog(false);
           const usage = await fetchUsage();
+          lastUsage = { timestamp: now(), ...usage };
           const res = { ...models, ...subscriptionCapacity(models.models, usage.payload, now()), ...(usage.error ? { usageError: usage.error } : {}) };
           cached = { timestamp: now(), result: res };
           return res;

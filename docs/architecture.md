@@ -77,14 +77,17 @@ The server rejects non-string, non-null overrides. Browser action picks are keye
 and ticket and cleared after success, so identical ticket ids in different operations cannot
 share an override.
 
-`GET /api/models` runs `omp models --json --no-extensions` and
-`omp usage --json --redact --no-extensions` through the injected `Run`, on demand. CLI startups
-are serialized because they share the production board's CPU budget. Each command and wait is
-bounded at 10 seconds (up to 20 seconds for both). `src/models.ts` coalesces concurrent requests
-and caches results for 30 seconds; `?refresh=1` bypasses that cache without duplicating an
-in-flight request. Opening a picker or requesting quotas triggers a read; mounting a form or
-card does not. The browser also expires its cache after 30 seconds and renders at most 60
-matching options, searching the whole catalog. There is no quota polling.
+`GET /api/models` runs `omp models --json --no-extensions` through the injected `Run` and
+returns model choices without waiting for subscription providers. `?usage=1` separately runs
+`omp usage --json --redact --no-extensions` and returns the catalog enriched with capacity.
+Initial usage loading starts after the catalog; independent in-flight caches let catalog
+requests finish even while a usage refresh is pending. Each CLI request is bounded at 10 seconds.
+Both snapshots cache for 30 seconds; `?refresh=1` bypasses the requested snapshot's cache without
+duplicating its in-flight request. A catalog refresh preserves recent capacity evidence.
+Pickers populate first, then update capacity; recovery can select a model while quotas load,
+with unknown capacity explicitly marked. Opening a picker or requesting quotas triggers reads;
+mounting a form or card does not. The browser renders at most 60 matching options, searching
+the whole catalog. There is no quota polling.
 
 `core/subscription-capacity.ts` projects sanitized quota evidence into each model's optional
 `capacity` and the catalog's `subscriptions`. Capacity contains `state` (`available`, `low`,

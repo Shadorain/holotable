@@ -9,7 +9,7 @@ const usage = (remaining: number) => ({ reports: [{ provider: "xai-oauth", fetch
 
 test("quota failures leave the catalog searchable with explicitly unknown capacity", async () => {
   const run: Run = async (_command, args) => args[0] === "models" ? ok(models) : { code: 1, stdout: "", stderr: "private provider details" };
-  const result = await createModelCatalog(run, { now: () => now }).getModels();
+  const result = await createModelCatalog(run, { now: () => now }).getModels(false, true);
   expect(result.models.find(m => m.selector === "xai-oauth/grok")?.capacity?.state).toBe("unknown");
   expect(result.usageError).toBeDefined();
   expect(JSON.stringify(result)).not.toContain("private provider details");
@@ -20,13 +20,13 @@ test("explicit refresh replaces exhausted capacity and concurrent requests share
   let pending: Promise<CommandResult> | undefined;
   const run: Run = async (_command, args) => args[0] === "models" ? ok(models) : pending ?? ok(usage(remaining));
   const catalog = createModelCatalog(run, { now: () => now });
-  expect((await catalog.getModels()).models[0]!.capacity?.state).toBe("exhausted");
+  expect((await catalog.getModels(false, true)).models[0]!.capacity?.state).toBe("exhausted");
   remaining = 0.6;
-  expect((await catalog.getModels()).models[0]!.capacity?.state).toBe("exhausted");
+  expect((await catalog.getModels(false, true)).models[0]!.capacity?.state).toBe("exhausted");
   const held = Promise.withResolvers<CommandResult>();
   pending = held.promise;
-  const refreshing = catalog.getModels(true);
-  const concurrent = catalog.getModels();
+  const refreshing = catalog.getModels(true, true);
+  const concurrent = catalog.getModels(false, true);
   held.resolve(ok(usage(remaining)));
   const [fresh, joined] = await Promise.all([refreshing, concurrent]);
   expect(fresh.models[0]!.capacity).toMatchObject({ state: "available", remainingFraction: 0.6 });
@@ -38,15 +38,15 @@ test("expired catalog cache cannot keep suggesting a newly exhausted subscriptio
   let remaining = 0.7;
   const run: Run = async (_command, args) => args[0] === "models" ? ok(models) : ok(usage(remaining));
   const catalog = createModelCatalog(run, { now: () => clock, ttlMs: 100 });
-  expect((await catalog.getModels()).models[0]!.capacity?.state).toBe("available");
+  expect((await catalog.getModels(false, true)).models[0]!.capacity?.state).toBe("available");
   remaining = 0;
   clock += 101;
-  expect((await catalog.getModels()).models[0]!.capacity?.state).toBe("exhausted");
+  expect((await catalog.getModels(false, true)).models[0]!.capacity?.state).toBe("exhausted");
 });
 
 test("malformed usage cannot falsely imply usable capacity", async () => {
   const run: Run = async (_command, args) => args[0] === "models" ? ok(models) : ok({ reports: "invalid" });
-  const result = await createModelCatalog(run, { now: () => now }).getModels();
+  const result = await createModelCatalog(run, { now: () => now }).getModels(false, true);
   expect(result.usageError).toBeDefined();
   expect(result.models[0]!.capacity?.state).toBe("unknown");
 });
@@ -54,8 +54,35 @@ test("malformed usage cannot falsely imply usable capacity", async () => {
 test("usage deadline cannot hold model selection indefinitely", async () => {
   const held = Promise.withResolvers<CommandResult>();
   const run: Run = async (_command, args) => args[0] === "models" ? ok(models) : held.promise;
-  const result = await createModelCatalog(run, { now: () => now, timeoutMs: 10 }).getModels();
+  const result = await createModelCatalog(run, { now: () => now, timeoutMs: 10 }).getModels(false, true);
   expect(result.usageError).toBeDefined();
   expect(result.models[0]!.capacity?.state).toBe("unknown");
   held.resolve(ok(usage(0)));
+});
+
+test("a pending quota refresh never blocks the catalog or drops known exhaustion", async () => {
+  const started = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<CommandResult>();
+  let refreshUsage = false;
+  const run: Run = async (_command, args) => {
+    if (args[0] === "models") return ok(models);
+    if (!refreshUsage) return ok(usage(0));
+    started.resolve();
+    return held.promise;
+  };
+  const catalog = createModelCatalog(run, { now: () => now });
+  await catalog.getModels(false, true);
+  refreshUsage = true;
+  const quotas = catalog.getModels(true, true);
+  await started.promise;
+  try {
+    const selectable = await catalog.getModels(true);
+    expect(selectable.models.map(model => model.selector)).toEqual(["xai-oauth/grok"]);
+    expect(selectable.error).toBeUndefined();
+    expect(selectable.models[0]!.capacity?.state).toBe("exhausted");
+  } finally {
+    held.resolve(ok(usage(0)));
+    await quotas;
+  }
+  expect((await catalog.getModels()).models[0]!.capacity?.state).toBe("exhausted");
 });
