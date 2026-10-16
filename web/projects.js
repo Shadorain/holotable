@@ -46,16 +46,17 @@ function newProjectForm(ctx, onDone) {
   create.type = "button";
   create.append(icon("plus", { size: 12 }), document.createTextNode("Create project"));
   create.addEventListener("click", async () => {
+    if (create.disabled) return;
+    create.disabled = true;
     err.hidden = true;
     nameF.setError(null);
     pf.clearErrors();
-    await pf.ready();
-    const settings = pf.read();
-    if (!settings) return;
-    const body = { ...settings };
-    if (name.input.value.trim()) body.name = name.input.value.trim();
-    create.disabled = true;
     try {
+      await pf.ready();
+      const settings = pf.read();
+      if (!settings) return;
+      const body = { ...settings };
+      if (name.input.value.trim()) body.name = name.input.value.trim();
       const data = await ctx.api("/api/projects", { method: "POST", body: JSON.stringify(body) }).then(fetchJson);
       ctx.toast(`Project ${data.id} created`, "ok");
       onDone(data.id);

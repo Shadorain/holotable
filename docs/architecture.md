@@ -59,6 +59,16 @@ The shutdown reply finishes before closing the listener. The service stops sched
 
 Decision cards and confirmation dialogs use native radio groups with no implicit first or recommended selection. Card choices are tentative browser state keyed by operation and ticket; polls preserve them, successful saves clear them. Pick recommended only selects. Confirmation binds the captured operation id, so an archive or selection change cannot send the answer to a different operation. Save failures restore the controls and display the actual error; toast deduplication compares dataset strings rather than constructing selectors from error text.
 
+Browser mission requests are locked by operation and contact, not just action id. `runAction`
+sets the lock synchronously, includes it in list/card/operation render signatures, and keeps it
+through the acknowledgement and a subsequent projection read. A concurrent poll is awaited
+before that read; all exit paths release the lock and repaint. Mode and Plan controls share
+the contact lock, and opening another recovery dialog cannot evade it. Recovery has one modal
+at a time and disables its submit/model/targets while awaiting requests. Shared settings rows
+disable inputs and buttons until their save callback resolves, restoring the committed value
+on rejection. Brief/zone pending state is operation-keyed so navigation cannot re-enable a
+submission in flight; creation forms disable before asynchronous prerequisite reads.
+
 `board.json` binds discovery to the home it was written in (realpath). A copied `board.json`/`token` pair cannot make another home's CLI manage this board; symlinked homes resolve to the same owner.
 
 

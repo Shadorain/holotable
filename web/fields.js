@@ -32,6 +32,20 @@ export function field(parent, title, control, { note = null, restart = false } =
   };
 }
 
+function saveField(field, save, key, value, done) {
+  if (field.row.getAttribute("aria-busy") === "true") return;
+  const controls = [...field.row.querySelectorAll("input, button, select, textarea")];
+  const disabled = controls.map(control => control.disabled);
+  field.row.setAttribute("aria-busy", "true");
+  controls.forEach(control => { control.disabled = true; });
+  const finish = error => {
+    field.row.removeAttribute("aria-busy");
+    controls.forEach((control, index) => { control.disabled = disabled[index]; });
+    done(error);
+  };
+  try { save(key, value, finish); } catch (error) { finish(error); }
+}
+
 /** Text field that saves `save(key, input.value)` on change and reverts on error. */
 export function textRow(parent, title, key, initial, save, { note, mono = false, placeholder = "", restart = false } = {}) {
   const tf = textField({ label: title, value: initial, placeholder, spellcheck: false });
@@ -41,7 +55,7 @@ export function textRow(parent, title, key, initial, save, { note, mono = false,
   tf.input.addEventListener("change", () => {
     f.setError(null);
     const next = tf.input.value;
-    save(key, next, (error) => {
+    saveField(f, save, key, next, (error) => {
       if (error) {
         tf.input.value = committed;
         f.setError(error);
@@ -62,7 +76,7 @@ export function numberRow(parent, title, key, initial, save, opts = {}) {
   nf.input.addEventListener("change", () => {
     f.setError(null);
     const next = nf.input.value;
-    save(key, next, (error) => {
+    saveField(f, save, key, next, (error) => {
       if (error) {
         nf.input.value = String(committed);
         f.setError(error);
@@ -84,7 +98,7 @@ export function enumRow(parent, title, key, values, initial, save, { note } = {}
     value: initial,
     onChange: (v) => {
       f.setError(null);
-      save(key, v, (error) => {
+      saveField(f, save, key, v, (error) => {
         if (error) {
           dd.setOptions(values.map((x) => ({ value: x, label: x })), committed);
           f.setError(error);
@@ -107,7 +121,7 @@ export function switchRow(parent, title, key, initial, save, { note } = {}) {
     checked: initial,
     onChange: (v) => {
       f.setError(null);
-      save(key, v ? "true" : "false", (error) => {
+      saveField(f, save, key, v ? "true" : "false", (error) => {
         if (error) {
           sw.setChecked(committed);
           f.setError(error);

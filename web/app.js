@@ -65,6 +65,7 @@ const POLL_INTERVAL_MS = 3000;
 const STREAM_FALLBACK_MS = 30_000;
 let polling = false;
 let refreshPending = false;
+let pollDone = Promise.resolve();
 let pollTimer = null;
 let confirmTimer = null;
 let opDocPending = null;
@@ -209,10 +210,11 @@ const PAST = {
 
 /** Runs one board action; resolves `{ok, error}` so callers like the plan editor can react. */
 async function runAction(ticket, action, args = {}, opId = state.opId) {
-  const key = `${ticket}/${action}`;
-  if (state.busy.has(key)) return { ok: false, error: "busy: already running" };
+  const key = `${opId}/${ticket}/${action}`;
+  const lock = `${opId}/${ticket}/*`;
+  if (state.busy.has(lock)) return { ok: false, error: "Request already pending for this mission" };
   state.busy.add(key);
-  state.busy.add(`${ticket}/*`);
+  state.busy.add(lock);
   render();
   let outcome;
   try {
@@ -232,9 +234,14 @@ async function runAction(ticket, action, args = {}, opId = state.opId) {
     outcome = { ok: false, error: error instanceof Error ? error.message : String(error) };
     toast(`${action} failed: ${outcome.error}`, "error");
   } finally {
-    state.busy.delete(key);
-    state.busy.delete(`${ticket}/*`);
-    await poll();
+    try {
+      if (polling) await pollDone;
+      await poll();
+    } finally {
+      state.busy.delete(key);
+      state.busy.delete(lock);
+      render();
+    }
   }
   return outcome;
 }
@@ -242,6 +249,7 @@ async function runAction(ticket, action, args = {}, opId = state.opId) {
 function confirmOrRun(ticket, action) {
   const opId = state.opId;
   const key = `${ticket}/${action}`;
+  if (state.busy.has(`${opId}/${ticket}/*`)) return;
   // Recording a decision needs the choice (and maybe why), so it opens a dialog first.
   const contact = state.projection?.contacts.find((c) => c.ticket === ticket);
   if (action === "retry-model" && contact) {
@@ -501,7 +509,7 @@ function render() {
   const ctx = {
     opId: p.operation.id,
     ai: state.settings?.ai,
-    busy: state.busy,
+    busy: new Set([...state.busy].filter(key => key.startsWith(`${p.operation.id}/`)).map(key => key.slice(p.operation.id.length + 1))),
     confirming: state.confirming,
     run: runAction,
     openOperationPage: () => openOperationPage(),
@@ -517,7 +525,7 @@ function render() {
       render();
     },
   };
-  const busy = [...state.busy];
+  const busy = [...ctx.busy];
   if (state.view === "board" || (state.view === "plan" && state.planView === "op")) ensureNotes(p.operation.id, p.notes, api, render);
 
   region($("list"), { op: p.operation.id, contacts: p.contacts, zones: p.operation.zones, selected, busy, c: state.confirming }, (root) =>
@@ -887,9 +895,11 @@ async function poll() {
   if (document.visibilityState !== "visible") return;
   if (polling) {
     refreshPending = true;
-    return;
+    return pollDone;
   }
   polling = true;
+  const finished = Promise.withResolvers();
+  pollDone = finished.promise;
   try {
     const res = await api("/api/operations");
     if (document.visibilityState !== "visible") return;
@@ -943,6 +953,7 @@ async function poll() {
     state.conn = "lost";
   } finally {
     polling = false;
+    finished.resolve();
     render();
     if (document.visibilityState === "visible") {
       schedulePoll(refreshPending ? 0 : undefined);

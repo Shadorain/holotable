@@ -2,22 +2,30 @@ import { el } from "./components.js";
 import { modalButton, openModal } from "./modal.js";
 import { getModelCatalog, modelDropdown } from "./models.js";
 
+
+let activeRecovery = null;
 const recoveryAction = (contact) => contact.actions.find((action) => action.id === "retry-model");
 
 export function modelRecoveryCandidate(contact) {
   return !!recoveryAction(contact) || !!contact.problem && /^(review|coordinator|worker(?:[: /]|$))/.test(contact.problem.source);
 }
 
-export function openModelRecovery(contacts, { api, opId, run }) {
+export function openModelRecovery(contacts, { api, opId, run, busy }) {
+  if (activeRecovery) {
+    activeRecovery.box.querySelector("button")?.focus();
+    return;
+  }
   let closed = false;
   let running = false;
   let loaded = false;
-  const modal = openModal({ title: contacts.length === 1 ? `Recover ${contacts[0].ticket}` : "Recover failed missions", onClose: () => { closed = true; } });
+  const modal = openModal({ title: contacts.length === 1 ? `Recover ${contacts[0].ticket}` : "Recover failed missions", onClose: () => { closed = true; activeRecovery = null; } });
+  activeRecovery = modal;
   const explanation = el("p", "set-note", "Set the mission model and retry failed work only. Running workers stay untouched; future workers and reviews use your choice. Finished review targets, bead claims and edits are retained. Gates and verification holds are not cleared. Closing stops unsent retries, not work already accepted.");
   const list = el("div", "recovery-missions");
   const rows = contacts.map((contact) => {
     const action = recoveryAction(contact);
-    const eligible = action?.enabled === true;
+    const pending = busy?.has(`${contact.ticket}/*`);
+    const eligible = action?.enabled === true && !pending;
     const label = el("label", "recovery-mission");
     const check = el("input");
     check.type = "checkbox";
@@ -25,7 +33,7 @@ export function openModelRecovery(contacts, { api, opId, run }) {
     check.disabled = !eligible;
     check.setAttribute("aria-label", `Retry ${contact.ticket}`);
     const info = el("div");
-    const reason = action?.reason ?? (contact.state === "offline" ? "Relaunch this pane first" : contact.plan || contact.phase === "plan" ? "Approve its plan first; recovery starts once the mission runs" : "Recovery unavailable: clear any gate/resume/verification hold; reload an older mission pane to enable this control");
+    const reason = pending ? "Request already pending for this mission" : action?.reason ?? (contact.state === "offline" ? "Relaunch this pane first" : contact.plan || contact.phase === "plan" ? "Approve its plan first; recovery starts once the mission runs" : "Recovery unavailable: clear any gate/resume/verification hold; reload an older mission pane to enable this control");
     const progress = contact.problem?.total == null ? "" : ` · ${contact.problem.completed}/${contact.problem.total} reviews retained`;
     const result = el("div", "set-note", eligible ? `${contact.problem?.source ?? "Failed work"}${progress}` : reason);
     info.append(el("strong", "", contact.ticket), el("div", "set-note", contact.problem?.detail ?? contact.detail), result);
@@ -48,6 +56,8 @@ export function openModelRecovery(contacts, { api, opId, run }) {
   apply.addEventListener("click", async () => {
     if (running || apply.disabled) return;
     running = true;
+    apply.setAttribute("aria-busy", "true");
+    apply.textContent = "Requesting…";
     error.hidden = true;
     const targets = selected();
     const model = picker.value;
@@ -75,6 +85,8 @@ export function openModelRecovery(contacts, { api, opId, run }) {
       error.hidden = false;
     } finally {
       running = false;
+      apply.removeAttribute("aria-busy");
+      apply.textContent = "Switch model & retry";
       picker.setDisabled(false);
       rows.forEach((row) => { row.check.disabled = !row.eligible || row.done; });
       update();

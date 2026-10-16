@@ -248,7 +248,7 @@ function modeSelect(contact, action, ctx, key) {
   });
   dd.btn.classList.add("btn");
   dd.btn.dataset.key = key;
-  dd.setDisabled(!action.enabled || ctx.busy.has(key));
+  dd.setDisabled(!action.enabled || ctx.busy.has(key) || ctx.busy.has(`${contact.ticket}/*`));
   const what = "Auto runs to the end, Pause stops at each Pause gate for your approval, Force skips holds";
   dd.btn.title = !action.enabled && action.reason ? `${what}\nUnavailable: ${action.reason}` : what;
   return dd.root;

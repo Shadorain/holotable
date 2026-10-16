@@ -406,6 +406,7 @@ export function renderNewOperation(root, ctx) {
   draftBtn.addEventListener("click", startDraft);
 
   create.addEventListener("click", async () => {
+    if (create.disabled) return;
     err.hidden = true;
     nameF.setError(null);
     pf.clearErrors();

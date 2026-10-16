@@ -378,7 +378,7 @@ function planTab(contact, data, ctx, projection) {
       });
       const over = planButton("save", "Overwrite");
       over.classList.add("danger");
-      over.disabled = !editable(save);
+      over.disabled = !editable(save) || ctx.busy.has(`${contact.ticket}/*`);
       over.addEventListener("click", async () => {
         const res = await ctx.run(contact.ticket, "plan-save", { text: area.value });
         if (res?.ok) {
@@ -477,7 +477,7 @@ function planTab(contact, data, ctx, projection) {
 
   const row = el("div", "actions plan-row");
   const edit = planButton("pencil", "Edit");
-  edit.disabled = !editable(save) || ui.mode !== "read";
+  edit.disabled = !editable(save) || ui.mode !== "read" || ctx.busy.has(`${contact.ticket}/*`);
   if (!editable(save)) edit.title = why(save, "the mission is not accepting edits");
   edit.addEventListener("click", () => {
     ui.mode = "edit";
@@ -486,7 +486,7 @@ function planTab(contact, data, ctx, projection) {
     ctx.rerender();
   });
   const refineBtn = planButton("sparkles", "Refine");
-  refineBtn.disabled = !editable(refine) || ui.mode !== "read";
+  refineBtn.disabled = !editable(refine) || ui.mode !== "read" || ctx.busy.has(`${contact.ticket}/*`);
   if (!editable(refine)) refineBtn.title = why(refine, "the mission is not accepting refinements");
   refineBtn.addEventListener("click", () => {
     ui.mode = "refine";

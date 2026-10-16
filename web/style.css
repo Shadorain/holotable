@@ -277,7 +277,7 @@ details.group > summary .count { margin-left: auto; }
 .btn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); background: transparent; }
 .btn.danger.confirming { background: var(--bad); color: var(--danger-ink); font-weight: 650; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn[aria-busy="true"] { opacity: 0.8; cursor: progress; }
+.btn[aria-busy="true"] { opacity: 0.4; cursor: progress; }
 
 /* ---- custom controls ---- */
 .cmp-dd { display: inline-flex; min-width: 0; }
@@ -313,6 +313,7 @@ details.group > summary .count { margin-left: auto; }
 .cmp-sw.on { background: color-mix(in srgb, var(--accent) 28%, transparent); border-color: var(--accent); }
 .cmp-sw.on .cmp-sw-knob { left: 20px; background: var(--accent); }
 .cmp-sw:disabled { opacity: 0.4; cursor: not-allowed; }
+.set-field[aria-busy="true"] input { opacity: 0.4; cursor: progress; }
 
 .cmp-seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
 .cmp-seg-btn { background: transparent; border: 0; padding: 6px 14px; color: var(--muted); text-transform: capitalize; }

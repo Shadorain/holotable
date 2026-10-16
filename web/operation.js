@@ -27,7 +27,7 @@ const zoneFilter = new Map();
 const briefState = (opId) => {
   let s = briefUi.get(opId);
   if (!s) {
-    s = { editing: false, draft: "", error: null };
+    s = { editing: false, draft: "", error: null, saving: false, addingZone: false };
     briefUi.set(opId, s);
   }
   return s;
@@ -44,7 +44,7 @@ function selectedZone(opId, zones) {
 /** Digest for region(): rebuild when brief UI or the zone filter changes. */
 export function opUiKey(opId, zones) {
   const s = briefUi.get(opId);
-  return `${s?.editing ? "1" : "0"}:${selectedZone(opId, zones) ?? ""}`;
+  return JSON.stringify([s?.editing, s?.saving, s?.addingZone, s?.error, s?.zoneError, selectedZone(opId, zones)]);
 }
 
 function docSection(title) {
@@ -79,6 +79,7 @@ function briefSection(p, doc, ctx) {
     area.placeholder = "# What this operation is about\nContext for the people and missions working it.";
     area.setAttribute("aria-label", "Operation brief");
     area.dataset.key = "op/brief-text";
+    area.disabled = ui.saving;
     area.addEventListener("input", () => {
       ui.draft = area.value;
     });
@@ -88,7 +89,15 @@ function briefSection(p, doc, ctx) {
     save.type = "button";
     save.append(icon("save", { size: 12 }), document.createTextNode("Save"));
     save.dataset.key = "op/brief-save";
+    save.disabled = ui.saving;
+    if (ui.saving) save.setAttribute("aria-busy", "true");
     save.addEventListener("click", async () => {
+      if (ui.saving) return;
+      ui.saving = true;
+      save.disabled = true;
+      save.setAttribute("aria-busy", "true");
+      area.disabled = true;
+      cancel.disabled = true;
       ui.error = null;
       try {
         const res = await ctx.api("/api/brief", {
@@ -102,11 +111,18 @@ function briefSection(p, doc, ctx) {
         await ctx.reloadOp();
       } catch (error) {
         ui.error = error instanceof Error ? error.message : String(error);
+      } finally {
+        ui.saving = false;
+        save.disabled = false;
+        save.removeAttribute("aria-busy");
+        area.disabled = false;
+        cancel.disabled = false;
         ctx.rerender();
       }
     });
     const cancel = el("button", "btn small", "Cancel");
     cancel.type = "button";
+    cancel.disabled = ui.saving;
     cancel.addEventListener("click", () => {
       ui.editing = false;
       ui.draft = "";
@@ -347,7 +363,19 @@ function zonesContactsSection(p, ctx) {
   zbtn.type = "button";
   zbtn.append(icon("plus", { size: 12 }), document.createTextNode("Add zone"));
   zbtn.dataset.key = "op/add-zone";
+  const zoneUi = briefState(p.operation.id);
+  zbtn.disabled = zoneUi.addingZone;
+  zlabel.input.disabled = zoneUi.addingZone;
+  if (zoneUi.addingZone) zbtn.setAttribute("aria-busy", "true");
+  zerr.hidden = !zoneUi.zoneError;
+  zerr.textContent = zoneUi.zoneError ?? "";
   zbtn.addEventListener("click", async () => {
+    if (zoneUi.addingZone) return;
+    zoneUi.addingZone = true;
+    zbtn.disabled = true;
+    zbtn.setAttribute("aria-busy", "true");
+    zlabel.input.disabled = true;
+    zoneUi.zoneError = null;
     zerr.hidden = true;
     try {
       const res = await ctx.api("/api/zones", {
@@ -362,6 +390,13 @@ function zonesContactsSection(p, ctx) {
     } catch (error) {
       zerr.hidden = false;
       zerr.textContent = error instanceof Error ? error.message : String(error);
+      zoneUi.zoneError = zerr.textContent;
+    } finally {
+      zoneUi.addingZone = false;
+      zbtn.disabled = false;
+      zbtn.removeAttribute("aria-busy");
+      zlabel.input.disabled = false;
+      ctx.rerender();
     }
   });
   const zform = el("div", "inline-form");

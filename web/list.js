@@ -73,6 +73,7 @@ export function renderList(root, projection, selected, ctx) {
   if (failures.length) {
     const recover = el("button", "btn small", `Switch failed models (${failures.length})`);
     recover.type = "button";
+    recover.disabled = failures.every(contact => ctx.busy.has(`${contact.ticket}/*`));
     recover.dataset.key = "model-recovery";
     recover.addEventListener("click", () => openModelRecovery(failures, ctx));
     root.append(recover);

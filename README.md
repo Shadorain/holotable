@@ -60,6 +60,13 @@ Install `omp-mission` too, restart OMP, then open a session in the repo you want
 
 Questions asked by a mission appear under **Needs you** as **Decision**, with their text and an **Answer in mission** button. Plan approval is labeled **Plan**; verification holds are labeled **Verify**. All three stay in Needs you. Answer questions in the original OMP pane; the board never chooses an answer or resumes past it. Planning provider failures show their blocker instead of a misleading plan-approval prompt. Mission extensions load once per OMP process: panes started before question reporting was installed must be restarted to publish Ask dialogs; restarting only the board cannot update them.
 
+Submitting a mission action grays out that mission's controls across the list, card, Plan tab,
+and mode picker until the response and a fresh board read arrive. Other missions remain usable.
+Recovery dialogs show **Requesting…** and lock their model and targets while submitting.
+Settings fields, project/operation creation, brief saves, and zone adds also disable their
+submitting controls while waiting; rejected requests restore them. Request completion means
+the command was acknowledged, not that the mission's background work has finished.
+
 Start with **Settings → Agents → 2** on a small or heat-constrained machine. Auto mode and recovery are off by default; enable them per operation only when you want their documented behavior.
 
 ### Draft a plan or an idea
