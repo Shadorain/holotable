@@ -57,6 +57,27 @@ test("cumulative source snapshots deduplicate contacts and preserve observed usa
   expect(result.usage.partial).toBe(true);
   expect(result.usage.costPerDelivered).toBeNull();
 });
+test("usage deltas attribute to the phase active at sample time and rebase on resets", () => {
+  const op = makeOp([makeContact("a"), makeContact("b")]);
+  const events = [
+    launched(0), launched(0, "b"),
+    ev(10, "a", "phase", { from: null, to: "execute" }),
+    ev(10, "b", "phase", { from: null, to: "execute" }),
+    ev(20, "a", "sample", { usageEvidence: usage(100) }),
+    ev(20, "b", "sample", { usage: { tokens: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0 }, costUsd: 1 } }),
+    ev(30, "a", "phase", { from: "execute", to: "review" }),
+    ev(40, "a", "sample", { usageEvidence: usage(300) }),
+    ev(40, "b", "sample", { usage: { tokens: { input: 20, output: 0, cacheRead: 0, cacheWrite: 0 }, costUsd: 2 } }),
+    ev(50, "a", "sample", { usageEvidence: usage(120) }),
+    ev(60, "a", "sample", { usageEvidence: usage(150) }),
+  ];
+  const result = evaluateOperation(op, foldEvents(events), T0 + 70);
+  expect(result.usage.byPhase!.review.tokens).toBe(230);
+  expect(result.usage.byPhase!.review.costUsd).toBeCloseTo(2.3, 10);
+  expect(result.usage.byPhase!.execute.tokens).toBe(10);
+  expect(result.usage.byPhase!.execute.costUsd).toBeCloseTo(1, 10);
+});
+
 
 test("run identity separates counters while latest findings do not become cumulative defects", () => {
   const op = makeOp([makeContact("a")]);

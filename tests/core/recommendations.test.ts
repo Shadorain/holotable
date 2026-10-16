@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { evaluateOperation } from "../../src/core/evaluation.ts";
+import { evaluateOperation, evaluationEvidence, recommendEvaluation } from "../../src/core/evaluation.ts";
 import { foldEvents } from "../../src/core/fold.ts";
 import { buildReport } from "../../src/core/report.ts";
 import type { Contact, Event, Hold, Measurements } from "../../src/core/types.ts";
@@ -57,6 +57,14 @@ test("delivery delay requires three measured work deliveries and uses the final 
  expect(facts(events,contacts).recommendations.some(r=>r.id==="delivery-wait")).toBe(false);
  const repaired=["a","b","c"].flatMap(ticket=>[launch(ticket),sample(1,ticket,"none",true),sample(700_000,ticket),sample(800_000,ticket,"none",true),ev(900_000,ticket,"landed",{via:"merge"})]);
  expect(facts(repaired,["a","b","c"].map(ticket=>makeContact(ticket))).recommendations.some(r=>r.id==="delivery-wait")).toBe(false);
+ const ready=["x","y","z"].flatMap(ticket=>[launch(ticket),sample(1,ticket,"none",true),ev(700_001,ticket,"landed",{via:"merge"})]);
+ const rdyContacts=["x","y","z"].map(ticket=>makeContact(ticket));
+ const rdyOp=makeOp(rdyContacts),rdyFold=foldEvents([...ready].sort((a,b)=>Date.parse(a.at)-Date.parse(b.at)));
+ const rdyEval=evaluateOperation(rdyOp,rdyFold,T0+1_000_000),rdyProof=evaluationEvidence(rdyOp,rdyFold,T0+1_000_000);
+ const manual=recommendEvaluation(rdyEval,rdyProof,{autoLand:false}).find(r=>r.id==="delivery-wait");
+ const auto=recommendEvaluation(rdyEval,rdyProof,{autoLand:true}).find(r=>r.id==="delivery-wait");
+ expect(manual?.message).toContain("auto.land");
+ expect(auto?.message).not.toContain("auto.land");
 });
 
 test("rule ordering is bounded, selects strongest run evidence and points to the threshold checkpoint",()=>{
