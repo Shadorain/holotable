@@ -58,22 +58,35 @@ test("cumulative source snapshots deduplicate contacts and preserve observed usa
   expect(result.usage.costPerDelivered).toBeNull();
 });
 test("usage deltas attribute to the phase active at sample time and rebase on resets", () => {
-  const op = makeOp([makeContact("a"), makeContact("b")]);
+  const op = makeOp([makeContact("a"), makeContact("b"), makeContact("c")]);
   const events = [
-    launched(0), launched(0, "b"),
+    launched(0), launched(0, "b"), launched(0, "c"),
     ev(10, "a", "phase", { from: null, to: "execute" }),
     ev(10, "b", "phase", { from: null, to: "execute" }),
+    ev(10, "c", "phase", { from: null, to: "execute" }),
     ev(20, "a", "sample", { usageEvidence: usage(100) }),
     ev(20, "b", "sample", { usage: { tokens: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0 }, costUsd: 1 } }),
+    ev(20, "c", "sample", { usage: { tokens: { input: 50, output: 0, cacheRead: 0, cacheWrite: 0 }, costUsd: 1 } }),
     ev(30, "a", "phase", { from: "execute", to: "review" }),
+    ev(30, "c", "phase", { from: "execute", to: "review" }),
     ev(40, "a", "sample", { usageEvidence: usage(300) }),
     ev(40, "b", "sample", { usage: { tokens: { input: 20, output: 0, cacheRead: 0, cacheWrite: 0 }, costUsd: 2 } }),
+    // Contact c emits the coordinator-session total AND scoped evidence in the same sample:
+    // the evidence total is authoritative; the legacy field's delta must not double-count it.
+    ev(40, "c", "sample", {
+      usage: { tokens: { input: 80, output: 0, cacheRead: 0, cacheWrite: 0 }, costUsd: 2 },
+      usageEvidence: usage(200),
+    }),
     ev(50, "a", "sample", { usageEvidence: usage(120) }),
     ev(60, "a", "sample", { usageEvidence: usage(150) }),
+    ev(60, "c", "sample", {
+      usage: { tokens: { input: 130, output: 0, cacheRead: 0, cacheWrite: 0 }, costUsd: 4 },
+      usageEvidence: usage(260),
+    }),
   ];
   const result = evaluateOperation(op, foldEvents(events), T0 + 70);
-  expect(result.usage.byPhase!.review.tokens).toBe(230);
-  expect(result.usage.byPhase!.review.costUsd).toBeCloseTo(2.3, 10);
+  expect(result.usage.byPhase!.review.tokens).toBe(290);
+  expect(result.usage.byPhase!.review.costUsd).toBeCloseTo(2.9, 10);
   expect(result.usage.byPhase!.execute.tokens).toBe(10);
   expect(result.usage.byPhase!.execute.costUsd).toBeCloseTo(1, 10);
 });

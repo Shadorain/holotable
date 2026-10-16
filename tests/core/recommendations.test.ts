@@ -74,7 +74,7 @@ test("rule ordering is bounded, selects strongest run evidence and points to the
  events.push(ev(10,"z","sample",{usageEvidence:{...makeUsageEvidence(0),missing:1,partial:true}}));
  events.push(...Array.from({length:5},(_,i)=>ev(20+i,"a","land-attempt",{outcome:i<2?"conflict":"clean"})));
  const e=facts(events,contacts),repeat=e.recommendations[1]!;
- expect(e.recommendations.map(r=>r.id)).toEqual(["usage-coverage","repeat-verification","review-retries"]);
+ expect(e.recommendations.map(r=>r.id)).toEqual(["usage-coverage","repeat-verification","review-retries","integration-conflicts"]);
  expect(repeat.evidence.contacts).toEqual(["z"]);expect(repeat.evidence.numerator).toBe(4);
  expect(repeat.evidence.eventIndexes).toContain(7);
  for(const r of e.recommendations){

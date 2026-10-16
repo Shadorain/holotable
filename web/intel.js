@@ -90,7 +90,7 @@ function recommendations(e, source) {
   if (!e.recommendations.length) {
     section.append(el("p", "intel-muted", "No recommendation thresholds reached in the recorded evidence. That is not a clean bill of health; small samples and missing evidence limit conclusions."));
   }
-  for (const rule of e.recommendations.slice(0, 3)) {
+  for (const rule of e.recommendations.slice(0, 6)) {
     const card = el("article", `intel-rule ${rule.level}`);
     card.append(el("h3", "", rule.message));
     const r = rule.evidence;

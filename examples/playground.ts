@@ -141,6 +141,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       model: null,
       check: null,
     };
+    missions.set(worktree, m);
     return m;
   };
   const advance = (m: SimMission) => {
@@ -198,6 +199,36 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
         tokens: { input: 4000 + ageS * 137, output: 900 + ageS * 41, cacheRead: 1500 + ageS * 53, cacheWrite: 300 + ageS * 7 },
         costUsd: Math.round((0.04 + ageS * 0.0021) * 1000) / 1000,
         sessions: 1,
+      },
+      // Scoped usage evidence (coordinator + worker + review) and durable measurements, so Intel's
+      // cohorts, quality facet and phase-attributed usage render against the same shapes omp-mission writes.
+      usageEvidence: {
+        v: 1,
+        measuredAt: updatedAt,
+        sources: [
+          { role: "coordinator" as const, id: `coordinator:${m.id}`, tokens: { input: 2000 + ageS * 80, output: 600 + ageS * 30, cacheRead: 900 + ageS * 40, cacheWrite: 200 + ageS * 5 }, costUsd: Math.round((0.02 + ageS * 0.0012) * 1000) / 1000, sessions: 1, pricedMessages: 3, unpricedMessages: 0 },
+          { role: "worker" as const, id: `worker:${m.id}:1`, tokens: { input: 1200 + ageS * 40, output: 200 + ageS * 8, cacheRead: 400 + ageS * 10, cacheWrite: 80 + ageS * 2 }, costUsd: Math.round((0.01 + ageS * 0.0006) * 1000) / 1000, sessions: 1, pricedMessages: 2, unpricedMessages: 0 },
+          { role: "review" as const, id: `review:${m.id}`, tokens: { input: 800 + ageS * 17, output: 100 + ageS * 3, cacheRead: 200 + ageS * 3, cacheWrite: 20 }, costUsd: Math.round((0.01 + ageS * 0.0003) * 1000) / 1000, sessions: 1, pricedMessages: 1, unpricedMessages: 0 },
+        ],
+        missing: 0,
+        unsupportedWorkers: 0,
+        malformedLines: 0,
+        resets: 0,
+        backlogBytes: 0,
+        partial: false,
+      },
+      measurements: {
+        v: 1, since: new Date(m.born).toISOString(),
+        recordedPassed: m.stage === "complete" || m.stage === "review" ? 1 : 0,
+        recordedFailed: m.stage === "review" || m.stage === "complete" ? 1 : 0,
+        repeatedFailedRevision: 0, mergePreflightFailures: 0, boundaryFailures: 0,
+        reviewFailures: m.stage === "review" ? 1 : 0, acceptedRepairs: 0,
+        completedRounds: m.stage === "complete" ? 1 : 0, invalidatedRounds: 0,
+        findingOccurrences: m.stage === "complete" ? 2 : 0,
+        latestActionable: m.stage === "complete" ? 2 : 0, latestRejected: 0,
+        severity: { critical: 0, high: 0, medium: 1, low: 1 },
+        workerAttempts: 2, workerBeads: 2, repairRound: 0, repairLinks: 0,
+        config: { graph: "local" as const, frontend: "custom" as const, maxWorkers: 2, reviewConcurrency: 2, mode: (m.mode === "auto" || m.mode === "force" ? m.mode : "pause") as "auto" | "pause" | "force" },
       },
       updatedAt,
       verify: null,
