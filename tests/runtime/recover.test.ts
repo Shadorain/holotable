@@ -104,8 +104,12 @@ async function setup(opts: Opts = {}) {
     fake.world.alive.add(SOCK.socket);
   };
   const dead = (ticket: string, over: Partial<ContactStatus> = {}) => {
-    statuses[ticket] = status({ ticket, worktree: `/wt/${ticket}`, ctl: SOCK, ...over });
-    fake.world.alive.delete(SOCK.socket);
+    const prior = fake.world.statuses.get(`/wt/${ticket}`);
+    if (prior?.ctl) fake.world.alive.delete(prior.ctl.socket);
+    statuses[ticket] = status({ ticket, worktree: `/wt/${ticket}`, ctl: { ...SOCK, socket: `/dead-${ticket}.sock` }, ...over });
+    fake.world.statuses.set(`/wt/${ticket}`, statuses[ticket]!);
+    const ctl = statuses[ticket]?.ctl;
+    if (ctl) fake.world.alive.delete(ctl.socket);
   };
   const ev = (kind: "socket-up" | "socket-down", at: number): Promise<void> =>
     appendEvent(home, "lab", kind === "socket-up" ? { v: 1, at: iso(at), kind, contact: "a", generation: 1 } : { v: 1, at: iso(at), kind, contact: "a" });
@@ -205,6 +209,15 @@ describe("recovery: relaunch", () => {
     expect(open.env).toEqual({ FAKE_LAUNCH: "a" });
     expect(await t.relaunches()).toMatchObject([{ contact: "a", ok: true, by: "recover" }]);
     expect((await t.events()).filter((e) => e.kind === "launched")).toHaveLength(2);
+  });
+
+  test("relaunch rechecks the socket before touching a pane when watcher identity is stale", async () => {
+    const t = await setup();
+    t.live("a");
+    t.vanished.add("a");
+    await expect(t.act({ op: "lab", contact: "a", action: "relaunch", args: {} })).rejects.toThrow("live control socket");
+    expect(t.fake.count("frontend.close")).toBe(0);
+    expect(t.fake.count("frontend.openTerminal")).toBe(0);
   });
 
   test.each(["quota", "question"] as const)("does not relaunch a vanished pane at an operator %s hold", async (hold) => {

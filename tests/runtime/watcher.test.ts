@@ -171,6 +171,16 @@ test("a terminal the frontend stops listing is offline and leaves the load count
   expect(watcher.extras("lab").load).toEqual({ live: 1, open: 1 });
 });
 
+test("a live mission remains owned when its recorded terminal incarnation is stale", async () => {
+  const { watcher, fake } = await setup();
+  fake.world.terminals = [{ handle: "t1", incarnationId: "replacement-inc", worktree: "/wt/a", connected: true }];
+  await watcher.pass();
+  await watcher.pass();
+  expect(watcher.extras("lab").owners["CHR-1"]).toBe("live");
+  expect(watcher.extras("lab").load.open).toBe(1);
+  expect(watcher.extras("lab").vanished.has("CHR-1")).toBe(true);
+});
+
 test("a frontend that cannot list terminals leaves owners and load alone", async () => {
   const { watcher } = await setup();
   await watcher.pass();
@@ -238,7 +248,7 @@ test("custom frontend does not share terminal listings", async () => {
   expect(fake.count("frontend.listTerminals")).toBe(2);
 });
 
-test("live/offline transitions observed through shared listing; stale vanished cleared", async () => {
+test("dead sockets and missing terminals become offline; reappearing terminals clear vanished", async () => {
   const home = tempDir("watchv", dirs);
   await seedOperation(home, { contacts: [contact("V-1", { lane: lane("/wt/v", "tv") }), contact("V-2", { lane: lane("/wt/w", "tw") })] });
   const fake = fakePorts();
@@ -255,6 +265,7 @@ test("live/offline transitions observed through shared listing; stale vanished c
   await watcher.pass();
   expect(watcher.extras("lab").owners["V-1"]).toBe("live");
   fake.world.terminals = [{ handle: "tv", incarnationId: "tv-inc", worktree: "/wt/v", connected: true }];
+  fake.world.alive.delete("/tmp/w.sock");
   await watcher.pass();
   expect(watcher.extras("lab").owners["V-2"]).toBe("offline");
   expect(watcher.extras("lab").vanished.has("V-2")).toBe(true);

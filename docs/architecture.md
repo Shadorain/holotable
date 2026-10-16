@@ -82,6 +82,11 @@ in charge. A lane stores only an explicit model override (`string | null`), pres
 replacement panes; inherited lanes use the current defaults. No existing session is reconfigured,
 and `plan-refine` stays on its current socket owner/model.
 
+Terminal inventory is not mission ownership: a successful control-socket ping stays live even
+when the recorded terminal handle/incarnation is absent. Missing identities disable Focus but
+do not free that session's capacity or trigger Recovery. Relaunch reads and pings the current
+mission before closing or opening panes, refusing a live socket even if the watcher queued stale work.
+
 `POST /api/drafts` accepts optional `model`; `launch` and `decide-agent` accept `args.model`.
 The server rejects non-string, non-null overrides. Browser action picks are keyed by operation
 and ticket and cleared after success, so identical ticket ids in different operations cannot

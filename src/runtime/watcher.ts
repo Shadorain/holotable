@@ -92,7 +92,7 @@ function openCount(op: Operation, folded: Derived, state: OpState): number {
   let n = state.decisionPanes.size;
   for (const contact of op.contacts) {
     if (!contact.lane?.terminal || folded.contacts[contact.ticket]?.reaped) continue;
-    if (state.vanished.has(contact.ticket) || state.owners[contact.ticket] === "offline") continue;
+    if (state.owners[contact.ticket] !== "live" && (state.vanished.has(contact.ticket) || state.owners[contact.ticket] === "offline")) continue;
     n += 1;
   }
   return n;
@@ -312,7 +312,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     state.integrationDirty = r.code === 0 ? r.stdout.split("\n").filter((l) => l.trim().length > 0).length : null;
   }
 
-  /** A terminal the frontend stopped listing is gone however alive its last status looked. */
+  /** Terminal identity controls Focus; a successful mission ping remains authoritative for ownership. */
   function trackTerminals(op: Operation, folded: Derived, state: OpState, listed: ListedTerminal[] | null): void {
     // No list this pass (frontend cannot enumerate, the call failed, or nothing is
     // worth listing): drop only the vanished entries that are no longer possible.
@@ -326,7 +326,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       if (!terminal || folded.contacts[contact.ticket]?.reaped || folded.contacts[contact.ticket]?.landed) continue;
       if (listed.some((row) => row.handle === terminal.handle && row.incarnationId === terminal.incarnationId)) continue;
       state.vanished.add(contact.ticket);
-      state.owners[contact.ticket] = "offline";
+      if (state.owners[contact.ticket] !== "live") state.owners[contact.ticket] = "offline";
     }
   }
 

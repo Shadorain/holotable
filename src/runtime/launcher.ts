@@ -219,6 +219,11 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
   const ports = deps.portsFor(operation, settings);
   const at = () => deps.now().toISOString();
 
+  // Recovery may have queued this before a manually reopened session acquired the socket.
+  const saved = await ports.fleet.read({ worktree: lane.worktree });
+  if (saved?.ctl && await ports.fleet.ping(saved))
+    throw new ActionError(409, "refused", "Mission already has a live control socket; focus or continue it instead");
+
   // Close the recorded terminal when the frontend still lists it; a crashed pane is already gone.
   const listed = await ports.frontend.listTerminals();
   if (listed === null || listed.some((row) => row.handle === terminal.handle && row.incarnationId === terminal.incarnationId)) {
@@ -229,7 +234,6 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
     }
   }
   // A saved mission past its plan resumes outside plan mode, where `continue` is allowed; one still planning reopens in it.
-  const saved = await ports.fleet.read({ worktree: lane.worktree }).catch(() => null);
   const overlay = await ensureLaunchOverlay(deps.home, saved && saved.phase !== "plan" ? "resume" : "plan");
   const selectedModel = lane.model !== undefined
     ? lane.model
