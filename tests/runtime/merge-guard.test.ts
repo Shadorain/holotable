@@ -25,7 +25,7 @@ async function setup(contacts: Contact[], over: Parameters<typeof seedOperation>
     statuses[c.ticket] = status({ ticket: c.ticket, worktree: c.lane.worktree, complete: true, phase: "complete", ctl: null });
     fake.world.statuses.set(c.lane.worktree, statuses[c.ticket]!);
   }
-  const extras = () => ({ statuses, owners: {}, probes: Object.fromEntries(fake.world.probes), load: { live: 0, open: 0 }, integrationDirty: null, vanished: new Set<string>(), decisionPanes: new Set<string>() });
+  const extras = () => ({ statuses, owners: {}, probes: Object.fromEntries(fake.world.probes), load: { live: 0, open: 0 }, integrationDirty: null, vanished: new Set<string>(), gone: new Set<string>(), decisionPanes: new Set<string>() });
   const run = async (_command: string, args: string[]) => ({ stdout: args[0] === "rev-parse" ? "main\n" : "", stderr: "", code: 0 });
   const deps = {
     home,

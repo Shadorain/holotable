@@ -2,6 +2,7 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { procAlive } from "../machine.ts";
 import type { ContactStatus } from "../core/types.ts";
 import { validateStatus } from "../core/validate-status.ts";
 import { PortError, type FleetPort } from "../ports.ts";
@@ -159,6 +160,12 @@ export function ompMissionFleet(options: MissionFleetOptions): FleetPort {
     }
   }
 
+  async function running(status: ContactStatus): Promise<boolean | null> {
+    const session = status.session;
+    if (!session) return null;
+    return procAlive(session.pid, session.processStart);
+  }
+
   async function control(
     status: ContactStatus,
     op: Parameters<FleetPort["control"]>[1],
@@ -232,6 +239,7 @@ export function ompMissionFleet(options: MissionFleetOptions): FleetPort {
         },
       };
     },
+    running,
     read,
     ping,
     control,

@@ -35,6 +35,7 @@ async function setup(opts: Opts = {}) {
     contacts: opts.contacts ?? [contact("a", { lane: lane("/wt/a", "t1") })],
   });
   const fake = fakePorts();
+  fake.world.terminals = [];
   // Fresh handles per open, like a real frontend; the fake's constant handle would trip the relaunch guard.
   let opened = 0;
   fake.ports.frontend.openTerminal = async (i) => {
@@ -61,7 +62,7 @@ async function setup(opts: Opts = {}) {
     return out;
   };
   const settings = async () => ({ ...DEFAULT_SETTINGS, cap: opts.cap ?? 8 });
-  const extras = () => ({ statuses, owners: owners(), probes: {}, load: { live: opts.open ?? 1, open: opts.open ?? 1 }, vanished, decisionPanes: new Set<string>(), integrationDirty: null });
+  const extras = () => ({ statuses, owners: owners(), probes: {}, load: { live: opts.open ?? 1, open: opts.open ?? 1 }, vanished, gone: new Set<string>(), decisionPanes: new Set<string>(), integrationDirty: null });
 
   const noRun: Run = async () => ({ stdout: "", stderr: "", code: 0 });
   const availableMemory = opts.availableMemory ?? (() => 8 * 1024 * 1024 * 1024);
@@ -229,6 +230,49 @@ describe("recovery: relaunch", () => {
     expect(t.fake.count("frontend.openTerminal")).toBe(0);
   });
 
+  test.each([
+    ["recorded pane", [{ handle: "t1", incarnationId: "t1-inc", worktree: "/wt/a", connected: true }]],
+    ["manually resumed pane", [{ handle: "original", incarnationId: "resumed", worktree: "/wt/a", connected: true }]],
+    ["unavailable inventory", null],
+  ])("automatic relaunch leaves an expired socket-free mission alone with %s", async (_label, terminals) => {
+    const t = await setup();
+    t.fake.world.terminals = terminals;
+    t.dead("a", {
+      ctl: null, phase: "review", updatedAt: iso(T - 20 * MIN),
+      review: { active: 1, completed: 0, total: 1, startedAt: iso(T - 20 * MIN), deadlineAt: iso(T - MIN), models: [] },
+    });
+    t.vanished.add("a");
+    await expect(t.act({ op: "lab", contact: "a", action: "relaunch", args: {}, by: "recover" }))
+      .rejects.toMatchObject({ code: "refused" });
+    expect(t.fake.count("frontend.close")).toBe(0);
+    expect(t.fake.count("frontend.openTerminal")).toBe(0);
+  });
+
+  test("automatic relaunch rechecks a manually reopened pane even when its saved socket is dead", async () => {
+    const t = await setup();
+    t.fake.world.terminals = [{ handle: "original", incarnationId: "resumed", worktree: "/wt/a/../a", connected: true }];
+    t.dead("a");
+    t.vanished.add("a");
+    await expect(t.act({ op: "lab", contact: "a", action: "relaunch", args: {}, by: "recover" }))
+      .rejects.toThrow("empty workspace");
+    expect(t.fake.count("frontend.close")).toBe(0);
+    expect(t.fake.count("frontend.openTerminal")).toBe(0);
+  });
+
+  test("disabling Recovery prevents stale automatic actions from touching panes or missions", async () => {
+    const t = await setup({ recover: false });
+    t.live("a", resume);
+    await expect(t.act({ op: "lab", contact: "a", action: "continue", args: {}, by: "recover" }))
+      .rejects.toThrow("Recovery is disabled");
+    expect(controls(t)).toEqual([]);
+    t.dead("a");
+    t.vanished.add("a");
+    await expect(t.act({ op: "lab", contact: "a", action: "relaunch", args: {}, by: "recover" }))
+      .rejects.toThrow("Recovery is disabled");
+    expect(t.fake.count("frontend.close")).toBe(0);
+    expect(t.fake.count("frontend.openTerminal")).toBe(0);
+  });
+
   test.each(["quota", "question"] as const)("does not relaunch a vanished pane at an operator %s hold", async (hold) => {
     const t = await setup();
     t.fake.world.terminals = [];
@@ -266,18 +310,20 @@ describe("recovery: relaunch", () => {
     expect(opened).toEqual(["/wt/a"]);
   });
 
-  test("relaunches after 60 s of socket-down with the pane still listed, closing the old one first", async () => {
+  test("only an operator relaunch replaces a listed pane after its socket stops responding", async () => {
     const t = await setup();
     t.fake.world.terminals = [{ handle: "t1", incarnationId: "t1-inc", worktree: "/wt/a", connected: true }];
     t.dead("a");
     await t.ev("socket-up", T - 10 * MIN);
     await t.ev("socket-down", T - 61_000);
     await t.recover.pass();
-    await t.until(async () => (await t.operator("relaunch")).length > 0);
+    await t.settle();
 
-    const order = t.fake.calls.filter((c) => c.method === "close" || c.method === "openTerminal").map((c) => c.method);
-    expect(order).toEqual(["close", "openTerminal"]);
-    expect(await t.relaunches()).toMatchObject([{ ok: true, by: "recover" }]);
+    expect(t.fake.count("frontend.close")).toBe(0);
+    expect(t.fake.count("frontend.openTerminal")).toBe(0);
+    await t.act({ op: "lab", contact: "a", action: "relaunch", args: {} });
+    expect(t.fake.count("frontend.close")).toBe(1);
+    expect(t.fake.count("frontend.openTerminal")).toBe(1);
   });
 
   test("does not relaunch a listed pane whose socket went down less than 60 s ago", async () => {

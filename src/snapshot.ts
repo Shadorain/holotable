@@ -15,6 +15,8 @@ export interface ProjectionExtras {
   integrationDirty?: number | null;
   /** Terminals the frontend stopped listing this pass (null = frontend does not list). */
   vanished?: ReadonlySet<string>;
+  /** Producers whose recorded process is provably dead (pid gone or start-time mismatch). */
+  gone?: ReadonlySet<string>;
   /** Tickets of decision contacts that currently have an open agent pane. */
   decisionPanes?: ReadonlySet<string>;
   /** File existence checks (because we don't parse the JSON here). */

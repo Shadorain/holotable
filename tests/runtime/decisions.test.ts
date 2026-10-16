@@ -52,6 +52,7 @@ async function setup(contacts: Contact[], over: { load?: { live: number; open: n
       probes: {},
       load: over.load ?? { live: 0, open: 0 },
       vanished: new Set(),
+      gone: new Set<string>(),
       decisionPanes: watcher.extras("lab").decisionPanes,
       integrationDirty: null,
     }),

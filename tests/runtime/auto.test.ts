@@ -71,6 +71,7 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
       probes: Object.fromEntries(probes),
       load: opts.load ?? { live: 0, open: 0 },
       vanished: new Set(),
+      gone: new Set<string>(),
       decisionPanes: new Set(),
       integrationDirty: null,
     }),

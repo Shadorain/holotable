@@ -204,6 +204,29 @@ test("a manually resumed review without a socket is observed until its status he
   expect(watcher.extras("lab").load.open).toBe(0);
 });
 
+test("process identity keeps a stale-socket pane observed, and a dead process reads offline", async () => {
+ const { watcher, fake, home, tick } = await setup();
+ await appendEvent(home, "lab", { v: 1, at: "2026-01-01T00:00:00Z", kind: "socket-up", contact: "CHR-1", generation: 1 });
+ // The mission kept running but its status heartbeat stopped: liveness, not freshness.
+ fake.world.statuses.set("/wt/a", status({
+  ctl: null, updatedAt: "2026-01-01T00:01:00Z",
+  session: { id: "s1", pid: 4242, processStart: "99", terminal: "t1", owned: false },
+ }));
+ fake.world.terminals = [];
+ tick(600_000);
+ await watcher.pass();
+ expect(watcher.extras("lab").owners["CHR-1"]).toBe("offline");
+ expect(watcher.extras("lab").gone.has("CHR-1")).toBe(false);
+ fake.world.running.set("run-1", true);
+ await watcher.pass();
+ expect(watcher.extras("lab").owners["CHR-1"]).toBe("observed");
+ expect(watcher.extras("lab").load.open).toBe(1);
+ fake.world.running.set("run-1", false);
+ await watcher.pass();
+ expect(watcher.extras("lab").owners["CHR-1"]).toBe("offline");
+ expect(watcher.extras("lab").gone.has("CHR-1")).toBe(true);
+});
+
 test("a quiet uncontrolled review remains observed until its producer deadline, not indefinitely", () => {
   const now = Date.parse("2026-01-01T00:10:00Z");
   const review = status({ phase: "review", ctl: null, updatedAt: "2026-01-01T00:00:00Z",

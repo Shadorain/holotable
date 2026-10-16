@@ -410,6 +410,13 @@ export interface ContactStatus {
   check?: MissionCheck | null;
   measurements?: Measurements | null;
   usageEvidence?: UsageEvidence | null;
+  session?: {
+    id: string;
+    pid: number;
+    processStart: string | null;
+    terminal: string | null;
+    owned: boolean;
+  };
   ctl: { socket: string; generation: number } | null;
   updatedAt: string;
 }

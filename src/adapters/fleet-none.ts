@@ -12,6 +12,7 @@ export function noneFleet(): FleetPort {
     async ping() {
       return false;
     },
+    async running() { return null; },
     async control() {
       throw new PortError("no-fleet", "No fleet configured for this operation");
     },

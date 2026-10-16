@@ -1,3 +1,5 @@
+import { realpath } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { Contact, LaunchStep, Operation, Settings, TerminalRef } from "../core/types.ts";
 import { PortError, type FleetPort, type Ports } from "../ports.ts";
 import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
@@ -203,7 +205,7 @@ export async function launchContact(
  * saved mission, so the child re-attaches it under `resumeHold` — `OMP_MISSION_AUTOSTART` is ignored
  * on attach — and sits at hold "resume" until someone (you or recovery) continues it.
  */
-export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: string): Promise<void> {
+export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: string, recovering = false): Promise<void> {
   const settings = await deps.settings();
   // Reserve a cap slot: watcher load misses relaunches still opening their pane.
   const load = deps.extras(opId).load;
@@ -213,6 +215,8 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
   const memory = memoryLaunchRefusal(deps.availableMemory?.() ?? null, Math.max(0, inflightLaunches));
   if (memory) throw new ActionError(409, "memory-pressure", memory);
   const operation = await readOperation(deps.home, opId);
+  if (recovering && !operation.recover)
+    throw new ActionError(409, "refused", "Recovery is disabled for this operation");
   const contact = operation.contacts.find((c) => c.ticket === ticket) as Contact;
   const lane = contact.lane as NonNullable<Contact["lane"]>;
   const terminal = lane.terminal as TerminalRef;
@@ -226,8 +230,18 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
   if (hasRecentUncontrolledStatus(saved, deps.now().getTime()))
     throw new ActionError(409, "refused", "Mission is publishing status without board control; use its existing pane");
 
-  // Close the recorded terminal when the frontend still lists it; a crashed pane is already gone.
   const listed = await ports.frontend.listTerminals();
+  if (recovering) {
+    // A quiet or manually resumed mission can outlive both its socket and recorded incarnation.
+    if (listed === null)
+      throw new ActionError(409, "refused", "Automatic relaunch requires terminal inventory; inspect the existing pane");
+    const worktree = await realpath(lane.worktree).catch(() => resolve(lane.worktree));
+    for (const row of listed) {
+      const path = await realpath(row.worktree).catch(() => resolve(row.worktree));
+      if (path === worktree || row.handle === terminal.handle)
+        throw new ActionError(409, "refused", "Automatic relaunch requires an empty workspace; use the existing pane or inspect it before manual Relaunch");
+    }
+  }
   if (listed === null || listed.some((row) => row.handle === terminal.handle && row.incarnationId === terminal.incarnationId)) {
     try {
       await ports.frontend.close(terminal, lane.worktree);

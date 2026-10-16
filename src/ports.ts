@@ -49,7 +49,7 @@ export interface TrackerPort {
 }
 
 
-export type ListedTerminal = TerminalRef & { worktree: string; connected: boolean };
+export type ListedTerminal = TerminalRef & { worktree: string; connected: boolean; agent?: string | null };
 
 export interface WorkspaceInput {
   repo: string;
@@ -103,6 +103,8 @@ export interface FleetPort {
   }): { argv: string[]; env: Record<string, string> };
   read(i: { worktree: string }): Promise<ContactStatus | null>;
   ping(status: ContactStatus): Promise<boolean>;
+  /** Process identity, independent of status freshness/socket authority; null when unavailable. */
+  running(status: ContactStatus): Promise<boolean | null>;
   /** The pending plan's text while hold is "plan-approval"; null when there is none (`no-plan`). */
   readPlan(status: ContactStatus): Promise<{ text: string; path: string; revision: string } | null>;
   control(status: ContactStatus, op: ControlOp, args: Record<string, unknown>): Promise<void>;

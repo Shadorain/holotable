@@ -53,6 +53,8 @@ interface OpState {
   open: number;
   /** Launched contacts whose terminal the frontend no longer lists (as of the last pass). */
   vanished: Set<string>;
+  /** Status files whose recorded process provably exited (pid reuse beats staleness). */
+  gone: Set<string>;
   /** Decision contacts with an open agent pane (decisions/<ticket>.pane.json on disk). */
   decisionPanes: Set<string>;
   /** Uncommitted path count in the integration checkout; null until probed or not a local-merge op. */
@@ -219,10 +221,15 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     const status = state.statuses[ticket] ?? null;
 
     let owner: Owner = "none";
-    if (status?.ctl) owner = (await guard(`ping ${ticket}`, () => ports.fleet.ping(status))) ? "live" : "offline";
-    else if (hasRecentUncontrolledStatus(status, deps.now().getTime())) owner = "observed";
+    const live = status?.ctl ? await guard(`ping ${ticket}`, () => ports.fleet.ping(status)) : false;
+    // A socket-free pane can still be a running process: liveness is independent of
+    // whether its last write was fresh, so a hung-then-quiet producer still shows.
+    const alive = live ? null : status?.session ? await guard(`process ${ticket}`, () => ports.fleet.running(status)) : null;
+    if (live) owner = "live";
+    else if (alive === true || hasRecentUncontrolledStatus(status, deps.now().getTime())) owner = "observed";
     else if (status && (seen.up || derived?.socketEver)) owner = "offline";
     state.owners[ticket] = owner;
+    if (alive === false) state.gone.add(ticket); else state.gone.delete(ticket);
 
     if (status && status.phase !== seen.phase) {
       await appendEvent(deps.home, op.id, { v: 1, at: at(), kind: "phase", contact: ticket, from: seen.phase, to: status.phase });
@@ -297,7 +304,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     state.open = openCount(op, folded, state);
     // Extras changes the board cannot see in events alone (status text, owners, probes,
     // integration dirt) still reach stream clients: the fingerprint moves with them.
-    const fp = JSON.stringify([state.statuses, state.owners, state.probes, state.integrationDirty, state.open, [...state.vanished].sort(), [...state.decisionPanes].sort()]);
+    const fp = JSON.stringify([state.statuses, state.owners, state.probes, state.integrationDirty, state.open, [...state.vanished].sort(), [...state.gone].sort(), [...state.decisionPanes].sort()]);
     if (fp !== state.fp) {
       state.fp = fp;
       notifyChanged();
@@ -409,7 +416,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         return { op, events };
       });
       if (!read) continue;
-      const state = ops.get(row.id) ?? { statuses: {}, owners: {}, probes: {}, lastSampleAt: 0, open: 0, vanished: new Set<string>(), decisionPanes: new Set<string>(), integrationDirty: null, fp: "" };
+      const state = ops.get(row.id) ?? { statuses: {}, owners: {}, probes: {}, lastSampleAt: 0, open: 0, vanished: new Set<string>(), gone: new Set<string>(), decisionPanes: new Set<string>(), integrationDirty: null, fp: "" };
       ops.set(row.id, state);
       const listsPanes = state.decisionPanes.size > 0 || read.op.contacts.some((c) => c.kind === "decision");
       state.decisionPanes = listsPanes
@@ -417,6 +424,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         : new Set<string>();
       const folded = foldEvents(read.events);
       clearStaleVanished(read.op, folded, state);
+      for (const ticket of [...state.gone]) if (!read.op.contacts.some((c) => c.ticket === ticket)) state.gone.delete(ticket);
       state.open = openCount(read.op, folded, state);
       loaded.push({...read,state,folded});
     }
@@ -469,7 +477,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       const state = ops.get(opId);
       const open = [...ops.values()].reduce((sum, s) => sum + s.open, 0);
       const load: Load = { live: state?.open ?? 0, open };
-      return { statuses: state?.statuses ?? {}, owners: state?.owners ?? {}, probes: state?.probes ?? {}, load, vanished: state?.vanished ?? new Set(), decisionPanes: state?.decisionPanes ?? new Set(), integrationDirty: state?.integrationDirty ?? null };
+      return { statuses: state?.statuses ?? {}, owners: state?.owners ?? {}, probes: state?.probes ?? {}, load, vanished: state?.vanished ?? new Set(), gone: state?.gone ?? new Set(), decisionPanes: state?.decisionPanes ?? new Set(), integrationDirty: state?.integrationDirty ?? null };
     },
   };
 }

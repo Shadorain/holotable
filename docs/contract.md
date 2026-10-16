@@ -9,6 +9,8 @@ updated within 90 seconds, or an active review before its declared deadline. Suc
 their reported phase without allowing fleet commands or automatic recovery. They count against
 capacity; after the activity window expires they are offline.
 
+A second pane can attach the same saved mission read-only (`session.owned: false`): it publishes snapshots but opens no socket, and it never overwrites an owner-published file that is less than ~45 s old — the owner's liveness is the file's modification time, so only a fresh write keeps it current.
+
 ## Status file
 
 Path: `<agentDir>/missions/<workspace-key>/status/<run-id>.json`, mode `0600` in a `0700` directory, written by tmp file + rename.
@@ -69,7 +71,13 @@ interface ContactStatus {
   } | null;
   measurements?: Measurements | null;
   usageEvidence?: UsageEvidence | null;
-  updatedAt: string;
+  session?: {                        // identity of the publishing process
+    id: string;                      // OMP session id
+    pid: number; processStart: string | null;  // start-time distinguishes recycled pids
+    terminal: string | null;         // Orca terminal handle when present
+    owned: boolean;                  // false = read-only inspection pane; it opens no socket
+  };
+  updatedAt: string;                 // when this snapshot was published (not mission.updatedAt)
 }
 ```
 
@@ -146,7 +154,7 @@ Exactly groups A/B with limits 1..64; baseline A or B; at most 100 trials; no re
 
 ## Control socket
 
-Path: `<tmpdir>/omp-mission-ctl-<uid>/<sha256(missionId)[0:16]>.sock`, directory `0700` (owner uid verified), socket `0600`. A short hashed path is used because mission ids reach ~100 characters and unix socket paths cap near 104. The socket exists only when the session was started with `OMP_HOLOTABLE_CHILD=1`, from the moment a mission becomes a pending plan until the owner releases it. `ctl.generation` is `Date.now()` at `listen`.
+Path: `<tmpdir>/omp-mission-ctl-<uid>/<sha256(missionId)[0:12]>-<pid>.sock`, directory `0700` (owner uid verified), socket `0600`. The pid suffix keeps a relaunched pane's socket unique while a stale file from the previous owner remains. A short hashed prefix is used because mission ids reach ~100 characters and unix socket paths cap near 104. The socket exists only on a controller pane started with `OMP_HOLOTABLE_CHILD=1` or one that later acquires ownership of a board-launched mission, from the moment a mission becomes a pending plan until the owner releases it. `ctl.generation` is `Date.now()` at `listen`.
 
 Newline-delimited JSON, one request per connection, one response line. Max line 64 KiB.
 

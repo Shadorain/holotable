@@ -11,7 +11,7 @@ import type {
 } from "../src/core/types.ts";
 import type { Evaluation } from "../src/core/evaluation.ts";
 import type { OperationReport, ReportContact } from "../src/core/report.ts";
-import type { Ports, Run, TrackerHit } from "../src/ports.ts";
+import type { ListedTerminal, Ports, Run, TrackerHit } from "../src/ports.ts";
 import { appendEvent } from "../src/store/events.ts";
 import { createOperation } from "../src/store/operations.ts";
 
@@ -155,6 +155,7 @@ export function fakePorts() {
   const world = {
     statuses: new Map<string, ContactStatus | null>(),
     alive: new Set<string>(),
+    running: new Map<string, boolean | null>(),
     tracker: new Map<string, { state: string; url: string | null } | null>(),
     /** Tracker search answers; null simulates an unavailable tracker. */
     searchHits: null as TrackerHit[] | null,
@@ -165,7 +166,7 @@ export function fakePorts() {
     /** createWorkspace waits on this when set, to hold a launch mid-flight. */
     hold: null as Promise<void> | null,
     /** What the frontend lists; null means it cannot list. */
-    terminals: null as Array<TerminalRef & { worktree: string; connected: boolean }> | null,
+    terminals: null as ListedTerminal[] | null,
   };
   const call = <T>(port: FakeCall["port"], method: string, args: unknown, fn: () => T): T => {
     calls.push({ port, method, args });
@@ -184,6 +185,7 @@ export function fakePorts() {
       launch: (i) => call("fleet", "launch", i, () => ({ argv: ["omp", "--config", i.overlay], env: { FAKE_LAUNCH: i.contact.ticket } })),
       read: async (i) => call("fleet", "read", i, () => world.statuses.get(i.worktree) ?? null),
       ping: async (s) => call("fleet", "ping", s.id, () => Boolean(s.ctl && world.alive.has(s.ctl.socket))),
+      running: async (s) => call("fleet", "running", s.id, () => world.running.get(s.id) ?? null),
       readPlan: async () => call("fleet", "readPlan", null, () => null),
       control: async (s, op: ControlOp, args) => call("fleet", "control", { id: s.id, op, args }, () => undefined),
     },

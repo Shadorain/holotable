@@ -48,6 +48,22 @@ export function sampleMachine(procRoot = "/proc"): MachineSample {
   };
 }
 
+/**
+ * Start-time comparison: pids recycle, /proc/<pid>/stat field 22 does not. Null means
+ * no answer — non-Linux, unreadable, or no process — never an inference.
+ */
+export function procAlive(pid: number, processStart: string | null, procRoot = "/proc"): boolean | null {
+  if (!Number.isSafeInteger(pid) || pid <= 0 || processStart === null) return null;
+  try {
+    const stat = readFileSync(join(procRoot, String(pid), "stat"), "utf8");
+    const ticks = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+    return ticks === processStart;
+  } catch {
+    // The pid is gone; a reused pid gives a different start-time, not a false positive.
+    return false;
+  }
+}
+
 /** Page size for statm. getconf is a spawn, and x86_64/arm64 boards run 4 KiB pages. */
 const PAGE_BYTES = 4096;
 

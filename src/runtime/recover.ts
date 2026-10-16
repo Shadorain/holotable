@@ -25,8 +25,8 @@ const MAX_RELAUNCHES = 3;
 const RELAUNCH_WINDOW_MS = 30 * 60 * 1000;
 /** `continue` takes the ownership lock, which stays stale ~30 s after a crash (ELOCKED until then). */
 const CONTINUE_RETRY_MS = 30 * 1000;
-/** A pane that still exists while its socket is dead this long means omp crashed or hung inside it. */
-const OFFLINE_RELAUNCH_MS = 60 * 1000;
+/** A stale watcher pass must not replace a child whose startup is still in flight. */
+const RELAUNCH_GRACE_MS = 60 * 1000;
 
 export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; deferred(opId: string): Readonly<Record<string, RecoveryWait>> } {
   // Relaunch waits on a control socket for up to 90 s; one attempt per contact at a time.
@@ -107,15 +107,6 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
     };
   }
 
-  /** When the socket last went down with nothing newer contradicting it; null when connected. */
-  function socketDownSince(events: Event[], ticket: string): number | null {
-    for (const e of [...events].reverse()) {
-      if (!("contact" in e) || e.contact !== ticket) continue;
-      if (e.kind === "socket-down") return Date.parse(e.at);
-      if (e.kind === "socket-up" || e.kind === "launched" || e.kind === "reaped" || e.kind === "landed") return null;
-    }
-    return null;
-  }
 
   /** Timestamp of the newest `launched`/`socket-up` for the ticket; null when none. */
   function lastFreshAt(events: Event[], ticket: string): number | null {
@@ -174,22 +165,15 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
         continue;
       }
 
-      // 2. Relaunch: pane gone from the frontend's list, or a listed pane whose owner died 60+ s ago.
       const lane = contact.lane;
-      if (contact.state !== "offline" || lane === null || !lane.terminal) continue;
+      // Vanished pane or a producer-confirmed dead process in a still-listed pane; a pane
+      // whose process is alive stays observed/offline until its status window expires.
+      if (contact.state !== "offline" || lane === null || !lane.terminal || (!extras.vanished.has(contact.ticket) && !extras.gone.has(contact.ticket))) continue;
       // An operator Reap means "leave it"; the only way back is the operator's own Relaunch.
       if (folded.contacts[contact.ticket]?.reaped) continue;
       if (status?.complete) continue;
-      const missing = extras.vanished.has(contact.ticket);
-      const downSince = socketDownSince(events, contact.ticket);
-      const hung = downSince !== null && now.getTime() - downSince >= OFFLINE_RELAUNCH_MS;
-      if (!missing && !hung) continue;
-      // A stale watcher pass can mark a just-relaunched pane vanished: give the
-      // recorded launched/socket-up the socket-down window before killing it.
-      if (missing && !hung) {
-        const freshAt = lastFreshAt(events, contact.ticket);
-        if (freshAt !== null && now.getTime() - freshAt < OFFLINE_RELAUNCH_MS) continue;
-      }
+      const freshAt = lastFreshAt(events, contact.ticket);
+      if (freshAt !== null && now.getTime() - freshAt < RELAUNCH_GRACE_MS) continue;
       if (state.relaunches < MAX_RELAUNCHES) {
         if (queued.has(`${opId}/${contact.ticket}`)) {
           defer(opId, contact.ticket, { kind: "capacity", detail: "Restart queued" });

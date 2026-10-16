@@ -148,6 +148,8 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
   /** Mutations go through the owning session's socket with a freshly read status; this process never attaches. */
   async function fleetOp(opId: string, ticket: string, op: ControlOp, args: Record<string, unknown>, recovering = false): Promise<void> {
     const operation = await readOperation(deps.home, opId);
+    if (recovering && !operation.recover)
+      throw new ActionError(409, "refused", "Recovery is disabled for this operation");
     const lane = operation.contacts.find((c) => c.ticket === ticket)?.lane;
     if (!lane) throw new ActionError(409, "refused", `${ticket} has no lane`);
     const fleet = deps.portsFor(operation, await deps.settings()).fleet;
@@ -164,12 +166,12 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
   }
 
   /** Same legality the board enforces: the Relaunch button exists and is enabled on a fresh projection. */
-  async function relaunch(opId: string, ticket: string): Promise<void> {
+  async function relaunch(opId: string, ticket: string, recovering: boolean): Promise<void> {
     const projection = await loadProjection(deps.home, opId, await deps.settings(), deps.now().getTime(), deps.extras(opId));
     const offered = projection.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === "relaunch");
     if (!offered?.enabled)
       throw new ActionError(409, "refused", offered?.reason ?? `${ticket} cannot be relaunched in its current state`);
-    await relaunchContact(deps, opId, ticket);
+    await relaunchContact(deps, opId, ticket, recovering);
   }
 
   async function focus(opId: string, ticket: string, purpose?: string): Promise<void> {
@@ -220,7 +222,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         run = () => fleetOp(req.op, req.contact, "plan-approve", req.args.revision ? { revision: req.args.revision } : {});
         break;
       case "relaunch":
-        run = () => relaunch(req.op, req.contact);
+        run = () => relaunch(req.op, req.contact, req.by === "recover");
         break;
       case "mode": {
         const mode = req.args.mode;

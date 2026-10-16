@@ -232,6 +232,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       launch: (i) => ({ argv: ["omp", "--config", i.overlay], env: { OMP_MISSION_AUTOSTART: `/mission ${i.contact.ticket}${i.operation.pause ? " --pause" : ""}` } }),
       read: async ({ worktree }) => (missions.get(worktree)?.closed ? null : statusOf(born(worktree, null))),
       ping: async (s) => s.ctl !== null && [...missions.values()].some((m) => m.id === s.id && !m.closed),
+      running: async (s) => [...missions.values()].some((m) => m.id === s.id && !m.closed),
       readPlan: async (s) => {
         const m = [...missions.values()].find((x) => x.id === s.id);
         if (!m || m.closed || m.resumeHold || m.stage !== "plan") return null;

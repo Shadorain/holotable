@@ -208,6 +208,18 @@ export function validateStatus(
     check = { at: k.at, state: k.state as NonNullable<ContactStatus["check"]>["state"], detail: k.detail, conflicts: k.conflicts as string[], threads: { open, total } };
   }
 
+  let session: ContactStatus["session"];
+  if (value.session !== undefined) {
+    const s = value.session;
+    if (!isRecord(s) || typeof s.id !== "string" || !s.id ||
+        typeof s.pid !== "number" || !Number.isSafeInteger(s.pid) || s.pid <= 0 ||
+        (s.processStart !== null && (typeof s.processStart !== "string" || !/^\d+$/.test(s.processStart))) ||
+        (s.terminal !== null && (typeof s.terminal !== "string" || !s.terminal)) ||
+        typeof s.owned !== "boolean")
+      return fail("session must carry id, pid, processStart, terminal and owned");
+    session = { id: s.id, pid: s.pid, processStart: s.processStart as string | null, terminal: s.terminal as string | null, owned: s.owned };
+  }
+
   const updatedAt = str("updatedAt");
   return {
     schema: 1,
@@ -238,5 +250,6 @@ export function validateStatus(
     ...(value.check === undefined ? {} : { check }),
     ...(value.review === undefined ? {} : { review }),
     ...(value.model === undefined ? {} : { model }),
+    ...(session === undefined ? {} : { session }),
   };
 }
