@@ -491,17 +491,22 @@ The archive keeps everything the operation had — `operation.json`, `events.jso
 
 ## Holotable Intel
 
-Open **Intel** in the header. The standalone `/intel` dashboard loads only when visited and reads only the selected operation's evaluation. Choose an open operation or frozen archive; **Refresh snapshot** is explicit. No polling, live stream, chart library, new process or database. Returning to Holotable unloads the dashboard.
+Open **Intel** in the header. **Fleet overview** and **Selected operation** share the same layout: headline cards, then the **Internal affairs** docket — a ranked list of open findings synthesized from the deterministic rules and rollup classes. Each case names the measured stat, the worst offending contacts (clicking a chip opens that contact on the board), and concrete fixes: copyable `/holotable` commands, board deep links, or manual checks. Severity degrades gracefully — critical actions first, then watches, then coverage caveats. **Fleet overview** aggregates the same classes across evaluated sources; direct operation/archive links open that scope first. Each scope loads independently, so a failed fleet rollup cannot block an operation snapshot. **Refresh snapshot** is explicit; no polling, live stream, chart library, new process or database.
 
-Four headlines show delivered work, median delivery time, recorded check failures and known spend. Recommendations show bounded evidence and caveats; expand them for contact history. Facet tabs cover:
+Operation headlines show delivered work, median delivery time, recorded check failures and known spend. Missing sources recover to an available selection with a notice. Below the docket, **Where recorded time and spend went** is the phase ledger — one row per phase with its share of measured time, attributed spend and tokens — and **Recorded evidence & coverage** folds every other scalar into a single drawer: queue and delivery samples, waits, launch/relaunch attempts, quality instrumentation, usage coverage and fleet connectivity. Fleet rankings, cohorts and diagnostics collapse into on-demand drawers; nothing renders a second copy of data already in the docket.
 
-- **Delivery & speed:** finished queue and end-to-end lead times, unfinished queue ages and incomplete work; phase timings and coverage stay collapsed.
-- **Quality & rework:** recorded verification outcomes, repeated failed revisions, review rounds/failures, findings and repairs. Missing instrumentation is unknown, not zero.
-- **Tokens & cost:** input/output/cache usage, known associated estimate per delivery, per-phase attributed usage and accounting coverage. Phase attribution assigns each usage-sample delta to the phase active when the sample arrived; boundaries are approximate. Missing sources, unpriced messages, resets and backlog are tucked into diagnostics.
-- **Bottlenecks:** approval/dependency/offline waits, review time, delivery delay and integration conflicts. Intervals may overlap.
-- **Fleet effectiveness:** connectivity, sampled worker occupancy, relaunches and dispatch reservations. These are capacity proxies, not productive CPU time or proof that concurrency caused a result.
-
+Fleet event ratios include observed zero-failure operations in their denominators. Time/cost shares use all recorded category totals, not just operations where that category appeared; overlapping waits are not shares of wall-clock time. Operation spend includes decision panes. Board-wide draft spend is separate and excluded from operation cost per delivery; the board-pane subtotal must not be added again to operation spend.
 All evaluation uses recorded history with no additional model calls or model-context tokens; nothing changes approvals, execution or scheduling. Landing, self-checks and model reviews are not externally verified correctness. Cost is an associated estimate, not an invoice or subscription bill. Archived reports freeze evaluation at close; legacy reports without it show **Evaluation not recorded**. The optional controlled-comparison fold explains `holotable compare --manifest FILE`, explicit baselines and matched `maxWorkers` trials; it never schedules an experiment.
+
+**Optional small-model interpretation:** **Export review prompt** downloads the current operation/archive or fleet snapshot as a bounded text prompt (maximum 32 KiB). It includes measurements, unknown/partial coverage and bounded recommendation/event references; it excludes raw transcripts and authentication headers. List/string omissions are declared, and oversized exports fail explicitly. Export is disabled while loading, after a failed scope switch, or when an archive has no evaluation; it never silently uses the previous scope.
+
+Inspect the file, then explicitly run your chosen small model from its download directory:
+
+```sh
+omp --model YOUR_SMALL_MODEL --no-tools --no-extensions --no-skills --no-rules --no-title --no-session --max-time 2m -p @holotable-intel-review.txt
+```
+
+The prompt requests at most five evidence-citing findings, with hypotheses separated from measurements. This is tool-free advisory interpretation, not an agent independently inspecting code or changing missions. The time limit is not a price cap; choose your provider/model deliberately. This separate OMP session's charges are not automatically attributed to the operation. Intel itself makes no model call, changes no policy, and does not store model output as deterministic evidence.
 
 The base header still shows operational `open/cap omp` and note task progress. Detailed analytics belong only in Intel.
 
@@ -533,8 +538,9 @@ Per operation under `$OMP_HOLOTABLE_HOME/operations/<id>/`:
 - `operation.json`: intent only (project, the fields it overrides, zones, contacts, blockers, lanes). The queue is derived: a contact with no lane is queued.
 - `events.jsonl`: append-only history. Everything shown (state, stats) is rebuilt from it.
 - `brief.md`: free-text brief, edited on the Operation page; `notes.md`: the scratch pad; `seed.json`: the raw seed the operation was created from.
+- `decisions/<ticket>.sessions/`: the decision pane's omp transcripts (`--session-dir`), rescanned each watcher pass into `pane-usage` spend deltas attributed to the ticket's `decision` phase.
 
-`drafts/<id>/` holds agent drafts until the form closes them.
+`drafts/<id>/` holds agent drafts until the form closes them; `drafts/<id>/sessions/` pins the draft pane's transcripts. Closing persists aggregate spend to `drafts/usage.jsonl` before deletion; a failed ledger write retains the transcripts for retry. Per-draft high-water marks prevent retry double-counting. Truncated or malformed evidence is marked partial.
 
 At the home root, `board.json` (`{pid, url}`) records the running service for clients and `token` keeps the service's auth token across restarts so URLs stay valid.
 

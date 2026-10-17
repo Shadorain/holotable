@@ -187,6 +187,9 @@ function historyLine(e: Event): HistoryEntry | null {
       return line(`operation closed: ${e.outcome}`);
     case "sample":
       return null;
+    case "pane-usage":
+      // Bookkeeping: spend is visible on Intel, not a human-meaningful history line.
+      return null;
     case "decided":
       return line(`${ticket} decided: ${e.choice}${e.by !== "operator" ? ` (by ${e.by})` : ""}`);
   }

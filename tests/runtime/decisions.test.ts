@@ -130,7 +130,8 @@ describe("decide-agent", () => {
     const op = await readOperation(t.home, "lab");
     expect(opened.worktree).toBe(op.integration);
     expect(opened.title).toBe("decide D-1");
-    expect(opened.argv[1]).toContain('"Stay"');
+    expect(opened.argv).toContain("--session-dir");
+    expect(opened.argv.at(-1)).toContain('"Stay"');
     expect(await readDecisionPane(t.home, "lab", "D-1")).toMatchObject({ terminal: { handle: "fake" } });
     expect((await t.events()).at(-1)).toMatchObject({ kind: "operator", op: "decide-agent", ok: true });
   });

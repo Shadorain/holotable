@@ -1,7 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { createWatcher } from "../../src/runtime/watcher.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings.ts";
-import { writeDecisionPane } from "../../src/store/decisions.ts";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { decisionSessionsDir, writeDecisionPane } from "../../src/store/decisions.ts";
 import { appendEvent, readEvents } from "../../src/store/events.ts";
 import { contact, fakePorts, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
 import { readOperation } from "../../src/store/operations.ts";
@@ -347,6 +349,40 @@ test("decision panes trigger terminal listing when needed", async () => {
   expect(fake.count("frontend.listTerminals")).toBe(2);
   const events = await readEvents(home, "lab");
   expect(events.some((e) => e.kind === "operator" && "error" in e && e.error === "pane closed before deciding")).toBe(true);
+});
+test("decision pane transcripts emit pane-usage deltas once, restart-safe", async () => {
+  const home = tempDir("watchp", dirs);
+  await seedOperation(home, { contacts: [contact("D-1", { kind: "decision" })] });
+  const fake = fakePorts();
+  const warnings: string[] = [];
+  let now = Date.parse("2026-01-01T00:00:00Z");
+  const make = () => createWatcher({ home, now: () => new Date(now), settings: async () => DEFAULT_SETTINGS, portsFor: () => fake.ports, warn: (m) => warnings.push(m) });
+  await writeDecisionPane(home, "lab", "D-1", { terminal: { handle: "td", incarnationId: "td-inc" }, startedAt: "2026-01-01T00:00:00Z" });
+  fake.world.terminals = [{ handle: "td", incarnationId: "td-inc", worktree: "/tmp/int", connected: true }];
+  const dir = decisionSessionsDir(home, "lab", "D-1");
+  await mkdir(dir, { recursive: true });
+  const transcript = (input: number) =>
+    `${JSON.stringify({ type: "message", message: { role: "assistant", usage: { input, output: 10, cacheRead: 0, cacheWrite: 0, cost: { total: 0.01 } } } })}\n`;
+  await writeFile(join(dir, "s1.jsonl"), transcript(100));
+  const watcher = make();
+  await watcher.pass();
+  let usageEvents = (await readEvents(home, "lab")).filter((e) => e.kind === "pane-usage");
+  expect(usageEvents).toHaveLength(1);
+  expect(usageEvents[0]).toMatchObject({ contact: "D-1", tokens: { input: 100, output: 10 }, costUsd: 0.01, sessions: 1 });
+  // Unchanged transcripts emit nothing; growth emits only the delta.
+  await watcher.pass();
+  expect((await readEvents(home, "lab")).filter((e) => e.kind === "pane-usage")).toHaveLength(1);
+  await writeFile(join(dir, "s1.jsonl"), transcript(150) + transcript(0));
+  now += 1000;
+  await watcher.pass();
+  usageEvents = (await readEvents(home, "lab")).filter((e) => e.kind === "pane-usage");
+  expect(usageEvents).toHaveLength(2);
+  expect(usageEvents[1]).toMatchObject({ tokens: { input: 50, output: 10 }, sessions: 0 });
+  // A fresh watcher folds history first: the same totals are not emitted again.
+  await make().pass();
+  expect((await readEvents(home, "lab")).filter((e) => e.kind === "pane-usage")).toHaveLength(2);
+  const evaluation = evaluateOperation(await readOperation(home, "lab"), foldEvents(await readEvents(home, "lab")), now);
+  expect(evaluation.usage.pane).toMatchObject({ tokens: 170, sessions: 1 });
 });
 
 test("counter and hold changes bypass slow usage sampling; restart seeds all merged groups",async()=>{

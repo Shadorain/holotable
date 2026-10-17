@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createBoardService, HttpError } from "../src/board.ts";
@@ -8,7 +8,7 @@ import { createWatcher } from "../src/runtime/watcher.ts";
 import { DEFAULT_SETTINGS } from "../src/settings.ts";
 import { writeSettings } from "../src/store/settings.ts";
 import { appendEvent, readEvents } from "../src/store/events.ts";
-import { removeDraft } from "../src/store/drafts.ts";
+import { readDraftUsage, recordDraftUsage, removeDraft } from "../src/store/drafts.ts";
 import { migrateHome } from "../src/store/migrate.ts";
 import { readNotes, writeNotes } from "../src/store/notes.ts";
 import { createOperation, readOperationDoc } from "../src/store/operations.ts";
@@ -197,6 +197,26 @@ test("a draft opens a pane, lists leftovers and closes by handle", async () => {
   await svc.closeDraft(id);
   expect(closed).toEqual(["pane-1"]);
   expect(await svc.listDrafts()).toEqual([]);
+});
+
+test("draft close preserves transcripts on ledger failure and retries without double charging", async () => {
+  const dir = home(), id = "draft-deadbeef";
+  const sessions = join(dir, "drafts", id, "sessions"), ledger = join(dir, "drafts", "usage.jsonl");
+  await mkdir(sessions, { recursive: true });
+  const transcript = join(sessions, "one.jsonl");
+  writeFileSync(transcript, JSON.stringify({ type: "message", message: { role: "assistant", usage: { input: 100, output: 10, cost: { total: 0.2 } } } }) + "\n");
+  const svc = createBoardService(dir);
+  await mkdir(ledger);
+  await expect(svc.closeDraft(id)).rejects.toThrow();
+  expect((await stat(transcript)).isFile()).toBe(true);
+  await rm(ledger, { recursive: true });
+  writeFileSync(ledger, '{"v":1,"id":');
+  await recordDraftUsage(dir, id, T0);
+  await recordDraftUsage(dir, id, T0);
+  await svc.closeDraft(id);
+  await svc.closeDraft(id);
+  expect(await readDraftUsage(dir)).toEqual({ tokens: 110, costUsd: 0.2, sessions: 1, partial: true });
+  await expect(stat(transcript)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
 test("a bad draft id cannot escape the drafts directory", async () => {

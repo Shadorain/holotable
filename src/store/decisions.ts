@@ -18,6 +18,11 @@ export function decisionPath(home: string, opId: string, ticket: string): string
 function panePath(home: string, opId: string, ticket: string): string {
   return join(decisionsDir(home, opId), `${file(ticket)}.pane.json`);
 }
+/** The pane's omp session transcripts (`--session-dir`): spend the board can attribute to the ticket. */
+export function decisionSessionsDir(home: string, opId: string, ticket: string): string {
+  return join(decisionsDir(home, opId), `${file(ticket)}.sessions`);
+}
+
 
 export interface DecisionPane {
   terminal: TerminalRef;

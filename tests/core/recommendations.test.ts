@@ -89,3 +89,22 @@ test("closed recommendations do not change with live read time",()=>{
  expect(first.evaluation?.recommendations.map(r=>r.id)).toEqual(["repeat-verification"]);
  expect(buildReport(op,events,new Date(T0+100_000_000)).evaluation?.recommendations).toEqual(first.evaluation?.recommendations);
 });
+
+test("relaunch, delivery and dependency rules rank the worst offending contacts rather than alphabetical seed order",()=>{
+ const contacts=["a","b","c","d","z"].map(ticket=>makeContact(ticket));
+ const events:Event[]=[
+  ev(0,"a","blocked"),ev(10_000,"a","unblocked"),ev(10_001,"a","launched",{worktree:"/w",frontend:"orca",terminal:{handle:"a",incarnationId:"a"}}),
+  launch("b"),launch("b"),
+  ...Array.from({length:5},(_,i)=>ev(10+i,"z","launched",{worktree:"/w",frontend:"orca",terminal:{handle:"z",incarnationId:`z-${i}`}})),
+  ...Array.from({length:3},(_,i)=>ev(20+i,"d","launched",{worktree:"/w",frontend:"orca",terminal:{handle:"d",incarnationId:`d-${i}`}})),
+  ev(0,"c","blocked"),
+  sample(10_030,"a","none",true),ev(630_001,"a","landed",{via:"merge"}),
+  sample(31,"b","none",true),ev(930_001,"b","landed",{via:"merge"}),
+  sample(32,"z","none",true),ev(1_530_001,"z","landed",{via:"merge"}),
+  ev(630_001,"d","landed",{via:"merge"}),
+ ];
+ const e=facts(events,contacts,2_000_000);
+ expect(e.recommendations.find(r=>r.id==="relaunch-churn")?.evidence.contacts).toEqual(["z","d","b"]);
+ expect(e.recommendations.find(r=>r.id==="delivery-wait")?.evidence.contacts).toEqual(["z","b","a"]);
+ expect(e.recommendations.find(r=>r.id==="dependency-wait")?.evidence.contacts).toEqual(["c","a"]);
+});

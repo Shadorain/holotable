@@ -235,6 +235,7 @@ export type Event =
   | (ContactEventBase & { kind: "landed"; via: "merge" | "pr" | "manual" })
   | (ContactEventBase & { kind: "reaped" })
   | (ContactEventBase & ({ kind: "sample" } & SampleFields))
+  | (ContactEventBase & { kind: "pane-usage"; pane: string; tokens: UsageTotals["tokens"]; costUsd: number | null; sessions: number; malformedLines?: number; truncated?: boolean })
   | (ContactEventBase & { kind: "removed"; worktree: string })
   | (EventBase & { kind: "auto"; enabled: boolean; reason?: string; by: "operator" | "board" })
   | (EventBase & { kind: "workflow"; item: string; done: boolean })
@@ -261,6 +262,7 @@ export const CONTACT_EVENT_KINDS = [
   "landed",
   "reaped",
   "sample",
+  "pane-usage",
 ] as const;
 export const OPERATION_EVENT_KINDS = ["workflow", "closed", "auto", "recover"] as const;
 

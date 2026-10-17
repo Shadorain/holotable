@@ -1,9 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { parseSeed, type SeedShape } from "../core/seed.ts";
 import { FRONTENDS, type Frontend, type TerminalRef } from "../core/types.ts";
 import { draftDir, draftsDir } from "../paths.ts";
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
+import { summarizePaneSessions } from "./pane-usage.ts";
 
 export const MAX_DRAFT_INPUT = 64 * 1024;
 
@@ -224,6 +227,72 @@ export async function listDrafts(home: string): Promise<DraftEntry[]> {
   }
   return out;
 }
+export interface DraftUsage {
+  tokens: number;
+  costUsd: number | null;
+  sessions: number;
+  partial: boolean;
+}
+
+/** Persist before deleting transcripts. A leading newline isolates a crash-torn previous row. */
+export async function recordDraftUsage(home: string, id: string, at: string): Promise<void> {
+  assertDraftId(id);
+  const usage = await summarizePaneSessions(join(draftDir(home, id), "sessions"));
+  if (!usage) return;
+  const { tokens, costUsd, sessions, malformedLines, truncated } = usage;
+  await appendFile(join(draftsDir(home), "usage.jsonl"),
+    `\n${JSON.stringify({ v: 1, at, id, tokens, costUsd, sessions, malformedLines, truncated })}\n`, { mode: 0o600 });
+}
+
+/** Per-draft high-water marks make repeated closes and crash retries idempotent. */
+export async function readDraftUsage(home: string): Promise<DraftUsage | null> {
+  const path = join(draftsDir(home), "usage.jsonl");
+  try {
+    await stat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const out: DraftUsage = { tokens: 0, costUsd: null, sessions: 0, partial: false };
+  const seen = new Map<string, { tokens: Record<string, number>; costUsd: number | null; sessions: number }>();
+  const keys = ["input", "output", "cacheRead", "cacheWrite"] as const;
+  const count = (n: unknown): n is number => typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
+  const stream = createReadStream(path, { encoding: "utf8" });
+  const lines = createInterface({ input: stream, crlfDelay: Infinity });
+  try {
+    for await (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const row = JSON.parse(line);
+        if (!row || row.v !== 1 || typeof row.id !== "string" || !DRAFT_ID.test(row.id) ||
+            !row.tokens || !keys.every(k => count(row.tokens[k])) || !count(row.sessions) ||
+            !(row.costUsd === null || typeof row.costUsd === "number" && Number.isFinite(row.costUsd) && row.costUsd >= 0) ||
+            (row.malformedLines !== undefined && !count(row.malformedLines)) ||
+            (row.truncated !== undefined && typeof row.truncated !== "boolean")) {
+          out.partial = true;
+          continue;
+        }
+        out.partial ||= row.truncated === true || (row.malformedLines ?? 0) > 0 || row.costUsd === null;
+        const previous = seen.get(row.id);
+        for (const k of keys) out.tokens += Math.max(0, row.tokens[k] - (previous?.tokens[k] ?? 0));
+        if (row.costUsd !== null) out.costUsd = (out.costUsd ?? 0) + Math.max(0, row.costUsd - (previous?.costUsd ?? 0));
+        out.sessions += Math.max(0, row.sessions - (previous?.sessions ?? 0));
+        seen.set(row.id, {
+          tokens: Object.fromEntries(keys.map(k => [k, Math.max(row.tokens[k], previous?.tokens[k] ?? 0)])),
+          costUsd: row.costUsd === null ? previous?.costUsd ?? null : Math.max(row.costUsd, previous?.costUsd ?? 0),
+          sessions: Math.max(row.sessions, previous?.sessions ?? 0),
+        });
+      } catch {
+        out.partial = true;
+      }
+    }
+  } finally {
+    lines.close();
+    stream.destroy();
+  }
+  return seen.size || out.partial ? out : null;
+}
+
 
 export async function removeDraft(home: string, id: string): Promise<void> {
   assertDraftId(id);

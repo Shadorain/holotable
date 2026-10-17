@@ -1,3 +1,5 @@
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { foldEvents } from "../core/fold.ts";
 import { unmetBlockers } from "../core/graph.ts";
 import { MEASUREMENT_COUNTS } from "../core/evaluation.ts";
@@ -19,7 +21,8 @@ import type { Ports } from "../ports.ts";
 import type { ProjectionExtras } from "../snapshot.ts";
 import type { ListedTerminal, Run } from "../ports.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
-import { listDecisionPanes, readDecisionDoc, readDecisionPane, removeDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
+import { decisionsDir, listDecisionPanes, readDecisionDoc, readDecisionPane, removeDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
+import { summarizePaneSessions } from "../store/pane-usage.ts";
 import { listOperations, readOperation } from "../store/operations.ts";
 import { notifyChanged } from "../core/notify.ts";
 
@@ -61,6 +64,8 @@ interface OpState {
   integrationDirty: number | null;
   /** Serialized extras after the last pass; a change is pushed to stream clients. */
   fp: string;
+  /** Signature per .sessions dir; an unchanged dir skips re-parsing its transcripts. */
+  paneSigs: Map<string, string>;
 }
 
 const GLOBAL_FRONTENDS: Record<string, true> = { orca: true, herdr: true };
@@ -401,6 +406,54 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         state.decisionPanes.delete(ticket);
       }
     }
+    // Replay supplies the committed baseline, including panes whose contacts were removed.
+    const entries = await guard("decision sessions", async () => {
+      try {
+        return await readdir(decisionsDir(deps.home, op.id));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+        throw error;
+      }
+    });
+    for (const entry of entries ?? []) {
+      if (!entry.endsWith(".sessions")) continue;
+      let ticket: string;
+      try {
+        ticket = decodeURIComponent(entry.slice(0, -".sessions".length));
+      } catch {
+        continue;
+      }
+      if (encodeURIComponent(ticket) + ".sessions" !== entry) continue;
+      const dir = join(decisionsDir(deps.home, op.id), entry);
+      const summary = await guard(`pane usage ${ticket}`, () => summarizePaneSessions(dir, state.paneSigs));
+      if (!summary) continue;
+      const ev = folded.evaluation?.contacts[ticket];
+      const tokens = {
+        input: Math.max(0, summary.tokens.input - (ev?.paneEmittedTokens.input ?? 0)),
+        output: Math.max(0, summary.tokens.output - (ev?.paneEmittedTokens.output ?? 0)),
+        cacheRead: Math.max(0, summary.tokens.cacheRead - (ev?.paneEmittedTokens.cacheRead ?? 0)),
+        cacheWrite: Math.max(0, summary.tokens.cacheWrite - (ev?.paneEmittedTokens.cacheWrite ?? 0)),
+      };
+      const sessions = Math.max(0, summary.sessions - (ev?.paneSessions ?? 0));
+      const costUsd = summary.costUsd === null ? null : Math.max(0, summary.costUsd - (ev?.paneEmittedCostUsd ?? 0));
+      const malformedLines = Math.max(0, summary.malformedLines - (ev?.paneMalformed ?? 0));
+      const truncated = summary.truncated && ev?.paneTruncated !== true;
+      const grew = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite > 0 || sessions > 0 || malformedLines > 0 || (costUsd ?? 0) > 0 || truncated;
+      if (!grew) {
+        if (summary.signature) state.paneSigs.set(dir, summary.signature);
+        continue;
+      }
+      const committed = await guard(`pane usage append ${ticket}`, async () => {
+        await appendEvent(deps.home, op.id, {
+          v: 1, at: at(), kind: "pane-usage", contact: ticket, pane: `pane:${ev?.paneEvents ?? 0}`,
+          tokens, costUsd, sessions,
+          ...(malformedLines > 0 ? { malformedLines } : {}),
+          ...(truncated ? { truncated } : {}),
+        });
+        return true;
+      });
+      if (committed && summary.signature) state.paneSigs.set(dir, summary.signature);
+    }
   }
 
   async function run(only: string | null, force: boolean): Promise<void> {
@@ -416,7 +469,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         return { op, events };
       });
       if (!read) continue;
-      const state = ops.get(row.id) ?? { statuses: {}, owners: {}, probes: {}, lastSampleAt: 0, open: 0, vanished: new Set<string>(), gone: new Set<string>(), decisionPanes: new Set<string>(), integrationDirty: null, fp: "" };
+      const state = ops.get(row.id) ?? { statuses: {}, owners: {}, probes: {}, lastSampleAt: 0, open: 0, vanished: new Set<string>(), gone: new Set<string>(), decisionPanes: new Set<string>(), integrationDirty: null, fp: "", paneSigs: new Map<string,string>() };
       ops.set(row.id, state);
       const listsPanes = state.decisionPanes.size > 0 || read.op.contacts.some((c) => c.kind === "decision");
       state.decisionPanes = listsPanes

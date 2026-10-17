@@ -188,6 +188,32 @@ export function validateEvent(value: unknown, path = "events.jsonl"): Event {
       };
     case "landed":
       return { ...base, kind: "landed", via: inList("via", value.via, LANDED_VIA) };
+    case "pane-usage": {
+      if (typeof value.pane !== "string" || !value.pane.length || value.pane.length > 200)
+        return fail("pane-usage.pane must be a bounded string");
+      if (!isRecord(value.tokens)) return fail("pane-usage.tokens must be an object");
+      const paneKeys = ["input", "output", "cacheRead", "cacheWrite"] as const;
+      const paneTokens = {} as Record<(typeof paneKeys)[number], number>;
+      for (const k of paneKeys) {
+        if (typeof value.tokens[k] !== "number" || !Number.isSafeInteger(value.tokens[k]) || value.tokens[k] < 0)
+          return fail(`pane-usage.tokens.${k} must be a non-negative integer`);
+        paneTokens[k] = value.tokens[k] as number;
+      }
+      if (value.costUsd !== null && value.costUsd !== undefined && (typeof value.costUsd !== "number" || !Number.isFinite(value.costUsd) || value.costUsd < 0))
+        return fail("pane-usage.costUsd must be a non-negative number or null");
+      if (typeof value.sessions !== "number" || !Number.isSafeInteger(value.sessions) || value.sessions < 0)
+        return fail("pane-usage.sessions must be a non-negative integer");
+      if (value.malformedLines !== undefined && (typeof value.malformedLines !== "number" || !Number.isSafeInteger(value.malformedLines) || value.malformedLines < 0))
+        return fail("pane-usage.malformedLines must be a non-negative integer");
+      if (value.truncated !== undefined && typeof value.truncated !== "boolean")
+        return fail("pane-usage.truncated must be a boolean");
+      return {
+        ...base, kind: "pane-usage", pane: value.pane, tokens: paneTokens,
+        costUsd: (value.costUsd as number | null | undefined) ?? null, sessions: value.sessions,
+        ...(value.malformedLines ? { malformedLines: value.malformedLines as number } : {}),
+        ...(value.truncated === true ? { truncated: true } : {}),
+      };
+    }
     case "sample": {
       const sample: SampleFields = {};
       if (value.mission !== undefined) {

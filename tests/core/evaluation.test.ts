@@ -6,6 +6,47 @@ import type { Event } from "../../src/core/types.ts";
 import { ev, iso, makeContact, makeOp, T0, makeMeasurements as measurements, makeUsageEvidence as usage } from "./fixtures.ts";
 import { validateEvent } from "../../src/core/validate-event.ts";
 
+test("phase attribution deduplicates a shared source across contacts", () => {
+  const mission = { id: "shared", hold: "none", verify: null, complete: false };
+  const events = [
+    ev(0, "a", "phase", { to: "execute" }), ev(0, "b", "phase", { to: "review" }),
+    ev(1, "a", "sample", { mission, usageEvidence: usage(100, 1) }),
+    ev(2, "b", "sample", { mission, usageEvidence: usage(100, 1) }),
+    ev(3, "a", "sample", { mission, usageEvidence: usage(200, 2) }),
+    ev(4, "b", "sample", { mission, usageEvidence: usage(200, 2) }),
+  ];
+  const result = evaluateOperation(makeOp([makeContact("a"), makeContact("b")]), foldEvents(events), T0 + 10);
+  expect(result.usage.byPhase).toEqual({ execute: { tokens: 100, costUsd: 1 } });
+  expect(result.usage.knownCostUsd).toBe(2);
+});
+
+test("mission replacement retains previously attributed phase spend without a cross-run delta", () => {
+  const mission = { id: "one", hold: "none", verify: null, complete: false };
+  const events = [
+    ev(0, "a", "phase", { to: "review" }),
+    ev(1, "a", "sample", { mission, usageEvidence: usage(100, 1) }),
+    ev(2, "a", "sample", { mission, usageEvidence: usage(200, 2) }),
+    ev(3, "a", "sample", { mission: { ...mission, id: "two" }, usageEvidence: usage(200, 2) }),
+  ];
+  const result = evaluateOperation(makeOp([makeContact("a")]), foldEvents(events), T0 + 10);
+  expect(result.usage.byPhase?.review).toEqual({ tokens: 100, costUsd: 1 });
+  expect(result.usage.knownCostUsd).toBe(2);
+});
+
+test("removed decision contacts retain pane spend and old duplicate ids never add it twice", () => {
+  const deltas = Array.from({ length: 12 }, (_, i) => ev(i, "removed", "pane-usage", {
+    pane: `pane:${i}`, tokens: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0 }, costUsd: 0.5, sessions: i === 0 ? 1 : 0,
+  }));
+  const events = [...deltas, deltas[0]!, ev(20, null, "closed", { outcome: "abandoned" })];
+  const result = evaluateOperation(makeOp([]), foldEvents(events), T0 + 100);
+  expect(result.usage.pane).toEqual({ tokens: 132, costUsd: 6, sessions: 1 });
+  expect(result.usage.knownCostUsd).toBe(6);
+  expect(result.usage.byPhase?.decision).toEqual({ tokens: 132, costUsd: 6 });
+  expect(result.deliveredWork).toBe(0);
+  expect(result.coverage.timed).toBe(0);
+  expect(evaluateOperation(makeOp([]), foldEvents(JSON.parse(JSON.stringify(events))), T0 + 1000)).toEqual(result);
+});
+
 const launched = (at: number, ticket = "a") => ev(at, ticket, "launched", { worktree: "/w", frontend: "orca", terminal: { handle: "h", incarnationId: "i" } });
 
 test("finished queue latency is separate from unfinished ages and non-work delivery", () => {
@@ -57,7 +98,7 @@ test("cumulative source snapshots deduplicate contacts and preserve observed usa
   expect(result.usage.partial).toBe(true);
   expect(result.usage.costPerDelivered).toBeNull();
 });
-test("usage deltas attribute to the phase active at sample time and rebase on resets", () => {
+test("legacy scope changes and reset recovery cannot invent attributed source spend", () => {
   const op = makeOp([makeContact("a"), makeContact("b"), makeContact("c")]);
   const events = [
     launched(0), launched(0, "b"), launched(0, "c"),
@@ -84,9 +125,12 @@ test("usage deltas attribute to the phase active at sample time and rebase on re
       usageEvidence: usage(260),
     }),
   ];
+  const beforeReset = evaluateOperation(op, foldEvents(events.filter(e => e.at < iso(50))), T0 + 49);
   const result = evaluateOperation(op, foldEvents(events), T0 + 70);
-  expect(result.usage.byPhase!.review.tokens).toBe(290);
-  expect(result.usage.byPhase!.review.costUsd).toBeCloseTo(2.9, 10);
+  expect(result.usage.byPhase!.review).toEqual(beforeReset.usage.byPhase!.review);
+  const recovered = evaluateOperation(op, foldEvents([...events, ev(80, "a", "sample", { usageEvidence: usage(350) })]), T0 + 90);
+  expect(recovered.usage.byPhase!.review.tokens - result.usage.byPhase!.review.tokens).toBe(50);
+  expect(recovered.usage.byPhase!.review.costUsd! - result.usage.byPhase!.review.costUsd!).toBeCloseTo(.5, 10);
   expect(result.usage.byPhase!.execute.tokens).toBe(10);
   expect(result.usage.byPhase!.execute.costUsd).toBeCloseTo(1, 10);
 });

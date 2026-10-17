@@ -14,6 +14,8 @@ export interface UsageEvaluation {
   malformedLines: number; resets: number; backlogBytes: number; coordinatorSessionAssociated: boolean; partial: boolean;
   /** Token deltas attributed to the contact's phase at sample time; phase keys absent without data. */
   byPhase?: Record<string, { tokens: number; costUsd: number | null }>;
+  /** Agent panes the board itself opened (decision panes); absent on evaluations older than pane accounting. */
+  pane?: { tokens: number; costUsd: number | null; sessions: number } | null;
 }
 export interface QualityEvaluation {
   since: string; recordedPassed: number; recordedFailed: number; repeatedFailedRevision: number;
@@ -45,13 +47,16 @@ export interface ContactEvaluation {
   mission: string | null; latestRun: string | null; unknown: boolean; scoped: boolean;
   missing: number; unsupported: number; malformed: number; resets: number; backlog: number; partial: boolean;
   gateRefs:number[]; readyRefs:number[]; launchRefs:number[]; blockedRefs:number[]; usageRef:number|null; legacy:SampleFields["usage"]|null;
-  usageTotals:UsageTotals["tokens"]|null; usageCostUsd:number|null; legacyTotals:UsageTotals["tokens"]|null; legacyCostUsd:number|null;
+  legacyTotals:UsageTotals["tokens"]|null; legacyCostUsd:number|null;
   phaseTokens:Record<string,number>; phaseCostUsd:Record<string,number>;
+  /** Pane totals already emitted to history; the watcher reads them to emit only the delta since last record. */
+  paneIds:string[]; paneTokens:number; paneCostUsd:number|null; paneSessions:number;
+  paneEmittedTokens:UsageTotals["tokens"]; paneEmittedCostUsd:number; paneMalformed:number; paneTruncated:boolean; paneEvents:number;
 }
 interface RunEvidence { contact: string; missionId: string; measurements: Measurements; eventIndexes: number[] }
 export interface EvaluationEvidence {
   runs: RunEvidence[];
-  contacts:Array<{ticket:string;lifetimeMs:number|null;gateHoldMs:number|null;blockedMs:number|null;finalReadyMs:number|null;gateEventIndexes:number[];blockedEventIndexes:number[];deliveryEventIndexes:number[];launchEventIndexes:number[]}>;
+  contacts:Array<{ticket:string;launches?:number;lifetimeMs:number|null;gateHoldMs:number|null;blockedMs:number|null;finalReadyMs:number|null;gateEventIndexes:number[];blockedEventIndexes:number[];deliveryEventIndexes:number[];launchEventIndexes:number[]}>;
   conflictEvents: Array<{ contact: string; index: number }>;
   usageEvents: Array<{ contact: string; index: number }>;
 }
@@ -100,7 +105,7 @@ export function createFoldEvaluation(): FoldEvaluation {
   return { clock: null, closed: null, anomalies: 0, resets: 0, contacts: Object.create(null), runs: new Map(), sources: new Map(), connected: 0, peak: 0, connectedMs: 0, connectivityFrom: null, config: { value: null, mixed: false }, conflicts: [] };
 }
 function newContact(at: number): ContactEvaluation {
-  return { queued: null, launched: null, landed: null, ended: null, at, active: true, phase: null, gate: null, hold: null, blocked: null, socket: false, offline: false, workerValue: null, phaseMs: Object.create(null), gateMs: null, offlineMs: null, blockedMs: null, holdMs: {}, workerMs: 0, coveredMs: 0, completeAt: null, launches: 0, launchFailures: 0, landAttempts: 0, conflicts: 0, resends: 0, mission: null, latestRun: null, unknown: false, scoped: false, missing: 0, unsupported: 0, malformed: 0, resets: 0, backlog: 0, partial: false, gateRefs:[],readyRefs:[],launchRefs:[],blockedRefs:[],usageRef:null,legacy:null,usageTotals:null,usageCostUsd:null,legacyTotals:null,legacyCostUsd:null,phaseTokens:{},phaseCostUsd:{} };
+  return { queued: null, launched: null, landed: null, ended: null, at, active: true, phase: null, gate: null, hold: null, blocked: null, socket: false, offline: false, workerValue: null, phaseMs: Object.create(null), gateMs: null, offlineMs: null, blockedMs: null, holdMs: {}, workerMs: 0, coveredMs: 0, completeAt: null, launches: 0, launchFailures: 0, landAttempts: 0, conflicts: 0, resends: 0, mission: null, latestRun: null, unknown: false, scoped: false, missing: 0, unsupported: 0, malformed: 0, resets: 0, backlog: 0, partial: false, gateRefs:[],readyRefs:[],launchRefs:[],blockedRefs:[],usageRef:null,legacy:null,legacyTotals:null,legacyCostUsd:null,phaseTokens:{},phaseCostUsd:{},paneIds:[],paneTokens:0,paneCostUsd:null,paneSessions:0,paneEmittedTokens:{input:0,output:0,cacheRead:0,cacheWrite:0},paneEmittedCostUsd:0,paneMalformed:0,paneTruncated:false,paneEvents:0 };
 }
 function accrue(c: ContactEvaluation, at: number): void {
   const dt = Math.max(0, at - c.at);
@@ -115,13 +120,11 @@ function accrue(c: ContactEvaluation, at: number): void {
 
   c.at = at;
 }
-/** Attribute a usage delta to the phase active at sample time; a total drop rebases without attributing.
- * Legacy `usage` (coordinator session) and scoped `usageEvidence` (coordinator+worker+review) totals
- * measure different scopes, so each keeps its own baseline; mixing them would invent deltas. */
-function attributeUsage(c: ContactEvaluation, scope: "usage" | "evidence", total: UsageTotals["tokens"], costUsd: number | null, suppress = false): void {
+/** Legacy totals have no source ids; they cannot share the scoped source high-water marks. */
+function attributeLegacyUsage(c: ContactEvaluation, total: UsageTotals["tokens"], costUsd: number | null, suppress = false): void {
   const phase = c.phase ?? "unknown";
-  const prior = scope === "usage" ? c.legacyTotals : c.usageTotals;
-  const priorCost = scope === "usage" ? c.legacyCostUsd : c.usageCostUsd;
+  const prior = c.legacyTotals;
+  const priorCost = c.legacyCostUsd;
   if (prior !== null && !suppress) {
     const dropped = TOKEN_KEYS.some(k => total[k] < prior[k]);
     if (!dropped) {
@@ -132,16 +135,26 @@ function attributeUsage(c: ContactEvaluation, scope: "usage" | "evidence", total
         c.phaseCostUsd[phase] = (c.phaseCostUsd[phase] ?? 0) + (costUsd - priorCost);
     }
   }
-  if (scope === "usage") { c.legacyTotals = { ...total }; c.legacyCostUsd = costUsd; }
-  else { c.usageTotals = { ...total }; c.usageCostUsd = costUsd; }
+  c.legacyTotals = { ...total }; c.legacyCostUsd = costUsd;
 }
-function sourceHighWater(s: FoldEvaluation, value: UsageSource): void {
+function sourceHighWater(s: FoldEvaluation, value: UsageSource, c: ContactEvaluation): void {
   const key = `${value.role}:${value.id}`;
   const old = s.sources.get(key);
   if (!old) { s.sources.set(key, { ...value, tokens: { ...value.tokens } }); return; }
-  let reset = false;
-  for (const k of TOKEN_KEYS) { if (value.tokens[k] < old.tokens[k]) reset = true; old.tokens[k] = Math.max(old.tokens[k], value.tokens[k]); }
+  let reset = false, delta = 0;
+  const costDelta = value.costUsd !== null && old.costUsd !== null ? Math.max(0, value.costUsd - old.costUsd) : 0;
+  for (const k of TOKEN_KEYS) {
+    if (value.tokens[k] < old.tokens[k]) reset = true;
+    delta += Math.max(0, value.tokens[k] - old.tokens[k]);
+    old.tokens[k] = Math.max(old.tokens[k], value.tokens[k]);
+  }
   if (value.costUsd !== null) { if (old.costUsd !== null && value.costUsd < old.costUsd) reset = true; old.costUsd = Math.max(old.costUsd ?? 0, value.costUsd); }
+  // The first observer of a shared source delta owns its approximate phase attribution.
+  if (!reset) {
+    const phase = c.phase ?? "unknown";
+    if (delta > 0) c.phaseTokens[phase] = (c.phaseTokens[phase] ?? 0) + delta;
+    if (costDelta > 0) c.phaseCostUsd[phase] = (c.phaseCostUsd[phase] ?? 0) + costDelta;
+  }
   old.sessions = Math.max(old.sessions, value.sessions);
   old.pricedMessages = Math.max(old.pricedMessages, value.pricedMessages);
   old.unpricedMessages = Math.max(old.unpricedMessages, value.unpricedMessages);
@@ -180,15 +193,32 @@ export function foldEvaluation(s: FoldEvaluation, e: Event, index: number): void
     case "launch-failed": c.launchFailures++; break;
     case "land-attempt": c.landAttempts++; if (e.outcome === "conflict") { c.conflicts++; if (s.conflicts.length < 3) s.conflicts.push({ contact: e.contact, index }); } break;
     case "operator": if (e.ok && e.op === "approve") c.gate = null; if (e.ok && e.op === "resend") c.resends++; break;
+    case "pane-usage": {
+      // Monotonic producer ids dedupe even when an old duplicate outlives the legacy-id ring.
+      const sequence = /^pane:(0|[1-9][0-9]*)$/.test(e.pane) ? Number(e.pane.slice(5)) : null;
+      if (sequence !== null && Number.isSafeInteger(sequence) && sequence < c.paneEvents) break;
+      if (c.paneIds.includes(e.pane)) break;
+      if (c.paneIds.length === 8) c.paneIds.shift();
+      c.paneIds.push(e.pane);
+      const tokens = TOKEN_KEYS.reduce((n, k) => n + e.tokens[k], 0);
+      c.paneEvents = sequence !== null && Number.isSafeInteger(sequence) ? Math.max(c.paneEvents + 1, sequence + 1) : c.paneEvents + 1;
+      c.paneTokens += tokens; c.paneSessions += e.sessions;
+      for (const k of TOKEN_KEYS) c.paneEmittedTokens[k] += e.tokens[k];
+      if (e.costUsd !== null) { c.paneCostUsd = (c.paneCostUsd ?? 0) + e.costUsd; c.paneEmittedCostUsd += e.costUsd; }
+      c.paneMalformed += e.malformedLines ?? 0;
+      c.paneTruncated ||= e.truncated === true;
+      c.phaseTokens["decision"] = (c.phaseTokens["decision"] ?? 0) + tokens;
+      if (e.costUsd !== null) c.phaseCostUsd["decision"] = (c.phaseCostUsd["decision"] ?? 0) + e.costUsd;
+      c.malformed += e.malformedLines ?? 0;
+      if (e.truncated || (e.malformedLines ?? 0) > 0) c.partial = true;
+      break;
+    }
     case "sample": {
       if (e.workers !== undefined && nonnegative(e.workers)) c.workerValue = e.workers;
-      // Legacy usage is coordinator-session spend; once scoped evidence exists it would double-count
-      // that same spend in the attribution window, so its deltas stop attributing (baseline still tracks).
-      if (e.usage !== undefined) { c.legacy = e.usage; attributeUsage(c, "usage", e.usage.tokens, e.usage.costUsd, c.scoped || (e.usageEvidence !== undefined && e.usageEvidence !== null)); }
       if (e.mission !== undefined) {
         if(c.mission!==e.mission.id){
           if(c.mission!==null&&c.partial)c.unknown=true;
-          c.partial=c.scoped;c.hold=null;c.latestRun=null;c.completeAt=null;c.readyRefs.length=0;c.usageTotals=null;c.usageCostUsd=null;c.legacyTotals=null;c.legacyCostUsd=null;c.phaseTokens={};c.phaseCostUsd={};
+          c.partial=c.scoped;c.hold=null;c.latestRun=null;c.completeAt=null;c.readyRefs.length=0;c.legacyTotals=null;c.legacyCostUsd=null;
         }
         if(c.hold!==e.mission.hold&&(c.hold==="gate"||e.mission.hold==="gate")){
           if(c.gateRefs.length===3)c.gateRefs.shift();c.gateRefs.push(index);
@@ -198,6 +228,8 @@ export function foldEvaluation(s: FoldEvaluation, e: Event, index: number): void
         c.mission = e.mission.id; c.hold = e.mission.hold;
         c.completeAt=e.mission.complete?(c.completeAt??at):null;
       }
+      // Once scoped evidence exists, legacy deltas would count the coordinator again.
+      if (e.usage !== undefined) { c.legacy = e.usage; attributeLegacyUsage(c, e.usage.tokens, e.usage.costUsd, c.scoped || (e.usageEvidence !== undefined && e.usageEvidence !== null)); }
       if (e.measurements !== undefined) {
         if (e.measurements === null || c.mission === null) c.unknown = true;
         else {
@@ -220,13 +252,7 @@ export function foldEvaluation(s: FoldEvaluation, e: Event, index: number): void
           c.scoped=true;c.missing=u.missing;c.unsupported=u.unsupportedWorkers;
           c.malformed = Math.max(c.malformed, u.malformedLines); c.resets = Math.max(c.resets, u.resets); c.backlog = u.backlogBytes;
           c.partial=u.partial||c.malformed>0||c.resets>0;
-          for (const source of u.sources) sourceHighWater(s, source);
-          const total = tokens(); let costUsd: number | null = null;
-          for (const source of u.sources) {
-            for (const k of TOKEN_KEYS) total[k] += source.tokens[k];
-            if (source.costUsd !== null) costUsd = (costUsd ?? 0) + source.costUsd;
-          }
-          attributeUsage(c, "evidence", total, costUsd);
+          for (const source of u.sources) sourceHighWater(s, source, c);
         }
       }
       if(e.mission!==undefined||e.usage!==undefined||e.usageEvidence!==undefined||e.measurements===null)c.usageRef=index;
@@ -308,6 +334,25 @@ export function evaluateOperation(operation: Operation, derived: Derived, now: n
       result.usage.partial = true;
     } else if (c.launched !== null) { result.usage.missingSources++; result.usage.partial = true; }
   }
+  const declared = new Set(operation.contacts.map(contact => contact.ticket));
+  for (const [ticket, c] of Object.entries(s.contacts)) {
+    if (!c.paneEvents) continue;
+    const pane = result.usage.pane ?? (result.usage.pane = { tokens: 0, costUsd: null, sessions: 0 });
+    pane.tokens += c.paneTokens; pane.sessions += c.paneSessions;
+    if (c.paneCostUsd !== null) {
+      pane.costUsd = (pane.costUsd ?? 0) + c.paneCostUsd;
+      result.usage.knownCostUsd = (result.usage.knownCostUsd ?? 0) + c.paneCostUsd;
+    }
+    if (!declared.has(ticket)) {
+      // Removing intent must not remove recorded spend, or invent delivery/timing observations.
+      const byPhase = result.usage.byPhase ?? (result.usage.byPhase = Object.create(null));
+      const row = byPhase.decision ?? (byPhase.decision = { tokens: 0, costUsd: null });
+      row.tokens += c.paneTokens;
+      if (c.paneCostUsd !== null) row.costUsd = (row.costUsd ?? 0) + c.paneCostUsd;
+      result.usage.malformedLines += c.paneMalformed;
+      result.usage.partial ||= c.paneTruncated || c.paneMalformed > 0;
+    }
+  }
   for (const source of s.sources.values()) {
     result.usage.tokens ??= tokens(); for (const k of TOKEN_KEYS) result.usage.tokens[k] += source.tokens[k];
     if (source.costUsd !== null) result.usage.knownCostUsd = (result.usage.knownCostUsd ?? 0) + source.costUsd;
@@ -347,7 +392,7 @@ export function evaluationEvidence(operation:Operation,derived:Derived,now:numbe
   const contacts=operation.contacts.map(contact=>{
     const c=s.contacts[contact.ticket],dt=c?.active?Math.max(0,clock-c.at):0;
     if(c?.usageRef!==null&&c?.usageRef!==undefined&&(c.partial||c.unknown||!c.scoped)&&usageEvents.length<3)usageEvents.push({contact:contact.ticket,index:c.usageRef});
-    return {ticket:contact.ticket,lifetimeMs:!c||c.launched===null?null:Math.max(0,(c.landed??c.ended??clock)-c.launched),gateHoldMs:c?.holdMs.gate===undefined&&c?.hold!=="gate"?null:(c?.holdMs.gate??0)+(c?.hold==="gate"?dt:0),blockedMs:c?.blockedMs??null,finalReadyMs:c?.completeAt!==null&&c?.completeAt!==undefined&&c.landed!==null&&(contact.kind==="implement"||contact.kind==="audit")?Math.max(0,c.landed-c.completeAt):null,gateEventIndexes:c?.gateRefs??[],blockedEventIndexes:c?.blockedRefs??[],deliveryEventIndexes:c?.readyRefs??[],launchEventIndexes:c?.launchRefs??[]};
+    return {ticket:contact.ticket,launches:c?.launches??0,lifetimeMs:!c||c.launched===null?null:Math.max(0,(c.landed??c.ended??clock)-c.launched),gateHoldMs:c?.holdMs.gate===undefined&&c?.hold!=="gate"?null:(c?.holdMs.gate??0)+(c?.hold==="gate"?dt:0),blockedMs:c?.blockedMs===null&&!(c?.blocked&&c?.launched===null)?null:(c?.blockedMs??0)+(c?.blocked&&c?.launched===null?dt:0),finalReadyMs:c?.completeAt!==null&&c?.completeAt!==undefined&&c.landed!==null&&(contact.kind==="implement"||contact.kind==="audit")?Math.max(0,c.landed-c.completeAt):null,gateEventIndexes:c?.gateRefs??[],blockedEventIndexes:c?.blockedRefs??[],deliveryEventIndexes:c?.readyRefs??[],launchEventIndexes:c?.launchRefs??[]};
   });
   if(!usageEvents.length)for(const contact of operation.contacts){const index=s.contacts[contact.ticket]?.usageRef;if(index!==null&&index!==undefined&&usageEvents.length<3)usageEvents.push({contact:contact.ticket,index});}
   return {runs:[...s.runs.values()],contacts,conflictEvents:s.conflicts,usageEvents};
@@ -355,7 +400,11 @@ export function evaluationEvidence(operation:Operation,derived:Derived,now:numbe
 
 export function recommendEvaluation(e:Evaluation,proof:EvaluationEvidence,opts:{autoLand?:boolean}={}):Recommendation[] {
   const out:Recommendation[]=[];
-  const add=(id:string,level:Recommendation["level"],message:string,numerator:number,denominator:number|null,observedMs:number|null,rows:Array<{contact:string;index:number}>,caveat:string)=>out.push({id,ruleVersion:1,level,message,evidence:{numerator,denominator,observedMs,contacts:[...new Set(rows.map(r=>r.contact))].sort().slice(0,3),eventIndexes:rows.slice(0,3).map(r=>r.index)},caveat});
+  const add=(id:string,level:Recommendation["level"],message:string,numerator:number,denominator:number|null,observedMs:number|null,rows:Array<{contact:string;index:number}>,caveat:string)=>out.push({id,ruleVersion:1,level,message,evidence:{numerator,denominator,observedMs,contacts:[...new Set(rows.map(r=>r.contact))].slice(0,3),eventIndexes:rows.slice(0,3).map(r=>r.index)},caveat});
+  const rankContacts=(list:typeof proof.contacts,score:(c:typeof proof.contacts[number])=>number,indexes:(c:typeof proof.contacts[number])=>number[])=>{
+    const ordered=[...list].filter(c=>indexes(c).length>0).sort((a,b)=>score(b)-score(a)||a.ticket.localeCompare(b.ticket));
+    return [...ordered.map(c=>({contact:c.ticket,index:indexes(c)[indexes(c).length-1]!})),...ordered.flatMap(c=>indexes(c).slice(0,-1).map(index=>({contact:c.ticket,index})))];
+  };
   if(e.coverage.launched&&(e.usage.partial||e.coverage.legacyUsage||e.usage.backlogBytes)){
     const u=e.usage;
     add("usage-coverage","info","Inspect accounting coverage before comparing costs.",e.coverage.usageReported,e.coverage.launched,null,proof.usageEvents,`${u.missingSources} missing, ${u.unsupportedWorkers} unsupported; ${u.unpricedMessages??"unknown"} unpriced messages; ${u.malformedLines} malformed lines; ${u.resets+e.coverage.counterResets} reset observations; ${u.backlogBytes} backlog bytes. Historical gaps and associated sessions prevent exclusive mission billing.`);
@@ -369,17 +418,17 @@ export function recommendEvaluation(e:Evaluation,proof:EvaluationEvidence,opts:{
   if(review&&review.measurements.reviewFailures>=3)add("review-retries","warning","Inspect reviewer failure evidence, provider capacity and revision churn.",review.measurements.reviewFailures,null,null,review.eventIndexes.map(index=>({contact:review.contact,index})),"Failed review operations are not completed rounds or proof of defects.");
   if(out.length===6)return out;
   if(e.attempts.landAttempts>=5&&e.attempts.conflicts>=2&&e.attempts.conflicts/e.attempts.landAttempts>=.3)add("integration-conflicts","warning","Inspect shared paths and delivery ordering before increasing parallelism.",e.attempts.conflicts,e.attempts.landAttempts,null,proof.conflictEvents,"Observed conflicts do not establish concurrency as their cause.");
-  if(e.attempts.launches>=10&&e.attempts.relaunches>=5&&e.attempts.relaunches/e.attempts.launches>=.4)add("relaunch-churn","warning","Inspect relaunch causes before assuming restarts are routine.",e.attempts.relaunches,e.attempts.launches,null,proof.contacts.flatMap(c=>c.launchEventIndexes.map(index=>({contact:c.ticket,index}))),"Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution.");
+  if(e.attempts.launches>=10&&e.attempts.relaunches>=5&&e.attempts.relaunches/e.attempts.launches>=.4)add("relaunch-churn","warning","Inspect relaunch causes before assuming restarts are routine.",e.attempts.relaunches,e.attempts.launches,null,rankContacts(proof.contacts.filter(c=>(c.launches??c.launchEventIndexes.length)>1),c=>c.launches??c.launchEventIndexes.length,c=>c.launchEventIndexes),"Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution.");
   if(out.length===6)return out;
   const gates=proof.contacts.filter(c=>c.gateHoldMs!==null&&c.gateHoldMs>0&&c.lifetimeMs!==null);
   const gateMs=gates.reduce((n,c)=>n+c.gateHoldMs!,0),timed=proof.contacts.filter(c=>c.lifetimeMs!==null),life=timed.reduce((n,c)=>n+c.lifetimeMs!,0);
-  if(gates.length>=3&&gateMs>=600_000&&life>0&&gateMs/life>=.3)add("approval-wait","info","Review approval availability and batching without bypassing gates.",gates.length,timed.length,gateMs,gates.flatMap(c=>c.gateEventIndexes.map(index=>({contact:c.ticket,index}))),"Observed hold time overlaps phase time and is not exclusive human response time.");
+  if(gates.length>=3&&gateMs>=600_000&&life>0&&gateMs/life>=.3)add("approval-wait","info","Review approval availability and batching without bypassing gates.",gates.length,timed.length,gateMs,rankContacts(gates,c=>c.gateHoldMs!,c=>c.gateEventIndexes),"Observed hold time overlaps phase time and is not exclusive human response time.");
   if(out.length===6)return out;
   const ready=proof.contacts.filter(c=>c.finalReadyMs!==null),median=distribution(ready.map(c=>c.finalReadyMs!)).medianMs;
-  if(ready.length>=3&&median!==null&&median>=600_000)add("delivery-wait","info",opts.autoLand===false?"Ready work is waiting on an operator Land click; enable auto.land or inspect delivery checks.":"Inspect delivery checks and integration availability.",ready.length,e.deliveredWork,median,ready.flatMap(c=>c.deliveryEventIndexes.map(index=>({contact:c.ticket,index}))),"Observed ready-to-land delay does not establish which delivery dependency caused it.");
+  if(ready.length>=3&&median!==null&&median>=600_000)add("delivery-wait","info",opts.autoLand===false?"Ready work is waiting on an operator Land click; enable auto.land or inspect delivery checks.":"Inspect delivery checks and integration availability.",ready.length,e.deliveredWork,median,rankContacts(ready,c=>c.finalReadyMs!,c=>c.deliveryEventIndexes),"Observed ready-to-land delay does not establish which delivery dependency caused it.");
   if(out.length===6)return out;
   const blocked=proof.contacts.filter(c=>c.blockedMs!==null&&c.blockedMs>0);
-  if(e.dependencyWaitMs!==null&&e.dependencyWaitMs>=600_000&&life>0&&e.dependencyWaitMs>=.5*life)add("dependency-wait","info","Inspect the blocking chain and launch order before widening the fleet.",e.dependencyWaitMs,life,e.dependencyWaitMs,blocked.flatMap(c=>c.blockedEventIndexes.map(index=>({contact:c.ticket,index}))),"Blocked time before launch can exceed launched lifetime and overlaps queue wait; it does not identify which predecessor should have run first.");
+  if(e.dependencyWaitMs!==null&&e.dependencyWaitMs>=600_000&&life>0&&e.dependencyWaitMs>=.5*life)add("dependency-wait","info","Inspect the blocking chain and launch order before widening the fleet.",e.dependencyWaitMs,life,e.dependencyWaitMs,rankContacts(blocked,c=>c.blockedMs!,c=>c.blockedEventIndexes),"Blocked time before launch can exceed launched lifetime and overlaps queue wait; it does not identify which predecessor should have run first.");
   if(out.length===6)return out;
   const revShare=e.usage.byPhase?.review,attributed=e.usage.byPhase?Object.values(e.usage.byPhase).reduce((a,v)=>a+v.tokens,0):0;
   if(revShare!==undefined&&attributed>=100_000_000&&revShare.tokens/attributed>=.4)add("phase-cost","info","Inspect review-phase token share; narrow review scope or model tier if review dominates attributed spend.",revShare.tokens,attributed,null,proof.usageEvents,"Review-phase tokens include coordinator-session spend during review and are not exclusively reviewer cost.");
@@ -405,6 +454,7 @@ export function parseEvaluation(value: unknown): Evaluation | null {
   const u = value.usage;
   if (!record(u) || typeof u.basis!=="string" || !["legacy", "scoped", "mixed", "missing"].includes(u.basis) || typeof u.partial !== "boolean" || typeof u.coordinatorSessionAssociated !== "boolean" || !["knownCostUsd", "costPerDelivered", "pricedMessages", "unpricedMessages"].every(k => nullable(u[k])) || !["missingSources", "unsupportedWorkers", "malformedLines", "resets", "backlogBytes"].every(k => count(u[k])) || !(u.tokens === null || record(u.tokens) && TOKEN_KEYS.every(k => nonnegative((u.tokens as Record<string, unknown>)[k])))) return null;
   if (u.byPhase !== undefined && (!record(u.byPhase) || !Object.values(u.byPhase).every(v => record(v) && nonnegative(v.tokens) && nullable(v.costUsd)))) return null;
+  if (u.pane !== undefined && u.pane !== null && (!record(u.pane) || !nonnegative(u.pane.tokens) || !nullable(u.pane.costUsd) || !nonnegative(u.pane.sessions))) return null;
   if (!record(value.config) || typeof value.config.mixed !== "boolean" || !(value.config.value === null || parseMeasurementConfig(value.config.value))) return null;
   const q = value.quality;
   if (q !== null && (!record(q) || !timestamp(q.since) || ![...HISTORICAL_COUNTS, "latestActionable", "latestRejected"].every(k => count(q[k])) || !record(q.severity) || !SEVERITIES.every(k => count((q.severity as Record<string, unknown>)[k])))) return null;

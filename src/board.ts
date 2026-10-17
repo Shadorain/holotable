@@ -42,7 +42,8 @@ import {
   type Tracker,
 } from "./core/types.ts";
 import { createModelCatalog } from "./models.ts";
-import { createDraftDir, draftEntry, draftPrompt, listDrafts, MAX_DRAFT_INPUT, newDraftId, readDraftDoc, recordDraftTerminal, removeDraft } from "./store/drafts.ts";
+import { createDraftDir, draftEntry, draftPrompt, listDrafts, MAX_DRAFT_INPUT, newDraftId, readDraftDoc, readDraftUsage, recordDraftTerminal, recordDraftUsage, removeDraft } from "./store/drafts.ts";
+import { draftDir } from "./paths.ts";
 import { validateProject } from "./core/validate-project.ts";
 import { normalizeTicket } from "./core/validate-operation.ts";
 import type { FrontendPort, Run, TrackerHit, TrackerPort } from "./ports.ts";
@@ -608,7 +609,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
           entries.push({ name: row.name, closedAt: null, source: "open", evaluation: null });
         }
       }
-      return computeRollup(entries, now());
+      return computeRollup(entries, now(), await readDraftUsage(home));
     },
     async archive() {
       const entries = await listArchive(home, new Date(now()));
@@ -779,6 +780,10 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         const argv = ["omp"];
         if (selectedModel) argv.push("--model", selectedModel);
         if (settings.ai.thinking) argv.push("--thinking", settings.ai.thinking);
+        // Pin the transcript dir inside the draft dir so closeDraft can ledger its spend.
+        const sessionsDir = join(draftDir(home, id), "sessions");
+        await mkdir(sessionsDir, { recursive: true, mode: 0o700 });
+        argv.push("--session-dir", sessionsDir);
         argv.push(draftPrompt(home, id));
         const terminal = await frontend.openTerminal({
           worktree: repo,
@@ -804,6 +809,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         const frontend = await hooks.drafts.frontend(doc.frontend, doc.worktreeRoot).catch(() => null);
         await frontend?.close(doc.terminal, doc.repo).catch(() => undefined);
       }
+      await recordDraftUsage(home, id, new Date(now()).toISOString());
       await removeDraft(home, id);
     },
     async listDrafts() {

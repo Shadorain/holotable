@@ -41,11 +41,15 @@ export interface IntelRollup {
     delivered: number;
     knownCostUsd: number | null;
     tokens: { input: number; output: number; cacheRead: number; cacheWrite: number } | null;
-    reviews: number;
-    repairRounds: number;
+    reviews: number | null;
+    repairRounds: number | null;
     costPerDelivered: number | null;
     usagePartial: boolean;
     timed: number;
+    /** Spend recorded by board-owned non-mission panes: draft agents and decision panes. */
+    panes: { tokens: number; costUsd: number | null; sessions: number; partial?: boolean } | null;
+    /** Board-wide drafting is not attributable to a delivered operation. */
+    drafts: { tokens: number; costUsd: number | null; sessions: number; partial?: boolean } | null;
   };
   failures: RankedMetric[];
   waits: RankedMetric[];
@@ -70,22 +74,27 @@ const configKey = (config: { value: MeasurementConfig | null; mixed: boolean }):
   return `${c.graph} / ${c.frontend} / ${c.maxWorkers} workers / ${c.mode}`;
 };
 
-export function computeRollup(entries: RollupEntry[], now: number): IntelRollup {
+export function computeRollup(entries: RollupEntry[], now: number, draftUsage: { tokens: number; costUsd: number | null; sessions: number; partial?: boolean } | null = null): IntelRollup {
   const failures = new Map<string, RankedMetric>();
   const waits = new Map<string, RankedMetric>();
   const phases = new Map<string, RankedMetric>();
   const costs = new Map<string, RankedMetric>();
   const cohorts = new Map<string, RollupCohort>();
-  const totals = { delivered: 0, knownCostUsd: 0, costSeen: false, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, tokenSeen: false, reviews: 0, repairRounds: 0, usagePartial: false, timed: 0 };
+  const totals = { delivered: 0, knownCostUsd: 0, costSeen: false, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, tokenSeen: false, reviews: 0, repairRounds: 0, usagePartial: false, timed: 0, panes: { tokens: draftUsage?.tokens ?? 0, costUsd: draftUsage?.costUsd ?? null, sessions: draftUsage?.sessions ?? 0, seen: draftUsage !== null } };
   const caveats: string[] = [];
   let missingEvaluation = 0;
+  let qualityReported = false;
+  const missingDenominators = new Set<string>();
+  let recordedWaitMs = 0, recordedPhaseMs = 0, recordedPhaseCost = 0;
 
   const rank = (map: Map<string, RankedMetric>, id: string, label: string, unit: RankedMetric["unit"], value: number | null | undefined, denominator: number | null): void => {
-    if (value === null || value === undefined || value <= 0) return;
+    if (value === null || value === undefined || value < 0) return;
+    if (value === 0 && denominator === null) return;
     const metric = map.get(id) ?? map.set(id, { id, label, value: 0, unit, denominator: null, rate: null, operations: 0 }).get(id)!;
     metric.value += value;
     if (denominator !== null) metric.denominator = (metric.denominator ?? 0) + denominator;
-    metric.operations++;
+    else if (value > 0) missingDenominators.add(id);
+    if (value > 0) metric.operations++;
   };
 
   const addCohort = (key: string, e: Evaluation): RollupCohort => {
@@ -112,12 +121,18 @@ export function computeRollup(entries: RollupEntry[], now: number): IntelRollup 
     if (e.usage.knownCostUsd !== null) { totals.knownCostUsd += e.usage.knownCostUsd; totals.costSeen = true; }
     if (e.usage.tokens !== null) { for (const k of ["input", "output", "cacheRead", "cacheWrite"] as const) totals.tokens[k] += e.usage.tokens[k]; totals.tokenSeen = true; }
     totals.reviews += e.quality?.completedRounds ?? 0;
+    qualityReported ||= e.quality !== null;
     totals.repairRounds += e.quality?.acceptedRepairs ?? 0;
     totals.usagePartial ||= e.usage.partial;
+    if (e.usage.pane) {
+      totals.panes.seen = true;
+      totals.panes.tokens += e.usage.pane.tokens; totals.panes.sessions += e.usage.pane.sessions;
+      if (e.usage.pane.costUsd !== null) totals.panes.costUsd = (totals.panes.costUsd ?? 0) + e.usage.pane.costUsd;
+    }
 
     const failuresOf: Array<[string, string, number, number | null]> = [
       ["launches", "Relaunches", e.attempts.relaunches, e.attempts.launches],
-      ["launch-failures", "Launch failures", e.attempts.launchFailures, e.attempts.launches],
+      ["launch-failures", "Launch failures", e.attempts.launchFailures, e.attempts.launches + e.attempts.launchFailures],
       ["conflicts", "Delivery conflicts", e.attempts.conflicts, e.attempts.landAttempts],
       ["recorded-failed", "Recorded check failures", e.quality?.recordedFailed ?? 0, null],
       ["repeated-revision", "Repeated failed revisions", e.quality?.repeatedFailedRevision ?? 0, e.quality?.recordedFailed ?? 0],
@@ -133,6 +148,7 @@ export function computeRollup(entries: RollupEntry[], now: number): IntelRollup 
       ["repair-links", "Repair links opened", e.fleet.repairLinks ?? 0, null],
     ];
     const waitTotal = (e.dependencyWaitMs ?? 0) + (e.gateWaitMs ?? 0) + (e.offlineMs ?? 0) + (e.deliveryReadyMs ?? 0) + HOLDS.reduce((a, h) => a + (e.holdMs[h] ?? 0), 0);
+    recordedWaitMs += waitTotal;
     const cohort = addCohort(configKey(e.config), e);
     for (const [id, label, value, denominator] of failuresOf) {
       rank(failures, id, label, "events", value, denominator);
@@ -144,9 +160,11 @@ export function computeRollup(entries: RollupEntry[], now: number): IntelRollup 
     rank(waits, "ready", "Ready → land delay", "ms", e.deliveryReadyMs, waitTotal || null);
     for (const hold of HOLDS) rank(waits, `hold-${hold}`, `Hold: ${hold}`, "ms", e.holdMs[hold], waitTotal || null);
     const phaseTotal = Object.values(e.phaseMs).reduce((a, b) => a + b, 0);
+    recordedPhaseMs += phaseTotal;
     for (const [phase, ms] of Object.entries(e.phaseMs)) rank(phases, phase, `Phase: ${phase}`, "ms", ms, phaseTotal || null);
     if (e.usage.byPhase) {
       const costTotal = Object.values(e.usage.byPhase).reduce((a, v) => a + (v.costUsd ?? 0), 0);
+      recordedPhaseCost += costTotal;
       for (const [phase, v] of Object.entries(e.usage.byPhase)) {
         rank(costs, phase, `Phase: ${phase}`, "usd", v.costUsd ?? 0, costTotal > 0 ? costTotal : null);
       }
@@ -154,9 +172,13 @@ export function computeRollup(entries: RollupEntry[], now: number): IntelRollup 
     cohort.waitMs += waitTotal;
   }
 
-  const finalize = (map: Map<string, RankedMetric>): RankedMetric[] => {
-    const list = [...map.values()];
-    for (const m of list) if (m.denominator !== null && m.denominator > 0) m.rate = m.value / m.denominator;
+  const finalize = (map: Map<string, RankedMetric>, total?: number): RankedMetric[] => {
+    const list = [...map.values()].filter(m => m.value > 0);
+    for (const m of list) {
+      if (total !== undefined) m.denominator = total > 0 ? total : null;
+      else if (missingDenominators.has(m.id)) m.denominator = null;
+      if (m.denominator !== null && m.denominator > 0) m.rate = m.value / m.denominator;
+    }
     list.sort((a, b) => b.value - a.value || a.id.localeCompare(b.id));
     return list;
   };
@@ -164,6 +186,7 @@ export function computeRollup(entries: RollupEntry[], now: number): IntelRollup 
   if (missingEvaluation) caveats.push(`${missingEvaluation} source${missingEvaluation === 1 ? "" : "s"} had no evaluation - older archives and operations without producer evidence are counted in coverage only.`);
   if (totals.usagePartial) caveats.push("Usage evidence is partial or associated with the coordinator session; cost figures are estimates, not bills.");
   if (totals.timed === 0) caveats.push("No timed contacts recorded; timing classes are absent, not zero.");
+  if (draftUsage) caveats.push("Draft spend is board-wide and shown separately; operation spend already includes decision panes. Pane subtotals must not be added again to operation spend.");
   caveats.push("Counts are recorded process evidence - repeated attempts and reviews are not proof of defects, and waits overlap; ranking is by magnitude, not causality.");
 
   return {
@@ -173,11 +196,13 @@ export function computeRollup(entries: RollupEntry[], now: number): IntelRollup 
       delivered: totals.delivered,
       knownCostUsd: totals.costSeen ? totals.knownCostUsd : null,
       tokens: totals.tokenSeen ? totals.tokens : null,
-      reviews: totals.reviews, repairRounds: totals.repairRounds,
+      reviews: qualityReported ? totals.reviews : null, repairRounds: qualityReported ? totals.repairRounds : null,
       costPerDelivered: totals.costSeen && totals.delivered > 0 ? totals.knownCostUsd / totals.delivered : null,
       usagePartial: totals.usagePartial, timed: totals.timed,
+      panes: totals.panes.seen ? { tokens: totals.panes.tokens, costUsd: totals.panes.costUsd, sessions: totals.panes.sessions, partial: totals.usagePartial || draftUsage?.partial === true } : null,
+      drafts: draftUsage,
     },
-    failures: finalize(failures), waits: finalize(waits), costs: finalize(costs), phases: finalize(phases),
+    failures: finalize(failures), waits: finalize(waits, recordedWaitMs), costs: finalize(costs, recordedPhaseCost), phases: finalize(phases, recordedPhaseMs),
     cohorts: [...cohorts.values()].sort((a, b) => b.operations - a.operations || a.key.localeCompare(b.key)),
     caveats,
   };

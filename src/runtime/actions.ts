@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import type { ActionRequest } from "../board.ts";
 import type { Contact, ControlOp, OperatorOp } from "../core/types.ts";
 import { PortError } from "../ports.ts";
@@ -5,7 +6,7 @@ import { foldEvents } from "../core/fold.ts";
 import { loadProjection } from "../snapshot.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { readBrief } from "../store/brief.ts";
-import { decisionPrompt, readDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
+import { decisionPrompt, decisionSessionsDir, readDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
 import { readNotes } from "../store/notes.ts";
 import { readOperation } from "../store/operations.ts";
 import { cleanupAfterLand } from "./cleanup.ts";
@@ -117,6 +118,10 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     const argv = ["omp"];
     if (selectedModel) argv.push("--model", selectedModel);
     if (settings.ai.thinking) argv.push("--thinking", settings.ai.thinking);
+    // Pin the pane's transcript dir inside the operation so the watcher can attribute its spend.
+    const sessionsDir = decisionSessionsDir(deps.home, opId, ticket);
+    await mkdir(sessionsDir, { recursive: true, mode: 0o700 });
+    argv.push("--session-dir", sessionsDir);
     argv.push(prompt);
     const terminal = await ports.frontend.openTerminal({
       worktree: operation.integration,

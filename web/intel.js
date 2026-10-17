@@ -1,4 +1,6 @@
 import { el, errorText, fetchJson, fmtMs } from "./ui.js";
+import { buildReviewPrompt } from "./intel-review.js";
+import { operationDocket, fleetDocket } from "./intel-brief.js";
 
 const $ = id => document.getElementById(id);
 const fragment = location.hash.slice(1);
@@ -8,15 +10,148 @@ if (fragment) history.replaceState(null, "", `${location.pathname}${location.sea
 $("back").href = `/#${token}`;
 const params = new URLSearchParams(location.search);
 let selected = params.has("archive") ? `archive:${params.get("archive")}` : params.has("op") ? `op:${params.get("op")}` : "";
+let scope = params.get("view") === "fleet" || !selected ? "fleet" : "operation";
+let sourcesLoaded = false;
 let request = null;
 let generation = 0;
-let activeTab = "performance";
-const evidenceRequests = new Set();
+let reviewEvidence = null;
+
 const duration = n => n == null ? "Unknown" : n === 0 ? "0s" : fmtMs(n);
-const money = n => n == null ? "Unknown" : `$${n.toFixed(2)}`;
+const money = n => n == null ? "Unknown" : n > 0 && n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
 const number = n => n == null ? "Unknown" : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const sample = d => `${duration(d.medianMs)} · ${d.n} measured`;
 const date = value => new Date(value).toLocaleString();
+const opId = () => selected.startsWith("op:") ? selected.slice(3) : "";
+// Board deep links: write the session keys app.js already reads, then navigate.
+function openBoard(fix) {
+  const [, opIdRaw, ticket] = fix.text.split(":");
+  if (opIdRaw) localStorage.setItem("holotable.op", opIdRaw);
+  if (fix.text.startsWith("map:")) {
+    localStorage.setItem("holotable.view", "plan");
+    localStorage.setItem("holotable.planView", "map");
+  } else {
+    localStorage.setItem("holotable.view", "board");
+    if (ticket) {
+      const sel = JSON.parse(localStorage.getItem("holotable.selected") || "{}");
+      sel[opIdRaw] = ticket;
+      localStorage.setItem("holotable.selected", JSON.stringify(sel));
+    }
+  }
+  location.href = `/#${token}`;
+}
+function severityBadge(s) {
+  const label = { critical: "ACTION", warning: "WATCH", watch: "WATCH", coverage: "COVERAGE" }[s] ?? s.toUpperCase();
+  return el("span", `ia-badge ia-${s}`, label);
+}
+function fixCard(fix) {
+  const row = el("div", "ia-fix");
+  const label = el("span", "ia-fix-label", fix.label);
+  row.append(label);
+  if (fix.kind === "cmd") {
+    const cmd = el("button", "ia-cmd", fix.text);
+    cmd.type = "button";
+    cmd.title = "Copy command";
+    cmd.addEventListener("click", () => {
+      navigator.clipboard?.writeText(fix.text).then(
+        () => { cmd.textContent = "Copied"; setTimeout(() => { cmd.textContent = fix.text; }, 1500); },
+        () => { cmd.textContent = "Copy failed — select and copy manually"; },
+      );
+    });
+    row.append(cmd);
+  } else if (fix.kind === "link") {
+    const link = el("button", "btn small", "Open on board →");
+    link.type = "button";
+    link.addEventListener("click", () => openBoard(fix));
+    row.append(link);
+  } else {
+    row.append(el("p", "intel-muted ia-note", fix.text));
+  }
+  return row;
+}
+function caseCard(c) {
+  const card = el("article", `ia-case ia-${c.severity}`);
+  const head = el("div", "ia-case-head");
+  head.append(severityBadge(c.severity), el("h3", "", c.title));
+  card.append(head, el("p", "ia-stats", c.stats), el("p", "intel-muted", c.detail));
+  if (c.culprits?.length) {
+    const chips = el("div", "ia-chips");
+    chips.append(el("span", "ia-chips-label", "Worst offenders"));
+    for (const ticket of c.culprits.slice(0, 3)) {
+      const chip = el("button", "ia-chip", ticket);
+      chip.type = "button";
+      chip.title = `Open ${ticket} on the board`;
+      chip.addEventListener("click", () => openBoard({ text: `board:${opId()}:${ticket}` }));
+      chips.append(chip);
+    }
+    card.append(chips);
+  }
+  const fixes = el("div", "ia-fixes");
+  for (const fix of c.fixes ?? []) fixes.append(fixCard(fix));
+  if (fixes.childElementCount) card.append(fixes);
+  return card;
+}
+function docketSection(cases, source) {
+  const section = el("section", "ia-docket");
+  const head = el("div", "ia-docket-head");
+  head.append(el("h2", "intel-section-title", "Internal affairs"), el("span", "intel-muted", `${cases.length} open finding${cases.length === 1 ? "" : "s"}`));
+  section.append(head);
+  if (!cases.length) {
+    section.append(el("p", "intel-muted", "No findings above threshold. Small samples and missing evidence limit conclusions; clean is not the same as clean bill of health."));
+    return section;
+  }
+  const list = el("ol", "ia-list");
+  for (const c of cases) {
+    const item = el("li");
+    item.append(caseCard(c));
+    list.append(item);
+  }
+  section.append(list);
+  return section;
+}
+// Compact phase ledger: one row per phase with time, spend and tokens — the "big detail"
+// that used to live inside three separate folded tables.
+function phaseLedger(e) {
+  const phases = new Set([...Object.keys(e.phaseMs), ...Object.keys(e.usage.byPhase ?? {})]);
+  const totalMs = Object.values(e.phaseMs).reduce((a, b) => a + b, 0);
+  const totalCost = Object.values(e.usage.byPhase ?? {}).reduce((a, v) => a + (v.costUsd ?? 0), 0);
+  const totalTokens = Object.values(e.usage.byPhase ?? {}).reduce((a, v) => a + v.tokens, 0);
+  const rows = [...phases].map(phase => ({
+    phase,
+    ms: e.phaseMs[phase] ?? 0,
+    cost: e.usage.byPhase?.[phase]?.costUsd ?? 0,
+    tokens: e.usage.byPhase?.[phase]?.tokens ?? 0,
+  })).sort((a, b) => (b.ms + (b.cost ?? 0) * 0) - (a.ms + (a.cost ?? 0) * 0));
+  if (!rows.length) return null;
+  const table = el("table", "intel-metric-table ia-ledger");
+  const head = el("tr");
+  for (const col of ["Phase", "Time", "Time share", "Spend", "Spend share", "Tokens"]) head.append(el("th", "", col));
+  const thead = el("thead"); thead.append(head); table.append(thead);
+  const body = el("tbody");
+  for (const r of rows) {
+    const row = el("tr");
+    const bar = el("div", "ia-bar");
+    const fill = el("div", "ia-bar-fill");
+    fill.style.width = `${totalMs ? Math.min(100, r.ms / totalMs * 100) : 0}%`;
+    bar.append(fill);
+    const timeCell = el("td", "ia-bar-cell");
+    timeCell.append(bar, el("span", "", duration(r.ms)));
+    row.append(
+      el("td", "", r.phase),
+      timeCell,
+      el("td", "", totalMs ? `${Math.round(r.ms / totalMs * 100)}%` : "—"),
+      el("td", "", r.cost ? money(r.cost) : "—"),
+      el("td", "", totalCost && r.cost ? `${Math.round(r.cost / totalCost * 100)}%` : "—"),
+      el("td", "", r.tokens ? number(r.tokens) : "—"),
+    );
+    body.append(row);
+  }
+  table.append(body);
+  const box = el("section", "ia-ledger");
+  box.append(el("h3", "intel-section-title", "Where recorded time and spend went"));
+  box.append(tableContainer(table, "Phase ledger: time, spend and tokens"));
+  if (e.usage.partial) box.append(el("p", "intel-muted", "Spend is a session-associated estimate with partial coverage; phase attribution assigns each usage-sample delta to the phase active when the sample arrived."));
+  return box;
+}
 const queryFor = value => {
   const colon = value.indexOf(":");
   return new URLSearchParams([[value.slice(0, colon), value.slice(colon + 1)]]).toString();
@@ -37,95 +172,33 @@ function facts(rows) {
   }
   return grid;
 }
-function subsection(title, rows) {
-  const box = el("details", "intel-subsection");
-  box.append(el("summary", "", title));
-  box.addEventListener("toggle", () => {
-    if (box.open && box.children.length === 1) box.append(facts(rows));
-  });
-  return box;
-}
 function headline(label, value, note) {
   const card = el("dl", "intel-headline");
   card.append(el("dt", "", label), el("dd", "", value), el("p", "", note));
   return card;
 }
-function abortEvidence() {
-  for (const controller of evidenceRequests) controller.abort();
-  evidenceRequests.clear();
+function tableContainer(table, label) {
+  const container = el("div", "intel-table-scroll");
+  container.tabIndex = 0;
+  container.setAttribute("role", "region");
+  container.setAttribute("aria-label", label);
+  container.append(table);
+  return container;
 }
-async function loadEvidence(root, button, rule, source) {
-  const controller = new AbortController();
-  evidenceRequests.add(controller);
-  button.disabled = true;
-  button.textContent = "Loading history…";
-  try {
-    const colon = source.indexOf(":");
-    const archive = source.startsWith("archive:");
-    const value = encodeURIComponent(source.slice(colon + 1));
-    const response = await api(archive ? `/api/archive/report?key=${value}` : `/api/history?op=${value}`, controller.signal);
-    const entries = archive ? response.history : response;
-    const relevant = entries.filter(h => rule.evidence.contacts.includes(h.contact)).slice(0, 30);
-    const list = el("ol", "intel-timeline");
-    for (const entry of relevant) {
-      const row = el("li");
-      row.append(el("time", "", date(entry.at)), el("span", "", entry.text));
-      list.append(row);
-    }
-    root.append(el("p", "intel-muted", "Latest 30 recorded actions for the referenced contacts. Numerical samples remain in the stored event history; the source event numbers above identify those records."));
-    root.append(relevant.length ? list : el("p", "intel-muted", "No human-readable actions for these contacts. Refer to the numbered samples in the stored event history."));
-    button.remove();
-  } catch (error) {
-    if (controller.signal.aborted) return;
-    button.textContent = "Retry contact history";
-    root.append(el("p", "intel-error", errorText(error)));
-  } finally {
-    evidenceRequests.delete(controller);
-    button.disabled = false;
-  }
-}
-function recommendations(e, source) {
-  const section = el("section", "intel-recommendations");
-  section.append(el("h2", "intel-section-title", "What to inspect next"));
-  if (!e.recommendations.length) {
-    section.append(el("p", "intel-muted", "No recommendation thresholds reached in the recorded evidence. That is not a clean bill of health; small samples and missing evidence limit conclusions."));
-  }
-  for (const rule of e.recommendations.slice(0, 6)) {
-    const card = el("article", `intel-rule ${rule.level}`);
-    card.append(el("h3", "", rule.message));
-    const r = rule.evidence;
-    card.append(el("p", "intel-muted", `${r.numerator}${r.denominator == null ? " recorded" : ` / ${r.denominator} observed`}${r.observedMs == null ? "" : ` · ${duration(r.observedMs)}`}`));
-    const detail = el("details");
-    detail.append(el("summary", "", "Why this appears & evidence"), el("p", "intel-muted", rule.caveat));
-    detail.append(el("p", "intel-muted", `${r.contacts.join(", ") || "Operation-wide"}${r.eventIndexes.length ? ` · source events ${r.eventIndexes.map(i => i + 1).join(", ")}` : ""} · rule v${rule.ruleVersion}`));
-    if (r.contacts.length) {
-      const button = el("button", "btn small", "View contact history");
-      button.type = "button";
-      button.addEventListener("click", () => loadEvidence(detail, button, rule, source));
-      detail.append(button);
-    }
-    card.append(detail);
-    section.append(card);
-  }
-  return section;
-}
-const tabs = [
-  ["performance", "Delivery & speed"], ["quality", "Quality & rework"],
-  ["efficiency", "Tokens & cost"], ["waits", "Bottlenecks"], ["fleet", "Fleet effectiveness"],
-];
-function metricRows(list, render) {
+function metricRows(list, render, share = false) {
   const table = el("table", "intel-metric-table");
   const head = el("tr");
-  for (const col of ["Class", "Recorded", "Rate", "Operations"]) head.append(el("th", "", col));
+  for (const col of ["Class", "Recorded", share ? "Recorded share" : "Ratio", "Affected ops"]) head.append(el("th", "", col));
   const thead = el("thead"); thead.append(head); table.append(thead);
   const body = el("tbody");
   for (const m of list) {
     const row = el("tr");
-    row.append(el("td", "", m.label), el("td", "", render(m)), el("td", "", m.rate == null ? "—" : `${Math.round(m.rate * 100)}%`), el("td", "", String(m.operations)));
+    const basis = share ? m.unit === "ms" ? duration(m.denominator) : money(m.denominator) : number(m.denominator);
+    row.append(el("td", "", m.label), el("td", "", render(m)), el("td", "", m.rate == null ? "—" : `${number(m.rate * 100)}% of ${basis}`), el("td", "", String(m.operations)));
     body.append(row);
   }
   table.append(body);
-  return table;
+  return tableContainer(table, share ? "Shares of recorded evidence" : "Recorded events and denominators");
 }
 function cohortRows(cohorts) {
   const table = el("table", "intel-metric-table");
@@ -140,135 +213,111 @@ function cohortRows(cohorts) {
     body.append(row);
   }
   table.append(body);
-  return table;
+  return tableContainer(table, "Configuration cohorts");
+}
+function rankedSection(title, list, render, share = false) {
+  const section = el("section", "intel-ranking");
+  section.append(el("h3", "intel-section-title", title));
+  if (!list.length) {
+    section.append(el("p", "intel-muted", "No evidence recorded for these classes. Missing data is not a measured zero."));
+    return section;
+  }
+  section.append(metricRows(list.slice(0, 3), render, share));
+  if (list.length > 3) {
+    const more = el("details", "intel-more");
+    more.append(el("summary", "", `Show ${list.length - 3} more ${list.length === 4 ? "class" : "classes"}`));
+    more.addEventListener("toggle", () => {
+      if (more.open && more.children.length === 1) more.append(metricRows(list.slice(3), render, share));
+    });
+    section.append(more);
+  }
+  return section;
 }
 function rollupSection(rollup) {
   const section = el("section", "intel-rollup");
-  section.append(el("h2", "intel-section-title", "Fleet rollup"));
-  section.append(el("p", "intel-muted", `${rollup.sources.evaluated} evaluated source${rollup.sources.evaluated === 1 ? "" : "s"} (${rollup.sources.open} open, ${rollup.sources.archived} archived) · generated on demand, no model calls.`));
-  if (!rollup.sources.evaluated) { section.append(el("p", "intel-muted", "No evaluations recorded yet. Close an operation or collect producer evidence; this section stays hidden until data exists.")); }
-  else {
-    const t = rollup.totals;
+  const t = rollup.totals;
+  section.append(el("h2", "intel-section-title", "Fleet overview"));
+  section.append(el("p", "intel-muted", `${rollup.sources.evaluated} evaluated sources · ${rollup.sources.open} open · ${rollup.sources.archived} archived · ${rollup.sources.missingEvaluation} without evaluation`));
+  if (!rollup.sources.evaluated && !t.panes) {
+    section.append(el("p", "intel-empty intel-muted", "No evaluated operations or pane spend recorded yet. Missing historical evidence is not reconstructed."));
+    return section;
+  }
+  if (rollup.sources.evaluated) {
     const heads = el("section", "intel-headlines");
     heads.setAttribute("aria-label", "Fleet totals");
     heads.append(
-      headline("Delivered work", number(t.delivered), `${t.timed} timed contacts recorded`),
-      headline("Known spend", money(t.knownCostUsd), t.usagePartial ? "Partial or session-associated coverage" : "Observed estimate"),
-      headline("Per delivered", money(t.costPerDelivered), `${number(t.reviews)} review rounds · ${number(t.repairRounds)} repairs`),
-      headline("Cache read", t.tokens ? number(t.tokens.cacheRead) : "Unknown", t.tokens ? `${number(t.tokens.input)} input · ${number(t.tokens.output)} output` : "No usage tokens recorded"),
+      headline("Delivered work", number(t.delivered), `${t.timed} timed contacts`),
+      headline("Operation spend", money(t.knownCostUsd), t.knownCostUsd == null ? "No usage cost recorded" : t.usagePartial ? "Partial estimate · includes decision panes" : "Observed estimate · includes decision panes"),
+      headline("Per delivered", money(t.costPerDelivered), "Includes unfinished operation work; excludes drafts"),
+      headline("Review rounds", number(t.reviews), t.repairRounds == null ? "No quality instrumentation recorded" : `${number(t.repairRounds)} accepted repairs · not external acceptance`),
     );
-    section.append(heads);
-    if (rollup.failures.length) {
-      const box = el("details", "intel-subsection");
-      box.append(el("summary", "", "Biggest recorded failure classes"), metricRows(rollup.failures, m => m.value.toLocaleString()));
-      section.append(box);
-    }
-    if (rollup.waits.length) {
-      const box = el("details", "intel-subsection");
-      box.append(el("summary", "", "Where recorded time waits"), metricRows(rollup.waits, m => duration(m.value)));
-      section.append(box);
-    }
-    if (rollup.costs.length) {
-      const box = el("details", "intel-subsection");
-      box.append(el("summary", "", "Phase costs (attributed usage)"), metricRows(rollup.costs, m => `$${m.value.toFixed(2)}`));
-      section.append(box);
-    }
-    if (rollup.phases.length) {
-      const box = el("details", "intel-subsection");
-      box.append(el("summary", "", "Phase totals across operations"), metricRows(rollup.phases, m => duration(m.value)));
-      section.append(box);
-    }
-    if (rollup.cohorts.length > 1) {
-      const box = el("details", "intel-subsection");
-      box.append(el("summary", "", "Configuration cohorts"), cohortRows(rollup.cohorts));
-      section.append(box);
-    }
+    section.append(heads, docketSection(fleetDocket(rollup, { duration, money, number }), "fleet"));
   }
-  if (rollup.caveats.length) section.append(el("p", "intel-muted", rollup.caveats.join(" ")));
+  if (t.panes) {
+    const paneNote = `${number(t.panes.sessions)} draft/decision sessions · ${number(t.panes.tokens)} tokens${t.panes.partial ? " · partial coverage" : ""}`;
+    section.append(facts(rollup.sources.evaluated ? [
+      ["Board panes · subtotal", money(t.panes.costUsd), paneNote],
+      ["Draft spend", money(t.drafts?.costUsd), t.drafts ? "Board-wide; excluded from operation spend and cost per delivery." : "No closed-draft usage recorded."],
+    ] : [["Draft spend", money(t.drafts?.costUsd), `${paneNote} · No operation evidence recorded yet.`]]));
+  }
+  if (rollup.sources.evaluated) {
+    const rankings = el("details", "intel-subsection");
+    rankings.append(el("summary", "", "Ranked failure, wait, cost and phase classes"));
+    rankings.addEventListener("toggle", () => {
+      if (rankings.open && rankings.children.length === 1) {
+        const grid = el("div", "intel-rankings");
+        grid.append(
+          rankedSection("Recorded failures & rework", rollup.failures, m => number(m.value)),
+          rankedSection("Where recorded time waits", rollup.waits, m => duration(m.value), true),
+          rankedSection("Attributed phase costs", rollup.costs, m => money(m.value), true),
+          rankedSection("Recorded phase durations", rollup.phases, m => duration(m.value), true),
+        );
+        rankings.append(grid);
+      }
+    });
+    section.append(rankings);
+  }
+  if (rollup.cohorts.length > 1) {
+    const box = el("details", "intel-subsection");
+    box.append(el("summary", "", "Configuration cohorts · descriptive, not controlled comparisons"), cohortRows(rollup.cohorts));
+    section.append(box);
+  }
+  const diagnostics = el("details", "intel-subsection");
+  diagnostics.append(el("summary", "", "Coverage, tokens & limitations"), facts([
+    ["Mission input / output", t.tokens ? `${number(t.tokens.input)} / ${number(t.tokens.output)}` : "Unknown"],
+    ["Mission cache read / write", t.tokens ? `${number(t.tokens.cacheRead)} / ${number(t.tokens.cacheWrite)}` : "Unknown"],
+  ]), el("p", "intel-muted", rollup.caveats.join(" ")));
+  section.append(diagnostics);
   return section;
 }
-function renderPanel(root, id, e) {
-  root.replaceChildren();
-  const u = e.usage, q = e.quality;
-  const intro = (title, description) => root.append(el("h2", "intel-section-title", title), el("p", "intel-muted", description));
-  if (id === "performance") {
-    intro("Is work reaching delivery faster?", "Finished waits and deliveries are measured separately from unfinished work. Compare like workloads, not just headline totals.");
-    root.append(facts([
-      ["Queue → launch", sample(e.queue), "Median finished queue wait, including intentional parking."],
-      ["Queue → delivery", sample(e.lead), "End-to-end lead time for delivered work."],
-      ["Still queued", `${e.queued.n} · oldest ${duration(e.queued.maxMs)}`],
-      ["Launched, not delivered", `${e.unfinished.n} · oldest ${duration(e.unfinished.maxMs)}`, "Includes incomplete missions, not just active execution."],
-    ]));
-    root.append(subsection("Phase durations & timing coverage", [
-      ...Object.entries(e.phaseMs).map(([phase, ms]) => [`Time in ${phase}`, duration(ms)]),
-      ["Timed contacts", number(e.coverage.timed)], ["Launched contacts", number(e.coverage.launched)],
-      ["Delivery p90", e.delivery.n >= 10 ? duration(e.delivery.p90Ms) : "Not enough samples", "Requires at least 10 measurements."],
-      ["Queue p90", e.queue.n >= 10 ? duration(e.queue.p90Ms) : "Not enough samples", "Requires at least 10 measurements."],
-      ["Clock anomalies", number(e.coverage.clockAnomalies)],
-    ]));
-  } else if (id === "quality") {
-    intro("Where is work being repeated?", "Verification and reviews are producer-reported quality proxies, not external acceptance. Finding occurrences across rounds are not unique defects.");
-    if (!q) { root.append(el("p", "intel-muted", "Quality evidence not recorded. Older missions remain unknown; run new instrumented missions to collect verification, review and repair counters.")); return; }
-    root.append(facts([
-      ["Recorded passes", number(q.recordedPassed), "Failed checks are shown in the headline above."],
-      ["Repeated failed revision", number(q.repeatedFailedRevision), "A shared fingerprint is not proof of the same root cause."],
-      ["Review rounds", number(q.completedRounds)], ["Review failures", number(q.reviewFailures)],
-      ["Accepted repairs", number(q.acceptedRepairs)], ["Finding occurrences", number(q.findingOccurrences)],
-    ]));
-    root.append(subsection("Findings, invalidations & instrumentation", [
-      ["Latest actionable findings", number(q.latestActionable)], ["Latest rejected findings", number(q.latestRejected)],
-      ...Object.entries(q.severity).map(([severity, n]) => [`Latest ${severity} findings`, number(n)]),
-      ["Invalidated review rounds", number(q.invalidatedRounds)], ["Merge preflight failures", number(q.mergePreflightFailures)],
-      ["Boundary failures", number(q.boundaryFailures)], ["Evidence since", date(q.since)],
-    ]));
-  } else if (id === "efficiency") {
-    intro("Where are tokens and known spend going?", "Associated observed spend includes unfinished work and may include other coordinator-session work. These estimates are not subscription billing or exact mission-exclusive cost.");
-    root.append(facts([
-      ["Known estimate / delivery", money(u.costPerDelivered), "Includes associated spend on unfinished work."],
-      ["Usage reported", `${e.coverage.usageReported} / ${e.coverage.launched} launched contacts`, `Accounting basis: ${u.basis}`],
-      ["Input tokens", number(u.tokens?.input)], ["Output tokens", number(u.tokens?.output)],
-      ["Cache read / write", u.tokens ? `${number(u.tokens.cacheRead)} / ${number(u.tokens.cacheWrite)}` : "Unknown", "Provider categories, not a universal cache hit rate."],
-    ]));
-    if (u.byPhase && Object.keys(u.byPhase).length) {
-      root.append(subsection("Usage by phase (sample-time attribution)", Object.entries(u.byPhase).map(([phase, v]) => [
-        phase, `${number(v.tokens)} tokens${v.costUsd !== null ? ` · $${v.costUsd.toFixed(2)}` : ""}`,
-        "Delta attributed to the phase active when the usage sample arrived; boundaries are approximate.",
-      ])));
+function evidenceDetails(e) {
+  const q = e.quality, u = e.usage;
+  const box = el("details", "intel-subsection");
+  box.append(el("summary", "", "Recorded evidence & coverage"));
+  box.addEventListener("toggle", () => {
+    if (box.open && box.children.length === 1) {
+      box.append(facts([
+        ["Queue → launch", sample(e.queue), "Median finished queue wait."],
+        ["Queue → delivery", sample(e.lead), "End-to-end lead for delivered work."],
+        ["Still queued", `${e.queued.n} · oldest ${duration(e.queued.maxMs)}`],
+        ["Launched, not delivered", `${e.unfinished.n} · oldest ${duration(e.unfinished.maxMs)}`],
+        ["Dependency wait", duration(e.dependencyWaitMs)], ["Gate wait", duration(e.gateWaitMs)],
+        ["Offline / unreachable", duration(e.offlineMs)], ["Ready → landed", duration(e.deliveryReadyMs)],
+        ["Launches / relaunches", `${e.attempts.launches} / ${e.attempts.relaunches}`],
+        ["Recorded passes / fails", q ? `${number(q.recordedPassed)} / ${number(q.recordedFailed)}` : "No quality instrumentation"],
+        ["Review rounds / failures", q ? `${number(q.completedRounds)} / ${number(q.reviewFailures)}` : "—"],
+        ["Accepted repairs", q ? number(q.acceptedRepairs) : "—"],
+        ["Latest actionable findings", q ? number(q.latestActionable) : "—"],
+        ["Known spend / delivered", `${money(u.knownCostUsd)} / ${money(u.costPerDelivered)}`],
+        ["Usage coverage", `${e.coverage.usageReported} / ${e.coverage.launched} launched · basis ${u.basis}`],
+        ["Missing / unsupported", `${number(u.missingSources)} / ${number(u.unsupportedWorkers)}`],
+        ["Reset observations", number(u.resets + e.coverage.counterResets)],
+        ["Connectivity mean / peak", e.connectivity.mean == null ? "Unknown" : `${number(e.connectivity.mean)} / ${e.connectivity.peak}`],
+        ["Configuration", e.config.value ? `${e.config.value.graph} / ${e.config.value.frontend} / ${e.config.value.maxWorkers} workers / ${e.config.value.mode}` : "Uninstrumented"],
+      ]));
     }
-    root.append(subsection("Accounting coverage & diagnostics", [
-      ["Missing sources", number(u.missingSources)], ["Unsupported workers", number(u.unsupportedWorkers)],
-      ["Priced messages", number(u.pricedMessages)], ["Unpriced messages", number(u.unpricedMessages)],
-      ["Unread usage backlog", `${number(u.backlogBytes)} bytes`], ["Malformed lines", number(u.malformedLines)],
-      ["Reset observations", number(u.resets + e.coverage.counterResets)], ["Legacy contacts", number(e.coverage.legacyUsage)],
-    ]));
-  } else if (id === "waits") {
-    intro("What is holding delivery up?", "Observed elapsed intervals can overlap. Unreachable does not mean idle, and waiting is not necessarily waste.");
-    root.append(facts([
-      ["Approval gates", duration(e.gateWaitMs)], ["Dependency blocking", duration(e.dependencyWaitMs)],
-      ["Offline / unreachable", duration(e.offlineMs)], ["Complete → landed", duration(e.deliveryReadyMs), "Total observed delay for delivered work after completion."],
-      ["Review phase", duration(e.phaseMs.review)], ["Delivery conflicts", `${e.attempts.conflicts} / ${e.attempts.landAttempts} attempts`, "Recorded integration friction, not a causal concurrency score."],
-    ]));
-    root.append(subsection("Observed hold reasons", Object.entries(e.holdMs).map(([hold, ms]) => [hold, duration(ms)])));
-  } else {
-    intro("Is more concurrency helping?", "Connectivity and nonclosed-worker occupancy are sampled capacity proxies, not productive CPU time. One operation alone cannot establish whether greater concurrency helps.");
-    root.append(facts([
-      ["Connected coordinators", e.connectivity.mean == null ? "Unknown" : `${number(e.connectivity.mean)} average · ${e.connectivity.peak} peak`],
-      ["Worker occupancy", e.workers.coveredMs ? `${number(e.workers.nonclosedWorkerMs / e.workers.coveredMs)} average` : "Unknown", "Nonclosed workers include reserved or missing workers."],
-      ["Launches / relaunches", `${e.attempts.launches} / ${e.attempts.relaunches}`],
-      ["Launch failures", number(e.attempts.launchFailures)], ["Dispatch reservations", number(e.fleet.workerAttempts), "A reservation need not have launched a session."],
-      ["Repeated reservations", number(e.fleet.redispatches), "May reuse sessions; not necessarily wasted execution."],
-    ]));
-    const c = e.config.value;
-    root.append(subsection("Configuration, retries & observation coverage", [
-      ["Worker limit", c ? number(c.maxWorkers) : "Unknown"], ["Review concurrency", c ? number(c.reviewConcurrency) : "Unknown"],
-      ["Graph / frontend", c ? `${c.graph} / ${c.frontend}` : "Unknown"], ["Mode", c?.mode ?? "Unknown"],
-      ["Mixed configurations", e.config.mixed ? "Yes — not one experiment" : "No observed changes"],
-      ["Worker beads", number(e.fleet.workerBeads)], ["Repair round", number(e.fleet.repairRound)],
-      ["Repair links", number(e.fleet.repairLinks)], ["Board resend requests", number(e.fleet.boardResendRequests)],
-      ["Worker-time observed", duration(e.workers.nonclosedWorkerMs)], ["Worker observation coverage", duration(e.workers.coveredMs)],
-      ["Connectivity observation", duration(e.connectivity.observedMs)],
-    ]));
-  }
+  });
+  return box;
 }
 function experiments() {
   const box = el("details", "intel-experiments");
@@ -297,105 +346,131 @@ function renderSnapshot(snapshot, source) {
     headline("Recorded check failures", number(e.quality?.recordedFailed), e.quality ? "Producer-reported, not external judgment" : "No quality instrumentation recorded"),
     headline("Known spend", money(e.usage.knownCostUsd), e.usage.partial ? "Partial coverage" : e.usage.coordinatorSessionAssociated ? "Session-associated estimate" : "Observed estimate"),
   );
-  root.append(headlines, recommendations(e, source));
-  const nav = el("div", "intel-tabs");
-  nav.setAttribute("role", "tablist");
-  nav.setAttribute("aria-label", "Intel facets");
-  const panel = el("section", "intel-panel");
-  panel.id = "intel-facet";
-  panel.tabIndex = 0;
-  panel.setAttribute("role", "tabpanel");
-  const choose = id => {
-    activeTab = id;
-    for (const button of nav.children) {
-      const active = button.dataset.facet === id;
-      button.setAttribute("aria-selected", String(active));
-      button.tabIndex = active ? 0 : -1;
-    }
-    panel.setAttribute("aria-labelledby", `tab-${id}`);
-    renderPanel(panel, id, e);
-  };
-  for (const [id, label] of tabs) {
-    const button = el("button", "intel-tab", label);
-    button.type = "button";
-    button.id = `tab-${id}`;
-    button.dataset.facet = id;
-    button.setAttribute("role", "tab");
-    button.setAttribute("aria-controls", panel.id);
-    button.addEventListener("click", () => choose(id));
-    button.addEventListener("keydown", event => {
-      const index = tabs.findIndex(([key]) => key === activeTab);
-      const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
-      if (next < 0) return;
-      event.preventDefault();
-      choose(tabs[next][0]);
-      nav.children[next].focus();
-    });
-    nav.append(button);
-  }
-  choose(activeTab);
-  root.append(nav, panel, experiments());
+  root.append(headlines, docketSection(operationDocket(e, { duration, money, number, opId: opId() }), source));
+  const ledger = phaseLedger(e);
+  if (ledger) root.append(ledger);
+  root.append(evidenceDetails(e), experiments());
 }
 async function loadSnapshot(signal, current) {
   const source = selected;
   const snapshot = await api(`/api/intel?${queryFor(source)}`, signal);
   if (current !== generation) return;
   renderSnapshot(snapshot, source);
+  reviewEvidence = snapshot.evaluation ? { scope: "operation", source, snapshot } : null;
   $("snapshotTime").textContent = `${snapshot.closedAt ? "Frozen at close" : "Evidence as of"} ${date(snapshot.evaluation?.asOf ?? snapshot.closedAt ?? Date.now())}. No background updates.`;
-  message("");
 }
 async function load(reloadSources = false) {
   request?.abort();
-  abortEvidence();
+
+  reviewEvidence = null;
+  $("exportReview").disabled = true;
   request = new AbortController();
   const signal = request.signal, current = ++generation;
+  const fleet = scope === "fleet";
+  $("scope-fleet").setAttribute("aria-pressed", String(fleet));
+  $("scope-operation").setAttribute("aria-pressed", String(!fleet));
+  $("sourceField").hidden = fleet;
+  $("rollup").hidden = !fleet;
+  $("dashboard").hidden = fleet;
+  const root = fleet ? $("rollup") : $("dashboard");
+  root.replaceChildren();
+  root.setAttribute("aria-busy", "true");
   $("refresh").disabled = true;
   $("source").disabled = true;
-  $("dashboard").replaceChildren();
-  $("dashboard").setAttribute("aria-busy", "true");
-  $("snapshotTime").textContent = "Loading snapshot…";
+  $("snapshotTime").textContent = "Loading evidence…";
   message("Reading stored evidence…");
+  let notice = "";
   try {
     if (!token) throw new Error("No access token. Open Intel from your authenticated Holotable page.");
-    if (reloadSources) {
-      const select = $("source");
-      select.replaceChildren();
-      const [sources, rollup] = await Promise.all([api("/api/intel/sources", signal), api("/api/intel/rollup", signal)]);
-      $("rollup").replaceChildren(rollupSection(rollup));
-      if (current !== generation) return;
-      for (const [label, key, rows] of [["Open operations", "op", sources.operations], ["Archived operations", "archive", sources.archives]]) {
-        const group = el("optgroup");
-        group.label = label;
-        for (const row of rows) {
-          const option = el("option", "", `${row.name}${key === "archive" ? ` · ${new Date(row.closedAt).toLocaleDateString()}` : ""}`);
-          option.value = `${key}:${key === "archive" ? row.key : row.id}`;
-          group.append(option);
+    if (reloadSources || !sourcesLoaded) {
+      try {
+        const sources = await api("/api/intel/sources", signal);
+        if (current !== generation) return;
+        const select = $("source");
+        select.replaceChildren();
+        for (const [label, key, rows] of [["Open operations", "op", sources.operations], ["Archived operations", "archive", sources.archives]]) {
+          const group = el("optgroup");
+          group.label = label;
+          for (const row of rows) {
+            const option = el("option", "", `${row.name}${key === "archive" ? ` · ${new Date(row.closedAt).toLocaleDateString()}` : ""}`);
+            option.value = `${key}:${key === "archive" ? row.key : row.id}`;
+            group.append(option);
+          }
+          if (rows.length) select.append(group);
         }
-        if (rows.length) select.append(group);
+        const values = [...select.options].map(option => option.value);
+        if (selected && !values.includes(selected)) {
+          notice = "The previous source is no longer available.";
+          selected = "";
+        }
+        if (!selected) {
+          const saved = sessionStorage.getItem("holotable.intel.selection") || `op:${localStorage.getItem("holotable.op")}`;
+          selected = values.includes(saved) ? saved : values[0] || "";
+        }
+        select.value = selected;
+        sourcesLoaded = true;
+      } catch (error) {
+        if (signal.aborted) return;
+        if (!fleet && !selected) throw error;
+        notice = `Source list unavailable: ${errorText(error)}. Refresh to retry.`;
       }
-      const values = [...select.options].map(option => option.value);
-      if (selected && !values.includes(selected)) throw new Error("That operation is no longer available. Choose another operation or refresh the source list.");
-      if (!selected) {
-        const saved = sessionStorage.getItem("holotable.intel.selection") || `op:${localStorage.getItem("holotable.op")}`;
-        selected = values.includes(saved) ? saved : values[0] || "";
-      }
-      if (!selected) { message("No operations yet. Run work in Holotable; evidence is kept automatically and archived at close."); $("snapshotTime").textContent = "No snapshot selected."; return; }
-      select.value = selected;
     }
-    history.replaceState(null, "", `/intel?${queryFor(selected)}`);
-    sessionStorage.setItem("holotable.intel.selection", selected);
-    await loadSnapshot(signal, current);
+    const query = new URLSearchParams(selected ? queryFor(selected) : "");
+    if (fleet) query.set("view", "fleet");
+    history.replaceState(null, "", `/intel${query.size ? `?${query}` : ""}`);
+    if (selected) sessionStorage.setItem("holotable.intel.selection", selected);
+    if (fleet) {
+      const rollup = await api("/api/intel/rollup", signal);
+      if (current !== generation) return;
+      root.replaceChildren(rollupSection(rollup));
+      reviewEvidence = { scope: "fleet", rollup };
+      $("snapshotTime").textContent = `Fleet evidence as of ${date(rollup.generatedAt)}. Refresh is manual.`;
+    } else if (selected) {
+      await loadSnapshot(signal, current);
+    } else {
+      notice = "No operations available. Fleet overview can still show recorded draft spend.";
+      $("snapshotTime").textContent = "No operation selected.";
+    }
+    if (current === generation) message(notice);
   } catch (error) {
-    if (!signal.aborted) { message(errorText(error), true); $("snapshotTime").textContent = "Snapshot unavailable. Refresh to retry."; }
+    if (!signal.aborted && current === generation) {
+      message(errorText(error), true);
+      $("snapshotTime").textContent = `${fleet ? "Fleet overview" : "Operation snapshot"} unavailable. Refresh to retry or switch scope.`;
+    }
   } finally {
     if (current === generation) {
       $("refresh").disabled = false;
       $("source").disabled = !$("source").options.length;
-      $("dashboard").setAttribute("aria-busy", "false");
+      $("exportReview").disabled = !reviewEvidence;
+      root.setAttribute("aria-busy", "false");
     }
   }
 }
 $("source").addEventListener("change", () => { selected = $("source").value; void load(); });
 $("refresh").addEventListener("click", () => { selected = $("source").value || selected; void load(true); });
-window.addEventListener("pagehide", () => { request?.abort(); abortEvidence(); });
+$("exportReview").addEventListener("click", () => {
+  if (!reviewEvidence) return;
+  try {
+    const prompt = buildReviewPrompt(reviewEvidence);
+    const url = URL.createObjectURL(new Blob([prompt], { type: "text/plain;charset=utf-8" }));
+    const link = el("a");
+    link.href = url;
+    link.download = "holotable-intel-review.txt";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    message("Review prompt downloaded. No model was run. Choose a model explicitly using the optional review instructions below.");
+  } catch (error) {
+    message(errorText(error), true);
+  }
+});
+for (const next of ["operation", "fleet"]) {
+  $(`scope-${next}`).addEventListener("click", () => {
+    if (scope === next) return;
+    scope = next;
+    void load();
+  });
+}
+window.addEventListener("pagehide", () => { request?.abort(); });
 void load(true);

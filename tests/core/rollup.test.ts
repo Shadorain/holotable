@@ -132,6 +132,37 @@ describe("computeRollup", () => {
     const plain = computeRollup([evalOf([ev(0, "a", "queued"), ev(1, "a", "launched"), ev(2, "a", "landed")])], NOW);
     expect(plain.costs).toEqual([]);
   });
+  test("zero-failure operations contribute denominators and disjoint phases share fleet totals", () => {
+    const failed = evalOf([
+      ev(0, "a", "launched"), ev(1, "a", "land-attempt", { outcome: "conflict" }),
+      ev(2, "a", "phase", { to: "review" }), ev(102, "a", "landed"),
+    ]);
+    const clean = evalOf([
+      ev(0, "a", "launched"), ev(1, "a", "land-attempt", { outcome: "clean" }),
+      ev(2, "a", "phase", { to: "execute" }), ev(302, "a", "landed"),
+    ]);
+    const r = computeRollup([failed, clean], NOW);
+    expect(r.failures.find(m => m.id === "conflicts")).toMatchObject({ value: 1, denominator: 2, rate: 0.5, operations: 1 });
+    expect(r.phases.find(m => m.id === "review")).toMatchObject({ value: 100, denominator: 400, rate: 0.25 });
+    expect(r.phases.find(m => m.id === "execute")).toMatchObject({ value: 300, denominator: 400, rate: 0.75 });
+  });
+
+  test("draft-only spend remains visible without a fictitious delivered-operation cost", () => {
+    const r = computeRollup([], NOW, { tokens: 100, costUsd: 2, sessions: 1, partial: true });
+    expect(r.totals.panes).toMatchObject({ tokens: 100, costUsd: 2, sessions: 1, partial: true });
+    expect(r.totals.drafts).toMatchObject({ costUsd: 2, partial: true });
+    expect(r.totals.knownCostUsd).toBeNull();
+    expect(r.totals.costPerDelivered).toBeNull();
+    expect(r.totals.reviews).toBeNull();
+    expect(r.totals.repairRounds).toBeNull();
+  });
+
+  test("missing review instrumentation is unknown while recorded zero rounds remain zero", () => {
+    const missing = evalOf([ev(0, "a", "launched")]);
+    expect(computeRollup([missing], NOW).totals.reviews).toBeNull();
+    const observed = evalOf([ev(0, "a", "sample", { mission: { id: "instrumented", hold: null, complete: false }, measurements: makeMeasurements() })]);
+    expect(computeRollup([missing, observed], NOW).totals.reviews).toBe(0);
+  });
 
 
   test("rollups are deterministic for identical inputs", () => {
