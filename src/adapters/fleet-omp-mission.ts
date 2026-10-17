@@ -1,6 +1,6 @@
-import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { procAlive } from "../machine.ts";
 import type { ContactStatus } from "../core/types.ts";
@@ -11,6 +11,19 @@ const PING_TIMEOUT_MS = 3_000;
 const CONTROL_TIMEOUT_MS = 150_000;
 const MAX_LINE_BYTES = 1024 * 1024;
 const MAX_CONFLICT_PATHS = 20;
+
+const markerCache = new Set<string>();
+// The extension's control-socket eligibility is OMP_HOLOTABLE_CHILD or a <id>.ctl marker in
+// the status dir. Missions launched before the marker existed have neither when a pane is
+// revived without the launch env (e.g. an IDE resurrecting the pane), so the owner serves
+// nothing and every relaunch spawns a read-only orphan. A tracked status file is proof the
+// board owns this mission: backfill the marker once so the owner starts serving.
+async function backfillCtlMarker(statusPath: string): Promise<void> {
+  const marker = join(dirname(statusPath), `${basename(statusPath, ".json")}.ctl`);
+  if (markerCache.has(marker)) return;
+  markerCache.add(marker);
+  await writeFile(marker, `${process.pid}\n`, { mode: 0o600, flag: "wx" }).catch(() => undefined);
+}
 
 const STATUS_CACHE_LIMIT = 500;
 // fleet.read runs once per contact per watcher pass; re-parse a status file
@@ -140,6 +153,7 @@ export function ompMissionFleet(options: MissionFleetOptions): FleetPort {
           if (statusCache.size >= STATUS_CACHE_LIMIT)
             statusCache.delete(statusCache.keys().next().value as string);
           statusCache.set(path, { mtimeMs: meta.mtimeMs, status, worktree });
+          void backfillCtlMarker(path);
         }
         if (worktree !== wanted) continue;
         const updatedAt = Date.parse(status.updatedAt);

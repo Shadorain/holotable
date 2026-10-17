@@ -9,6 +9,14 @@ updated within 90 seconds, or an active review before its declared deadline. Suc
 their reported phase without allowing fleet commands or automatic recovery. They count against
 capacity; after the activity window expires they are offline.
 
+The producer opens the socket only when it owns the mission *and* is holotable-eligible: the
+launch env `OMP_HOLOTABLE_CHILD=1`, or a `<run-id>.ctl` marker in the status directory left by
+the first successful serve. An owner that acquired the lock before eligibility existed — a pane
+revived without the launch env, or a mission started before the marker convention — retries the
+socket on its polling passes and starts serving once the marker appears. On sighting a tracked
+status file, the board backfills that marker (`src/adapters/fleet-omp-mission.ts`), so a revived
+owner becomes controllable without a relaunch.
+
 A second pane can attach the same saved mission read-only (`session.owned: false`): it publishes snapshots but opens no socket, and it never overwrites an owner-published file that is less than ~45 s old — the owner's liveness is the file's modification time, so only a fresh write keeps it current.
 
 ## Status file

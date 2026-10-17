@@ -94,6 +94,9 @@ passive activity evidence from `live` socket authority. A socket-free snapshot i
 capacity even when the recorded terminal incarnation is stale, but never enables fleet commands
 or Recovery. A stale queued relaunch rechecks the same activity evidence before touching panes.
 Expired snapshots revert to offline; this is bounded observation, not a claim of process liveness.
+A socket-free owner is not permanent: reading a tracked status file backfills the `<run-id>.ctl`
+marker beside it, and an owning pane retries socket open on its polling passes once eligible —
+a pane revived without `OMP_HOLOTABLE_CHILD` comes back under board control without a relaunch.
 
 Automatic relaunch additionally requires a fresh, non-null terminal inventory with no rows
 in the lane's canonical worktree and no row for its recorded handle. This check runs in
