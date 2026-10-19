@@ -260,6 +260,10 @@ Browser lifecycle: streaming `fetch` on `/api/stream` refetches when the board p
 
 Each watcher pass also runs `git status --porcelain` on a local-merge operation's integration checkout; the uncommitted path count rides the projection as `operation.integrationDirty` and drives the header's `integration dirty · n` warning pill. The probe is advisory only: readiness is rechecked inside `assertIntegrationReady` at land time.
 
+Opt-in `auto.repairs` sends `review` with `args.repairBudgetOnly: true` once per contact, after a native `problem.source: repair-budget` hold. Selection requires a live owner, passed verification, non-Pause mode and an enabled Review action; capacity waits suppress it. The action runner rechecks operation opt-in, prior `operator` events and freshly read native status. Any prior auto Review attempt carrying that flag, successful or failed, consumes the allowance across restarts. The producer independently rejects the scoped request outside a confirmed budget hold or in Pause. Explicit triage escalations remain manual.
+
+Completed non-conflict contacts require attention even when their primary landing action is disabled; their detail names the refusal or awaiting-landing state. GitHub delivery probe, land and `verifyMerged` prefer the producer's delivered PR URL, falling back to branch lookup only when no URL is known. Reused branches cannot substitute a historical PR for the delivered one.
+
 ## Invariants
 
 - Events are append-only and every stat is derived from them; there is no second copy of mission JSON and the board never parses it.

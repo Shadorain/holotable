@@ -50,15 +50,7 @@ interface ContactStatus {
   mode?: "auto" | "pause" | "force" | null;           // the mission's review mode (the planned one while a plan is pending)
   problem?: {
     kind: "quota" | "rate-limit" | "timeout" | "error";
-    source: string;                 // review, worker, coordinator, verification or graph
-    detail: string;                 // full current failure, not truncated next-step text
-    retryAt: string | null;         // ISO deadline owned by the producer; null = explicit retry
-    attempt: number | null;         // failed review attempt
-    completed: number | null;       // retained review targets
-    total: number | null;
-  problem?: {
-    kind: "quota" | "rate-limit" | "timeout" | "error";
-    source: string;                 // review, worker, coordinator, verification or graph
+    source: string;                 // review, worker, coordinator, verification, graph, triage or repair-budget
     detail: string;                 // full current failure, not truncated next-step text
     retryAt: string | null;         // ISO deadline owned by the producer; null = explicit retry
     attempt: number | null;         // failed review attempt
@@ -96,6 +88,8 @@ Join: among status files whose `worktree` realpath equals the contact's `lane.wo
 As implemented by `omp-mission`: `next` may carry `/mission <verb> — <text>` (command prefix plus step text, whitespace-collapsed, 240 chars); `progress.of` is 9 (the phase list length); clearing a pending plan deletes its status file; clearing a saved or completed mission keeps its final status with `ctl: null`.
 
 `problem` is display and scheduling evidence, not a capability. Only advertised `actions` authorize socket controls. Missing fields from older panes do not authorize board retries or model switching.
+
+`source: "repair-budget"` identifies confirmed findings blocked only by the native repair-cycle limit; it publishes `kind: "error"`. Genuine decision escalations remain `source: "triage"`. This distinction requires updated producer code; the board must not infer budget authorization from older free-text failures.
 
 While the main mission agent's `ask` tool is waiting, `hold: question` replaces plan approval, `next` carries the question text, and `actions` is empty. The board offers **Answer in mission** (frontend focus), not answer submission. Matching tool completion clears the hold; unrelated tool completions do not. Recovery must not continue or relaunch it. The producer rejects mutating socket operations with `question-waiting` until answered. Planning provider blockers publish blocked/quota holds and no plan-approval action until a new turn clears the blocker.
 
@@ -176,6 +170,8 @@ Newline-delimited JSON, one request per connection, one response line. Max line 
 - Client-side only: `owner-offline` (ENOENT, ECONNREFUSED, connect/ping timeout 3 s). Operation timeout 150 s.
 
 The board UI exposes producer-advertised `approve`, `continue`, `review`, `dispatch`, `check` (the mission inspects its delivered PR: updates it from the base, works review threads and conflicts, replies to reviewers, then publishes the outcome as the status `check` field — operator clicks only, never auto mode), `resend`, `release`, `mode` (`args {mode: "auto"|"pause"|"force"}`), `retry-model` (`args {model}` — an operator-only model switch plus retry of failed coordinator/review/worker work; a mission that stopped offering it is `refused` before the socket call), and the plan-review pair `plan-edit` (`args {text, base}` — `base` is the plan revision the editor saw; a mismatch is `stale`) and `plan-refine` (`args {message}` — the owner rewrites the plan from the feedback). Resend and Release accept optional `args {beadId, detail}`; Resend also takes `files` (paths added to a stopped subagent worker's scope). An omitted bead id leaves selection to the mission controller. The socket also accepts `reap` (`args {beadId}`) and `clear` for the CLI and tests. Judgment ops (`bind_graph`, `record_verification`, `record_delivery`, `accept_repairs`, `reject_finding`) are never reachable. Resume hold, plan mode, Pause gates and the ownership lock are enforced by the mission code the socket calls into; the socket adds no bypass. Plan approval: when the session advertises `plan-approve` (`args {revision}`, a stale revision is `stale`; see `omp-plan-approval.md`) the board sends it; otherwise it stays in the mission pane, where a pane on OMP older than 18.10.4 has no review API the board can answer.
+
+Opt-in `auto.repairs` may send `review` with `args: {repairBudgetOnly: true}`, once per contact. The producer rejects this scoped request unless it is currently a confirmed repair-budget hold outside Pause, then applies the normal ownership, resume, gate and reviewed-revision guards. The request authorizes one cycle, not completion, rejection of findings or escalation override. The board durably counts failed attempts too; Recovery never sends it.
 
 Client quirk (Bun): a client that calls `socket.end(payload)` half-closes, and Bun then drops the server's reply. Clients must `write` the request and wait for the reply line.
 

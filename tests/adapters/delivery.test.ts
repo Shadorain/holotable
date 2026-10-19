@@ -164,3 +164,19 @@ describe("localMergeDelivery.probe", () => {
     ).toBeNull();
   });
 });
+
+test("a delivered PR is not replaced by a closed historical PR on the lane branch", async () => {
+  const url = "https://github.com/acme/repo/pull/275";
+  const run: Run = async (_command, args) => ({
+    code: 0, stderr: "",
+    stdout: JSON.stringify(args[2] === url
+      ? { state: "OPEN", mergeable: "MERGEABLE", url, statusCheckRollup: [] }
+      : { state: "CLOSED", url: "https://github.com/acme/repo/pull/277", statusCheckRollup: [] }),
+  });
+  const probe = await githubPrDelivery(run).probe({
+    operation: makeOperation(tempDir()),
+    contact: makeContact("original-branch"),
+    status: { delivery: { url, branch: "original-branch" } } as ContactStatus,
+  });
+  expect(probe).toMatchObject({ url, state: "open", mergeable: "clean" });
+});

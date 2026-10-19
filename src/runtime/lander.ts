@@ -46,7 +46,7 @@ export async function landContact(deps: LanderDeps, opId: string, ticket: string
   const result = await ports.delivery.land({ operation, contact, sourceBranch, status, ignoreChecks });
   if (result.outcome === "landed") {
     // The delivery said it landed; only the base branch itself is allowed to confirm that (queued/auto merges, hooks).
-    const verdict = await ports.delivery.verifyMerged({ operation, contact, branch: contact.lane?.branch ?? sourceBranch });
+    const verdict = await ports.delivery.verifyMerged({ operation, contact, branch: contact.lane?.branch ?? sourceBranch, url: status.delivery?.url });
     if (!verdict.merged) throw new ActionError(409, "not-merged", `${ticket} is not merged into ${operation.base}: ${verdict.reason}`);
     await deps.captureMetrics?.(operation,contact,status);
     await appendEvent(deps.home, opId, { v: 1, at: at(), kind: "land-attempt", contact: ticket, outcome: "clean" });

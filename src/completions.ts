@@ -36,6 +36,7 @@ const SET_VALUES: Record<string, readonly string[]> = {
   delivery: DELIVERIES,
   recover: ["on", "off"],
   "auto.decide": ["on", "off"],
+  "auto.repairs": ["on", "off"],
   worktreeRoot: ["default"],
 };
 const CONFIG_VALUES: Record<string, readonly string[]> = {

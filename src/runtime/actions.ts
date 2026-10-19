@@ -43,7 +43,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     // be in the base first; a decision or a conflict mission lands through another contact's merge.
     const branch = contact?.lane?.branch;
     if (contact && branch && contact.kind !== "decision" && contact.kind !== "conflict") {
-      const verdict = await deps.portsFor(operation, await deps.settings()).delivery.verifyMerged({ operation, contact, branch });
+      const verdict = await deps.portsFor(operation, await deps.settings()).delivery.verifyMerged({ operation, contact, branch, url: view?.delivery?.url });
       if (!verdict.merged) throw new ActionError(409, "not-merged", `${ticket} is not merged into ${operation.base}: ${verdict.reason}`);
     }
     const at = deps.now().toISOString();
@@ -151,10 +151,18 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
   }
 
   /** Mutations go through the owning session's socket with a freshly read status; this process never attaches. */
-  async function fleetOp(opId: string, ticket: string, op: ControlOp, args: Record<string, unknown>, recovering = false): Promise<void> {
+  async function fleetOp(opId: string, ticket: string, op: ControlOp, args: Record<string, unknown>, recovering = false, authorizingRepair = false): Promise<void> {
     const operation = await readOperation(deps.home, opId);
     if (recovering && !operation.recover)
       throw new ActionError(409, "refused", "Recovery is disabled for this operation");
+    if (authorizingRepair) {
+      if (!operation.auto?.enabled || !operation.auto.repairs)
+        throw new ActionError(409, "refused", "Automatic extra repairs are disabled");
+      const events = await readEvents(deps.home, opId);
+      if (events.some(event => event.kind === "operator" && event.contact === ticket && event.op === "review" &&
+          event.by === "auto" && event.args?.repairBudgetOnly === true))
+        throw new ActionError(409, "refused", "Automatic extra repair cycle already used");
+    }
     const lane = operation.contacts.find((c) => c.ticket === ticket)?.lane;
     if (!lane) throw new ActionError(409, "refused", `${ticket} has no lane`);
     const fleet = deps.portsFor(operation, await deps.settings()).fleet;
@@ -163,6 +171,9 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     if (!status) throw new ActionError(409, "owner-offline", `No mission status for ${ticket}; relaunch a dead pane instead`);
     if (recovering && (status.complete || status.hold !== "resume" || status.verify === "failed" || !status.actions.includes("continue")))
       throw new ActionError(409, "refused", "Automatic Continue requires a resumable mission without quota or failed verification");
+    if (authorizingRepair && (status.problem?.source !== "repair-budget" || status.problem.kind !== "error" ||
+        status.verify !== "passed" || status.mode === "pause" || status.hold !== "blocked" || !status.actions.includes("review")))
+      throw new ActionError(409, "refused", "Mission no longer offers a confirmed repair-budget hold");
     if (op === "retry-model" && !status.actions.includes(op))
       throw new ActionError(409, "refused", "Mission no longer offers model recovery; refresh its state or reload an older mission pane");
     if (op === "check" && !status.actions.includes(op))
@@ -200,9 +211,13 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       }
       case "approve":
       case "continue":
-      case "review":
       case "dispatch":
         run = () => fleetOp(req.op, req.contact, req.action as OperatorOp, {}, req.by === "recover" && req.action === "continue");
+        break;
+      case "review":
+        if (req.by !== undefined && (req.by !== "auto" || req.args.repairBudgetOnly !== true))
+          throw new ActionError(403, "refused", "Automatic Review requires an opted-in repair-budget authorization");
+        run = () => fleetOp(req.op, req.contact, "review", req.args.repairBudgetOnly === true ? { repairBudgetOnly: true } : {}, false, req.by === "auto");
         break;
       case "check":
         // Check pushes to the PR branch and replies on review threads as the operator: never unattended.

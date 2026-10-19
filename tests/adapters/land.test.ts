@@ -252,6 +252,23 @@ describe("githubPrDelivery.land", () => {
     expect(dirty.stdout.trim()).toBe("");
   });
 
+  test("lands the delivered repair PR instead of a historical PR on its original branch", async () => {
+    const merged: string[] = [];
+    const url = "https://github.com/acme/w/pull/7";
+    const { run } = realRun(args => {
+      if (args[1] === "view") return { stdout: args[2] === url ? prJson() : prJson({ url: "https://github.com/acme/w/pull/99", state: "CLOSED" }), stderr: "", code: 0 };
+      if (args[1] === "merge") merged.push(args[2]!);
+      return { stdout: "", stderr: "", code: 0 };
+    });
+    const { repo } = await prSetup(run);
+    const result = await githubPrDelivery(run).land({
+      operation: makeOperation(repo), contact, sourceBranch: "feat",
+      status: { ...status, delivery: { branch: "feat", url } },
+    });
+    expect(result).toEqual({ outcome: "landed", via: "pr" });
+    expect(merged).toEqual(["7"]);
+  });
+
   test("squash-only repo merges with --squash", async () => {
     const ghCalls: string[][] = [];
     const { run } = realRun((args) => {

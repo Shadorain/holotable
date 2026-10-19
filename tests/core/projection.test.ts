@@ -486,3 +486,15 @@ test("a live review reports progress and model; past its deadline it asks for a 
  expect(stalled.attention).toBe(true);
  expect(stalled.detail).toContain("Review stalled");
 });
+
+test("completed work with blocked landing needs attention instead of appearing to run", () => {
+  const op = makeOp([makeContact("a", { lane: live() })], { delivery: "github-pr" });
+  const v = viewOf(op, "a", {
+    statuses: { a: makeStatus({ phase: "complete", complete: true, next: "/mission clear" }) },
+    probes: { a: { url: "https://github.com/acme/repo/pull/7", state: "closed", mergeable: "unknown", checks: "pass" } },
+  });
+  expect(v.state).toBe("complete");
+  expect(v.attention).toBe(true);
+  expect(v.detail).toContain("pull request closed");
+  expect(v.actions.find(action => action.id === "land")?.enabled).toBe(false);
+});

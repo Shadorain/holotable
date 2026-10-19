@@ -80,6 +80,25 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
         }
       }
     }
+    if (auto.repairs && !auto.capacityWait) {
+      const events = await readEvents(deps.home, opId);
+      const target = projection.contacts.find(contact => {
+        const status = deps.extras(opId).statuses[contact.ticket];
+        return status?.problem?.source === "repair-budget" && status.problem.kind === "error" &&
+          status.verify === "passed" && status.mode !== "pause" && contact.owner === "live" &&
+          contact.actions.some(action => action.id === "review" && action.enabled) &&
+          !events.some(event => event.kind === "operator" && event.contact === contact.ticket &&
+            event.op === "review" && event.by === "auto" && event.args?.repairBudgetOnly === true);
+      });
+      if (target) {
+        try {
+          await deps.run({ op: opId, contact: target.ticket, action: "review", args: { repairBudgetOnly: true }, by: "auto" });
+        } catch (error) {
+          await pause(opId, error instanceof Error ? error.message : String(error));
+        }
+        return;
+      }
+    }
 
     if (auto.land) {
       const target = projection.contacts.find((c) => {

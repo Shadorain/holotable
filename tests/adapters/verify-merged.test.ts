@@ -125,3 +125,12 @@ test("github-pr falls back to git when gh has no answer, and a closed PR never c
   const closed = await githubPrDelivery(withGh(() => pr("CLOSED"))).verifyMerged({ operation: operation(repo, "github-pr"), contact: target("feat/f"), branch: "feat/f" });
   expect(closed).toEqual({ merged: false, reason: "PR #242 was closed without merging; 1 commit on feat/f not in main" });
 });
+
+test("an older merged PR cannot mark the delivered open repair PR as landed", async () => {
+  const { repo, branch } = await repoWithRemote();
+  await branch("feat/repair", "repair.txt");
+  const url = "https://github.com/x/pull/275";
+  const delivery = githubPrDelivery(withGh(selector => selector === url ? pr("OPEN", { number: 275, url }) : pr("MERGED")));
+  const verdict = await delivery.verifyMerged({ operation: operation(repo, "github-pr"), contact: target("feat/repair"), branch: "feat/repair", url });
+  expect(verdict).toEqual({ merged: false, reason: "PR #275 is still open; 1 commit on feat/repair not in main" });
+});

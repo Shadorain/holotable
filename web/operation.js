@@ -301,6 +301,9 @@ function autoSection(p, ctx) {
     switchRow(judge, "Approve plans", "auto.plans", Boolean(auto.plans), ctx.saveOp, {
       note: "Approve native plan reviews automatically with compacted context. Requires OMP 18.10.4 or newer in each mission pane; older running panes must be relaunched. Pause gates still wait for you.",
     });
+    switchRow(judge, "Extra repair cycle", "auto.repairs", Boolean(auto.repairs), ctx.saveOp, {
+      note: "Authorize one additional repair cycle per contact after the mission's native budget is exhausted. Only confirmed findings qualify; decision escalations, quota holds and Pause gates still wait for you. Requires a newly started mission pane.",
+    });
     card.append(judge);
   }
   box.append(card);

@@ -306,6 +306,13 @@ function contactView(
   if (reviewStale)
     detail = `Review stalled past its deadline (${review!.deadlineAt.slice(0, 16).replace("T", " ")} UTC); the pane may be stuck — Relaunch it`;
   const actions = actionsFor(policy);
+  if (state === "complete") {
+    const next = actions.find(action => action.primary);
+    detail = next?.reason ? `Mission complete; ${next.reason}`
+      : next?.id === "land" ? "Mission complete; awaiting landing"
+      : next?.label === "Mark merged" ? "Merged; record landing"
+      : contact.conflictOf ? `Conflicts resolved: land ${contact.conflictOf}` : "Mission complete; ready to mark done";
+  }
 
   const group: ContactView["group"] =
     contact.lane === null && !d.landed ? "queue" : "live";
@@ -349,7 +356,7 @@ function contactView(
     // A decision an agent is working on is not waiting on the operator.
     attention: (ATTENTION_STATES.includes(state) && !(state === "decision" && decisionPaneOpen) &&
       (state !== "review" || status?.actions.includes("review") === true || reviewStale)) ||
-      (state === "complete" && actions.some((a) => a.primary && a.enabled)),
+      (state === "complete" && contact.kind !== "conflict"),
     actions,
   };
 }

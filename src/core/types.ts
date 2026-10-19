@@ -181,9 +181,11 @@ export interface AutoMode {
   maxLive: number;
   plans: boolean;
   decide: boolean;
+  /** One additional native repair cycle per contact; explicit opt-in, never an escalation override. */
+  repairs?: boolean;
 }
-/** `auto` on an operation; `auto.launch`/`auto.land`/`auto.maxLive`/`auto.plans`/`auto.decide` tune it. */
-export const AUTO_FIELDS = ["auto", "auto.launch", "auto.land", "auto.maxLive", "auto.plans", "auto.decide"] as const;
+/** Per-operation automation; each optional authorization is off until explicitly enabled. */
+export const AUTO_FIELDS = ["auto", "auto.launch", "auto.land", "auto.maxLive", "auto.plans", "auto.decide", "auto.repairs"] as const;
 
 // ---- events (C3) ----
 

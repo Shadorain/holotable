@@ -41,12 +41,13 @@ export function githubPrDelivery(run: Run): DeliveryPort {
     id: "github-pr",
     async probe(i) {
       const branch = i.status.delivery?.branch ?? i.contact.lane?.branch ?? null;
-      if (!branch) return null;
+      const selector = i.status.delivery?.url ?? branch;
+      if (!selector) return null;
       let result;
       try {
         result = await run(
           "gh",
-          ["pr", "view", branch, "--json", "state,mergeable,url,statusCheckRollup"],
+          ["pr", "view", selector, "--json", "state,mergeable,url,statusCheckRollup"],
           i.operation.integration,
         );
       } catch {
@@ -79,7 +80,7 @@ export function githubPrDelivery(run: Run): DeliveryPort {
       try {
         const viewed = await run(
           "gh",
-          ["pr", "view", i.branch, "--json", "state,baseRefName,url,number"],
+          ["pr", "view", i.url ?? i.branch, "--json", "state,baseRefName,url,number"],
           i.operation.integration,
         );
         if (viewed.code === 0) {
@@ -103,15 +104,14 @@ export function githubPrDelivery(run: Run): DeliveryPort {
       const integration = operation.integration;
       await assertIntegrationReady(run, integration, operation.base, sourceBranch);
 
-      // The PR is identified by the contact's own branch, not sourceBranch:
-      // after a conflict the lander passes the resolution branch as source.
-      const prBranch = contact.lane?.branch ?? status.delivery?.branch ?? sourceBranch;
+      // A branch can have several historical PRs; the mission's delivered URL identifies this result.
+      const prSelector = status.delivery?.url ?? contact.lane?.branch ?? status.delivery?.branch ?? sourceBranch;
       const viewed = await run(
         "gh",
         [
           "pr",
           "view",
-          prBranch,
+          prSelector,
           "--json",
           "state,mergeable,baseRefName,headRefName,headRefOid,url,statusCheckRollup",
         ],

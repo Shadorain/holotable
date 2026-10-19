@@ -127,7 +127,7 @@ export interface DeliveryPort {
    * Whether `branch`'s work is really in the operation's base. The only authority for recording `landed`:
    * Land, Mark done and auto mode all ask it, so an open PR or an unmerged branch never counts as landed.
    */
-  verifyMerged(i: { operation: Operation; contact: Contact; branch: string }): Promise<MergeVerdict>;
+  verifyMerged(i: { operation: Operation; contact: Contact; branch: string; url?: string | null }): Promise<MergeVerdict>;
   land(i: {
     operation: Operation;
     contact: Contact;

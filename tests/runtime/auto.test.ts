@@ -49,7 +49,7 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
     portsFor: () => fake.ports,
     extras: () => ({
       statuses: Object.fromEntries(statuses),
-      owners: {},
+      owners: Object.fromEntries([...statuses.keys()].map(key => [key, "live"])),
       probes: Object.fromEntries(probes),
       load: opts.load ?? { live: 0, open: 0 },
     }),
@@ -311,4 +311,54 @@ for (const kind of ["quota", "rate-limit"] as const) test(`auto waits for ${kind
   t.setStatus("a", status({ worktree: "/wt/a", phase: "review", next: "Independent review running", problem: null }));
   await t.auto.pass();
   expect((await t.op()).contacts.find(c => c.ticket === "b")!.lane?.worktree).toBe("/wt/b");
+});
+
+test("extra repair authorization is opt-in and recorded durably", async () => {
+  const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") })], {
+    auto: { ...AUTO, launch: false, land: false, repairs: true },
+  });
+  t.setStatus("a", status({
+    worktree: "/wt/a", phase: "review", verify: "passed", hold: "blocked", mode: "auto", actions: ["review"],
+    problem: { kind: "error", source: "repair-budget", detail: "Confirmed repairs exhausted their budget", retryAt: null, attempt: null, completed: null, total: null },
+  }));
+  await t.auto.pass();
+  await t.auto.pass();
+  expect((await t.events()).filter(event => event.kind === "operator" && event.op === "review" && event.ok)).toHaveLength(1);
+  expect(t.fake.count("fleet.control")).toBe(1);
+  await expect(t.act({ op: "lab", contact: "a", action: "review", args: { repairBudgetOnly: true }, by: "auto" })).rejects.toThrow("already used");
+  expect(t.fake.count("fleet.control")).toBe(1);
+});
+
+test("automatic extra repairs do not override escalation, Pause, verification failure or disabled intent", async () => {
+  for (const blocked of ["triage", "pause", "verify", "disabled"]) {
+    const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") })], {
+      auto: { ...AUTO, launch: false, land: false, repairs: blocked !== "disabled" },
+    });
+    t.setStatus("a", status({
+      worktree: "/wt/a", phase: "review", verify: blocked === "verify" ? "failed" : "passed",
+      hold: "blocked", mode: blocked === "pause" ? "pause" : "auto", actions: ["review"],
+      problem: { kind: "error", source: blocked === "triage" ? "triage" : "repair-budget", detail: "Needs authorization", retryAt: null, attempt: null, completed: null, total: null },
+    }));
+    await t.auto.pass();
+    expect(t.fake.count("fleet.control")).toBe(0);
+  }
+});
+
+test("queued extra repair authorization rechecks the producer hold and operation intent", async () => {
+  for (const changed of ["escalation", "disabled"]) {
+    const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") })], {
+      auto: { ...AUTO, launch: false, land: false, repairs: true },
+    });
+    const stale = status({
+      worktree: "/wt/a", phase: "review", verify: "passed", hold: "blocked", mode: "auto", actions: ["review"],
+      problem: { kind: "error", source: "repair-budget", detail: "Confirmed repairs exhausted", retryAt: null, attempt: null, completed: null, total: null },
+    });
+    t.setStatus("a", stale);
+    if (changed === "escalation")
+      t.fake.world.statuses.set("/wt/a", { ...stale, problem: { ...stale.problem!, source: "triage" } });
+    else
+      await mutateOperation(t.home, "lab", op => ({ ...op, auto: { ...op.auto!, repairs: false } }));
+    await t.auto.pass();
+    expect(t.fake.count("fleet.control")).toBe(0);
+  }
 });
