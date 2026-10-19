@@ -340,4 +340,16 @@ describe("landing needs a real merge", () => {
     expect(without.some((a) => a.startsWith("check"))).toBe(false);
     expect(offered).toEqual(expect.arrayContaining(["check:on"]));
   });
+
+  test("a finished mission whose pane died can be relaunched to work its open PR", () => {
+    const op = makeOp([makeContact("a", { kind: "implement", lane: makeLane() })], lab);
+    const status = makeStatus({ complete: true, actions: ["check"] });
+    const at = (owner: PolicyInput["owner"], probe: PolicyInput["probe"]) =>
+      labels(actionsFor(policy(op, "a", { state: "complete", status, probe, owner })));
+    const dead = at("offline", { ...open, checks: "fail" });
+    expect(dead.some((a) => a.startsWith("relaunch:on"))).toBe(true);
+    expect(dead.some((a) => a.startsWith("check:on"))).toBe(false);
+    expect(at("live", open).some((a) => a.startsWith("relaunch"))).toBe(false);
+    expect(at("offline", { ...open, state: "merged" }).some((a) => a.startsWith("relaunch"))).toBe(false);
+  });
 });

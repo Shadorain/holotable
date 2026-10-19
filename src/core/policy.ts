@@ -256,6 +256,9 @@ export function actionsFor(i: PolicyInput): ActionView[] {
         // A finished conflict mission is not the operator's next step: Land on the original is.
         actions.push(view("done", "Mark done", contact.kind !== "conflict", true));
       }
+      // A finished pane that died still owns its PR: relaunching it is the only way back to Check PR.
+      const relaunchable = terminal !== null && operation.frontend !== "none" && contact.lane?.frontend !== "external";
+      if (owner === "offline" && carriesCode && probe?.state !== "merged" && relaunchable) actions.push(relaunch());
       actions.push(...fleetButtons().filter((b) => b.id === "check"), focus(), reap());
       return actions;
     }
