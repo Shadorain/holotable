@@ -173,6 +173,8 @@ The board UI exposes producer-advertised `approve`, `continue`, `review`, `dispa
 
 Opt-in `auto.repairs` may send `review` with `args: {repairBudgetOnly: true}`, once per contact. The producer rejects this scoped request unless it is currently a confirmed repair-budget hold outside Pause, then applies the normal ownership, resume, gate and reviewed-revision guards. The request authorizes one cycle, not completion, rejection of findings or escalation override. The board durably counts failed attempts too; Recovery never sends it.
 
+Opt-in `auto.reviews` may send `mode` with `args: {mode: "force"}` once per contact. It sends this only while the freshly read status reports `mode: "auto"`, not complete, with `mode` advertised. Force differs from Auto only in setting `reviewRequested`, so the mission requests its own independent review after delivery. Pause gates are unaffected. The board never sends any other automatic mode change, and Recovery never sends this one.
+
 Client quirk (Bun): a client that calls `socket.end(payload)` half-closes, and Bun then drops the server's reply. Clients must `write` the request and wait for the reply line.
 
 ## Launch recipe

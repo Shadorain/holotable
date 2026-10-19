@@ -304,6 +304,9 @@ function autoSection(p, ctx) {
     switchRow(judge, "Extra repair cycle", "auto.repairs", Boolean(auto.repairs), ctx.saveOp, {
       note: "Authorize one additional repair cycle per contact after the mission's native budget is exhausted. Only confirmed findings qualify; decision escalations, quota holds and Pause gates still wait for you. Requires a newly started mission pane.",
     });
+    switchRow(judge, "Request reviews", "auto.reviews", Boolean(auto.reviews), ctx.saveOp, {
+      note: "Switch each running mission from Auto to Force once, so it requests its own independent review after delivery instead of waiting for your Review click. Costs a reviewer run per mission. Pause missions, and a mission you set back to Auto, are left alone.",
+    });
     card.append(judge);
   }
   box.append(card);

@@ -37,6 +37,7 @@ const SET_VALUES: Record<string, readonly string[]> = {
   recover: ["on", "off"],
   "auto.decide": ["on", "off"],
   "auto.repairs": ["on", "off"],
+  "auto.reviews": ["on", "off"],
   worktreeRoot: ["default"],
 };
 const CONFIG_VALUES: Record<string, readonly string[]> = {

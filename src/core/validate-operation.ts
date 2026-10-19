@@ -168,8 +168,8 @@ export function validateOperationDoc(
   if (value.auto !== undefined && value.auto !== null) {
     if (!isRecord(value.auto)) return fail("auto must be a JSON object");
     const a = value.auto;
-    for (const key of ["enabled", "launch", "land", "plans", "decide", "repairs"] as const) {
-      if ((key === "plans" || key === "decide" || key === "repairs") && a[key] === undefined) continue;
+    for (const key of ["enabled", "launch", "land", "plans", "decide", "repairs", "reviews"] as const) {
+      if ((key === "plans" || key === "decide" || key === "repairs" || key === "reviews") && a[key] === undefined) continue;
       if (typeof a[key] !== "boolean") return fail(`auto.${key} must be a boolean`);
     }
     if (typeof a.maxLive !== "number" || !Number.isInteger(a.maxLive) || a.maxLive < 1 || a.maxLive > 64)
@@ -182,6 +182,7 @@ export function validateOperationDoc(
       plans: (a.plans as boolean | undefined) ?? false,
       decide: (a.decide as boolean | undefined) ?? false,
       ...(a.repairs !== undefined ? { repairs: a.repairs as boolean } : {}),
+      ...(a.reviews !== undefined ? { reviews: a.reviews as boolean } : {}),
     };
   }
   if (value.recover !== undefined && typeof value.recover !== "boolean")

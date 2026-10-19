@@ -13,7 +13,7 @@ import { cleanupAfterLand } from "./cleanup.ts";
 import { ActionError } from "./errors.ts";
 import { landContact, type LanderDeps } from "./lander.ts";
 import { launchContact, relaunchContact } from "./launcher.ts";
-import { MAX_AUTO_CHECKS } from "./auto.ts";
+import { MAX_AUTO_CHECKS, reviewsRequested } from "./auto.ts";
 
 /** Port failures an operator can act on are conflicts (409); anything else is an upstream failure (502). */
 const CONFLICT_CODES = ["owner-offline", "stale", "busy", "rejected", "no-session", "terminal-missing"];
@@ -152,7 +152,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
   }
 
   /** Mutations go through the owning session's socket with a freshly read status; this process never attaches. */
-  async function fleetOp(opId: string, ticket: string, op: ControlOp, args: Record<string, unknown>, recovering = false, authorizingRepair = false): Promise<void> {
+  async function fleetOp(opId: string, ticket: string, op: ControlOp, args: Record<string, unknown>, recovering = false, authorizingRepair = false, requestingReview = false): Promise<void> {
     const operation = await readOperation(deps.home, opId);
     if (recovering && !operation.recover)
       throw new ActionError(409, "refused", "Recovery is disabled for this operation");
@@ -163,6 +163,12 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       if (events.some(event => event.kind === "operator" && event.contact === ticket && event.op === "review" &&
           event.by === "auto" && event.args?.repairBudgetOnly === true))
         throw new ActionError(409, "refused", "Automatic extra repair cycle already used");
+    }
+    if (requestingReview) {
+      if (!operation.auto?.enabled || !operation.auto.reviews)
+        throw new ActionError(409, "refused", "Automatic review requests are disabled");
+      if (reviewsRequested(await readEvents(deps.home, opId), ticket))
+        throw new ActionError(409, "refused", "Automatic review request already sent; the mission's mode is yours");
     }
     const lane = operation.contacts.find((c) => c.ticket === ticket)?.lane;
     if (!lane) throw new ActionError(409, "refused", `${ticket} has no lane`);
@@ -175,6 +181,8 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     if (authorizingRepair && (status.problem?.source !== "repair-budget" || status.problem.kind !== "error" ||
         status.verify !== "passed" || status.mode === "pause" || status.hold !== "blocked" || !status.actions.includes("review")))
       throw new ActionError(409, "refused", "Mission no longer offers a confirmed repair-budget hold");
+    if (requestingReview && (status.mode !== "auto" || status.complete || !status.actions.includes("mode")))
+      throw new ActionError(409, "refused", "Mission is no longer in Auto mode outside plan review");
     if (op === "retry-model" && !status.actions.includes(op))
       throw new ActionError(409, "refused", "Mission no longer offers model recovery; refresh its state or reload an older mission pane");
     if (op === "check" && !status.actions.includes(op))
@@ -260,7 +268,9 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         const mode = req.args.mode;
         if (mode !== "auto" && mode !== "pause" && mode !== "force")
           throw new ActionError(400, "bad-request", "mode must be auto, pause or force");
-        run = () => fleetOp(req.op, req.contact, "mode", { mode });
+        if (req.by !== undefined && (req.by !== "auto" || mode !== "force"))
+          throw new ActionError(403, "refused", "Automatic mode changes only request reviews (Auto to Force)");
+        run = () => fleetOp(req.op, req.contact, "mode", { mode }, false, false, req.by === "auto");
         break;
       }
       case "plan-save": {

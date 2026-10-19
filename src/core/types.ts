@@ -183,9 +183,11 @@ export interface AutoMode {
   decide: boolean;
   /** One additional native repair cycle per contact; explicit opt-in, never an escalation override. */
   repairs?: boolean;
+  /** Switch each mission from Auto to Force once, so it requests its own independent review after delivery. */
+  reviews?: boolean;
 }
 /** Per-operation automation; each optional authorization is off until explicitly enabled. */
-export const AUTO_FIELDS = ["auto", "auto.launch", "auto.land", "auto.maxLive", "auto.plans", "auto.decide", "auto.repairs"] as const;
+export const AUTO_FIELDS = ["auto", "auto.launch", "auto.land", "auto.maxLive", "auto.plans", "auto.decide", "auto.repairs", "auto.reviews"] as const;
 
 // ---- events (C3) ----
 

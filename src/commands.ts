@@ -75,6 +75,7 @@ export const SET_FIELDS = [
   "auto.plans",
   "auto.decide",
   "auto.repairs",
+  "auto.reviews",
   "recover",
 ] as const;
 export type SetField = (typeof SET_FIELDS)[number];
@@ -504,11 +505,12 @@ export function applyOperationField(op: Operation, field: string, raw: string, c
     case "auto.land":
     case "auto.plans":
     case "auto.repairs":
+    case "auto.reviews":
     case "auto.decide": {
       const flag = oneOf(["on", "off", "true", "false"], value, name);
       const enabled = flag === "on" || flag === "true";
       const base = op.auto ?? DEFAULT_AUTO;
-      const patch = name === "auto.launch" ? { launch: enabled } : name === "auto.land" ? { land: enabled } : name === "auto.plans" ? { plans: enabled } : name === "auto.repairs" ? { repairs: enabled } : { decide: enabled };
+      const patch = name === "auto.launch" ? { launch: enabled } : name === "auto.land" ? { land: enabled } : name === "auto.plans" ? { plans: enabled } : name === "auto.repairs" ? { repairs: enabled } : name === "auto.reviews" ? { reviews: enabled } : { decide: enabled };
       return { ...op, auto: { ...base, ...patch } };
     }
     case "auto.maxLive": {

@@ -19,6 +19,11 @@ const CHECK_STALE_MS = 45 * 60_000;
 const autoAttempts = (events: Event[], ticket: string, op: string) =>
   events.filter((e) => e.kind === "operator" && e.contact === ticket && e.op === op && e.by === "auto");
 
+/** Auto already switched this contact's mission to Force; later mode changes are the operator's. */
+export const reviewsRequested = (events: Event[], ticket: string) =>
+  events.some((e) => e.kind === "operator" && e.contact === ticket && e.op === "mode" && e.by === "auto" && e.ok &&
+    e.args?.mode === "force");
+
 /**
  * Whether automatic `op` on `ticket` may run at `now`, from the persisted event log so a restart keeps it:
  * consecutive failures back off 5, 15, then 60 minutes, and the next failure stops automatic retries.
@@ -124,6 +129,19 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
       });
       if (target) {
         await attempt({ contact: target.ticket, action: "plan-approve", args: { revision: statuses[target.ticket]?.plan?.revision } });
+        return;
+      }
+    }
+    if (auto.reviews && !auto.capacityWait) {
+      const { statuses, owners } = deps.extras(opId);
+      // `mode` is advertised only outside native plan mode; once per contact, so an operator who sets Auto back wins.
+      const target = projection.contacts.find((c) => {
+        const status = statuses[c.ticket];
+        return status?.mode === "auto" && !status.complete && status.ctl !== null && status.actions.includes("mode") &&
+          owners[c.ticket] === "live" && !reviewsRequested(events, c.ticket) && allowed(c.ticket, "mode");
+      });
+      if (target) {
+        await attempt({ contact: target.ticket, action: "mode", args: { mode: "force" } });
         return;
       }
     }

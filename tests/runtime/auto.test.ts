@@ -441,3 +441,47 @@ test("queued extra repair authorization rechecks the producer hold and operation
     expect(t.fake.count("fleet.control")).toBe(0);
   }
 });
+
+test("review requests switch an Auto mission to Force once, then leave its mode to the operator", async () => {
+  const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") })], {
+    auto: { ...AUTO, launch: false, land: false, reviews: true },
+  });
+  // The fake socket does not change the reported mode, as when the operator sets Auto again.
+  t.setStatus("a", status({ worktree: "/wt/a", phase: "review", hold: "none", mode: "auto", actions: ["mode", "review"] }));
+  await t.auto.pass();
+  await t.auto.pass();
+  const sent = t.fake.calls.filter(c => c.port === "fleet" && c.method === "control").map(c => c.args);
+  expect(sent).toEqual([{ id: "run-1", op: "mode", args: { mode: "force" } }]);
+  await expect(t.act({ op: "lab", contact: "a", action: "mode", args: { mode: "force" }, by: "auto" })).rejects.toThrow("already sent");
+  await t.act({ op: "lab", contact: "a", action: "mode", args: { mode: "auto" } });
+  expect(t.fake.count("fleet.control")).toBe(2);
+});
+
+test("review requests leave Pause, plan review, Force, finished and disabled missions alone", async () => {
+  for (const kept of ["pause", "plan", "force", "complete", "disabled"]) {
+    const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") })], {
+      auto: { ...AUTO, launch: false, land: false, reviews: kept !== "disabled" },
+    });
+    t.setStatus("a", status({
+      worktree: "/wt/a", phase: kept === "plan" ? "plan" : "review",
+      hold: kept === "plan" ? "plan-approval" : "none",
+      mode: kept === "pause" || kept === "force" ? kept : "auto",
+      actions: kept === "plan" ? ["plan-approve"] : ["mode"],
+      complete: kept === "complete",
+    }));
+    await t.auto.pass();
+    expect(t.fake.count("fleet.control")).toBe(0);
+  }
+});
+
+test("a queued review request rechecks the fresh mode and refuses any other automatic mode change", async () => {
+  const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") })], {
+    auto: { ...AUTO, launch: false, land: false, reviews: true },
+  });
+  const stale = status({ worktree: "/wt/a", phase: "execute", hold: "none", mode: "auto", actions: ["mode"] });
+  t.setStatus("a", stale);
+  t.fake.world.statuses.set("/wt/a", { ...stale, mode: "pause" });
+  await t.auto.pass();
+  await expect(t.act({ op: "lab", contact: "a", action: "mode", args: { mode: "pause" }, by: "auto" })).rejects.toThrow("only request reviews");
+  expect(t.fake.count("fleet.control")).toBe(0);
+});
