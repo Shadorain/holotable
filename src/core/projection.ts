@@ -376,7 +376,9 @@ export function project(input: ProjectionInput): Projection {
       input.decisionPanes?.has(c.ticket) ?? false,
     ),
   );
-  const capacityTickets = contacts.filter(c => c.state !== "landed" &&
+  // Only a running pane's problem is current evidence: a reaped or dead pane's last quota error must not
+  // hold every new launch in the operation forever.
+  const capacityTickets = contacts.filter(c => c.state !== "landed" && c.state !== "offline" && (c.owner === "live" || c.owner === "observed") &&
     (c.problem?.kind === "quota" || c.problem?.kind === "rate-limit")).map(c => c.ticket);
   const capacityWait = capacityTickets.length ? `New AI work waits for provider capacity: ${capacityTickets.join(", ")}` : null;
 

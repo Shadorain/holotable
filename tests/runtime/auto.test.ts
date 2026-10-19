@@ -42,9 +42,10 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
   const statuses = new Map(Object.entries(opts.statuses ?? {}));
   const probes = new Map(Object.entries(opts.probes ?? {}));
   const run: Run = async () => ({ stdout: "", stderr: "", code: 0 });
+  let autoNow = Date.parse("2026-01-01T03:00:00Z");
   const act = createActionRunner({
     home,
-    now: () => new Date("2026-01-01T03:00:00Z"),
+    now: () => new Date(autoNow),
     settings: async () => ({ ...DEFAULT_SETTINGS, cleanup: true }),
     portsFor: () => fake.ports,
     extras: () => ({
@@ -60,7 +61,6 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
   });
   const warnings: string[] = [];
   let integrationError = opts.integrationError;
-  let autoNow = Date.parse("2026-01-01T03:00:00Z");
   const auto = createAuto({
     home,
     now: () => new Date(autoNow),
@@ -152,14 +152,93 @@ describe("auto mode", () => {
     expect(t.fake.count("frontend.createWorkspace")).toBe(0);
   });
 
-  test("a failed action pauses auto with the reason and does not launch", async () => {
-    const t = await setup([contact("b")], { fail: { "frontend.createWorkspace": new PortError("orca-down", "orca exploded") } });
+  test("a failed launch backs that contact off without switching auto off; other contacts still launch", async () => {
+    const t = await setup([contact("b"), contact("c")], { fail: { "frontend.createWorkspace": new PortError("orca-down", "orca exploded") } });
+    t.liveWorktree("b");
+    t.liveWorktree("c");
     await t.auto.pass();
-    const op = await t.op();
-    expect(op.auto?.enabled).toBe(false);
-    const auto = (await t.events()).find((e) => e.kind === "auto");
-    expect(auto).toMatchObject({ kind: "auto", enabled: false, by: "board" });
-    expect(auto && "reason" in auto ? auto.reason : "").toContain("orca exploded");
+    expect((await t.op()).auto?.enabled).toBe(true);
+    expect((await t.events()).some((e) => e.kind === "auto" && !e.enabled)).toBe(false);
+    expect((await t.events()).flatMap((e) => (e.kind === "operator" && e.op === "launch" && !e.ok ? [e.contact] : []))).toEqual(["b"]);
+    t.fake.world.fail.delete("frontend.createWorkspace");
+    await t.auto.pass();
+    const launched = async () => (await t.events()).filter((e) => e.kind === "launched").map((e) => ("contact" in e ? e.contact : ""));
+    expect(await launched()).toEqual(["c"]);
+    t.advance(5 * 60_000);
+    await t.auto.pass();
+    expect(await launched()).toEqual(["c", "b"]);
+  });
+
+  test("repeated failures back off 5, 15 and 60 minutes, then stop retrying that contact", async () => {
+    const t = await setup([contact("b")], { fail: { "frontend.createWorkspace": new PortError("orca-down", "orca exploded") } });
+    const attempts = () => t.fake.count("frontend.createWorkspace");
+    await t.auto.pass();
+    expect(attempts()).toBe(1);
+    for (const wait of [5, 15, 60]) {
+      t.advance(wait * 60_000 - 1);
+      await t.auto.pass();
+      const before = attempts();
+      t.advance(1);
+      await t.auto.pass();
+      expect(attempts()).toBe(before + 1);
+    }
+    t.advance(24 * 3600_000);
+    await t.auto.pass();
+    expect(attempts()).toBe(4);
+    expect((await t.op()).auto?.enabled).toBe(true);
+  });
+
+  describe("failing PR checks", () => {
+    const failing: DeliveryProbe = { url: "u", state: "open", mergeable: "clean", checks: "fail", failing: ["lint"] };
+    async function checking(opts: { ignoreChecks?: boolean } = {}) {
+      const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") })], { auto: { ...AUTO, launch: false } });
+      if (opts.ignoreChecks) await mutateOperation(t.home, "lab", (op) => ({ ...op, ignoreChecks: true }));
+      const complete = status({ worktree: "/wt/a", complete: true, phase: "complete", ctl: { socket: "/sim/a.sock", generation: 1 }, actions: ["check"] });
+      t.setStatus("a", complete);
+      t.setProbe("a", failing);
+      const checks = async () => (await t.events()).filter((e) => e.kind === "operator" && e.op === "check" && e.by === "auto");
+      return { ...t, complete, checks };
+    }
+
+    test("auto sends Check PR once, never lands past red CI, and waits for the mission's result", async () => {
+      const t = await checking();
+      await t.auto.pass();
+      await t.auto.pass();
+      expect(await t.checks()).toHaveLength(1);
+      expect(t.fake.calls.filter((c) => c.port === "fleet" && c.method === "control").map((c) => c.args)).toEqual([expect.objectContaining({ op: "check" })]);
+      expect((await t.events()).some((e) => e.kind === "operator" && e.op.startsWith("land"))).toBe(false);
+      t.advance(11 * 60_000);
+      await t.auto.pass();
+      expect(await t.checks()).toHaveLength(1);
+      t.setStatus("a", { ...t.complete, check: { at: new Date(Date.parse("2026-01-01T03:05:00Z")).toISOString(), state: "fixing", detail: "Fixed lint", conflicts: [], threads: { open: 0, total: 0 } } });
+      await t.auto.pass();
+      expect(await t.checks()).toHaveLength(2);
+      t.advance(60 * 60_000);
+      t.setStatus("a", { ...t.complete, check: { at: new Date(Date.parse("2026-01-01T03:20:00Z")).toISOString(), state: "fixing", detail: "Fixed again", conflicts: [], threads: { open: 0, total: 0 } } });
+      await t.auto.pass();
+      expect(await t.checks()).toHaveLength(2);
+      expect((await t.op()).auto?.enabled).toBe(true);
+    });
+
+    test("a mission that reports it cannot fix the checks is left for the operator", async () => {
+      const t = await checking();
+      await t.auto.pass();
+      t.advance(11 * 60_000);
+      t.setStatus("a", { ...t.complete, check: { at: new Date(Date.parse("2026-01-01T03:05:00Z")).toISOString(), state: "checks", detail: "Fails on the base too", conflicts: [], threads: { open: 0, total: 0 } } });
+      await t.auto.pass();
+      expect(await t.checks()).toHaveLength(1);
+    });
+
+    test("pending checks and ignoreChecks never trigger an automatic check", async () => {
+      const pending = await checking();
+      pending.setProbe("a", { ...failing, checks: "pending", failing: [] });
+      await pending.auto.pass();
+      expect(await pending.checks()).toHaveLength(0);
+      const ignored = await checking({ ignoreChecks: true });
+      await ignored.auto.pass();
+      expect(await ignored.checks()).toHaveLength(0);
+      expect((await ignored.events()).some((e) => e.kind === "landed")).toBe(true);
+    });
   });
 
   test("dirty integration waits without turning auto off or repeatedly landing; queue still launches", async () => {

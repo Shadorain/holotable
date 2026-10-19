@@ -89,9 +89,10 @@ test("Land never records landed when the base does not contain the branch afterw
   expect(kinds).not.toContain("removed");
 });
 
-test("Check is an operator click: automation is refused and the mission must offer it", async () => {
+test("Check needs an operator or opted-in auto landing, and the mission must offer it", async () => {
   const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") })]);
-  expect(await t.failure(t.act({ op: "lab", contact: "a", action: "check", args: {}, by: "auto" }))).toMatchObject({ status: 403 });
+  expect(await t.failure(t.act({ op: "lab", contact: "a", action: "check", args: {}, by: "recover" }))).toMatchObject({ status: 403 });
+  expect(await t.failure(t.act({ op: "lab", contact: "a", action: "check", args: {}, by: "auto" }))).toMatchObject({ status: 409, code: "refused" });
   expect(await t.failure(t.act({ op: "lab", contact: "a", action: "check", args: {} }))).toMatchObject({ status: 409, code: "refused" });
 });
 

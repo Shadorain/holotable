@@ -455,6 +455,17 @@ test("a scheduled review cooldown is waiting, not running or a relaunch request"
   expect(v.detail).toContain("22:05 UTC");
 });
 
+test("only a running pane's quota problem holds new AI work in auto mode", () => {
+  const op = makeOp([makeContact("a", { lane: live() })], { frontend: "orca", fleet: "omp-mission",
+    auto: { enabled: true, launch: true, land: true, maxLive: 4, plans: false, decide: false } });
+  const statuses = { a: makeStatus({ hold: "quota", actions: ["continue"], next: "Provider quota exhausted",
+    problem: { kind: "quota", source: "coordinator", detail: "quota exhausted", retryAt: null, attempt: null, completed: null, total: null } }) };
+  expect(project(input(op, { statuses, owners: { a: "live" } })).operation.auto?.capacityWait).toContain("a");
+  expect(project(input(op, { statuses, owners: { a: "offline" } })).operation.auto?.capacityWait).toBeNull();
+  expect(project(input(op, { statuses, owners: { a: "none" }, events: [ev(0, "a", "reaped")] })).operation.auto?.capacityWait).toBeNull();
+  expect(project(input(op, { statuses, owners: { a: "live" }, events: [ev(0, "a", "reaped")] })).operation.auto?.capacityWait).toBeNull();
+});
+
 test("review failure remains visible even when the producer does not offer a retry", () => {
   const op = makeOp([makeContact("a", { lane: live() })], { frontend: "orca", fleet: "omp-mission" });
   const status = makeStatus({ phase: "review", next: "Review failed (1/2 reviewers complete)", actions: [] });

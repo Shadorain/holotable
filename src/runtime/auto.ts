@@ -1,12 +1,59 @@
 import { readEvents } from "../store/events.ts";
 import type { ActionRequest } from "../board.ts";
-import type { Operation, Settings } from "../core/types.ts";
+import type { ContactView, Event, Operation, Settings } from "../core/types.ts";
 import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
 import { appendEvent } from "../store/events.ts";
 import { listOperations, mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
 import { PortError } from "../ports.ts";
 import { newestConflict } from "./lander.ts";
+
+/** Waits after consecutive failed automatic attempts on one contact; one more failure stops retrying it. */
+const BACKOFF_MS = [5 * 60_000, 15 * 60_000, 60 * 60_000];
+/** Land refusals auto mode treats as waits with their own pacing, not failures. */
+const WAIT_CODES = ["integration-dirty", "integration-wrong-branch", "not-merged", "conflict-opened"];
+export const MAX_AUTO_CHECKS = 2;
+const CHECK_SPACING_MS = 10 * 60_000;
+const CHECK_STALE_MS = 45 * 60_000;
+
+const autoAttempts = (events: Event[], ticket: string, op: string) =>
+  events.filter((e) => e.kind === "operator" && e.contact === ticket && e.op === op && e.by === "auto");
+
+/**
+ * Whether automatic `op` on `ticket` may run at `now`, from the persisted event log so a restart keeps it:
+ * consecutive failures back off 5, 15, then 60 minutes, and the next failure stops automatic retries.
+ */
+export function autoRetryAllowed(events: Event[], ticket: string, op: string, now: number): boolean {
+  let failures = 0;
+  let last = 0;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]!;
+    if (e.kind !== "operator" || e.contact !== ticket || e.op !== op || e.by !== "auto") continue;
+    if (e.ok) break;
+    if (WAIT_CODES.some((code) => e.error?.startsWith(`${code}:`))) continue;
+    if (failures === 0) last = Date.parse(e.at);
+    failures++;
+  }
+  if (failures === 0) return true;
+  if (failures > BACKOFF_MS.length) return false;
+  return now >= last + BACKOFF_MS[failures - 1]!;
+}
+
+/**
+ * A finished contact whose PR checks fail gets at most two automatic Check PR requests. The second waits
+ * until the mission reported the first result (or it went silent for 45 minutes) and CI reran; a mission
+ * that reported it cannot fix the checks is left for the operator.
+ */
+export function autoCheckDue(events: Event[], c: ContactView, now: number): boolean {
+  const attempts = autoAttempts(events, c.ticket, "check");
+  if (attempts.length >= MAX_AUTO_CHECKS) return false;
+  const last = attempts.at(-1);
+  if (!last) return true;
+  const at = Date.parse(last.at);
+  if (now - at < CHECK_SPACING_MS) return false;
+  if (c.check && Date.parse(c.check.at) > at) return c.check.state !== "checks";
+  return now - at >= CHECK_STALE_MS;
+}
 
 export interface AutoDeps {
   home: string;
@@ -23,7 +70,7 @@ export interface AutoDeps {
 /**
  * Auto mode: after each watcher pass, land finished missions and launch the next ready contact.
  * Launches take up to 90 s, so the caller fires this without awaiting; `busy` keeps one launch per
- * operation at a time. Decision contacts and plan approval are never touched: they wait for you.
+ * operation at a time. A failed action backs that contact off instead of switching Auto off.
  */
 export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait(opId: string): string | null } {
   const busy = new Set<string>();
@@ -51,37 +98,36 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
       await pause(opId, "every contact landed");
       return;
     }
+    const events = await readEvents(deps.home, opId);
+    const now = deps.now().getTime();
+    const allowed = (ticket: string, op: string) => autoRetryAllowed(events, ticket, op, now);
+    /** The runner already recorded the failure as an `operator` event; the backoff reads it from there. */
+    const attempt = async (req: Omit<ActionRequest, "op" | "by">): Promise<boolean> => {
+      try {
+        await deps.run({ ...req, op: opId, by: "auto" });
+        return true;
+      } catch (error) {
+        deps.warn(`auto ${opId} ${req.action} ${req.contact}: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      }
+    };
 
     if (auto.plans && !auto.capacityWait) {
+      const statuses = deps.extras(opId).statuses;
       const target = projection.contacts.find((c) => {
-        const status = deps.extras(opId).statuses[c.ticket];
-        if (status?.hold !== "plan-approval") return false;
-        if (!status.ctl) return false;
-        if (!status.actions.includes("plan-approve")) return false;
-        const ownerLive = deps.extras(opId).owners[c.ticket] === "live";
-        if (!ownerLive) return false;
-        return true;
+        const status = statuses[c.ticket];
+        if (status?.hold !== "plan-approval" || !status.ctl || !status.actions.includes("plan-approve")) return false;
+        if (deps.extras(opId).owners[c.ticket] !== "live" || !allowed(c.ticket, "plan-approve")) return false;
+        const revision = status.plan?.revision;
+        return !events.some((e) => e.kind === "operator" && e.op === "plan-approve" && e.contact === c.ticket && e.ok &&
+          e.args?.revision === revision);
       });
       if (target) {
-        const events = await readEvents(deps.home, opId);
-        const status = deps.extras(opId).statuses[target.ticket];
-        if (!status) return;
-        const revision = status.plan?.revision;
-        const attempted = events.some(
-          (e) => e.kind === "operator" && e.op === "plan-approve" && e.contact === target.ticket && (e as Record<string, any>).args?.revision === revision
-        );
-        if (!attempted) {
-          try {
-            await deps.run({ op: opId, contact: target.ticket, action: "plan-approve", args: { revision }, by: "auto" });
-          } catch (error) {
-            await pause(opId, error instanceof Error ? error.message : String(error));
-          }
-          return;
-        }
+        await attempt({ contact: target.ticket, action: "plan-approve", args: { revision: statuses[target.ticket]?.plan?.revision } });
+        return;
       }
     }
     if (auto.repairs && !auto.capacityWait) {
-      const events = await readEvents(deps.home, opId);
       const target = projection.contacts.find(contact => {
         const status = deps.extras(opId).statuses[contact.ticket];
         return status?.problem?.source === "repair-budget" && status.problem.kind === "error" &&
@@ -91,21 +137,26 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
             event.op === "review" && event.by === "auto" && event.args?.repairBudgetOnly === true);
       });
       if (target) {
-        try {
-          await deps.run({ op: opId, contact: target.ticket, action: "review", args: { repairBudgetOnly: true }, by: "auto" });
-        } catch (error) {
-          await pause(opId, error instanceof Error ? error.message : String(error));
-        }
+        await attempt({ contact: target.ticket, action: "review", args: { repairBudgetOnly: true } });
         return;
       }
+    }
+
+    if (auto.land && !auto.capacityWait) {
+      // `land-anyway` is offered exactly when failing checks block Land and ignoreChecks is off.
+      const target = projection.contacts.find((c) => c.state === "complete" && c.owner === "live" &&
+        c.actions.some((a) => a.id === "land-anyway") && c.actions.some((a) => a.id === "check" && a.enabled) &&
+        allowed(c.ticket, "check") && autoCheckDue(events, c, now));
+      if (target) await attempt({ contact: target.ticket, action: "check", args: {} });
     }
 
     if (auto.land) {
       const target = projection.contacts.find((c) => {
         if (c.state !== "complete") return false;
         if ((unmerged.get(`${opId}/${c.ticket}`) ?? 0) > deps.now().getTime()) return false;
-        if (c.actions.some((a) => a.id === "land" && a.enabled)) return true;
-        return (c.kind === "audit" || c.kind === "conflict") && c.actions.some((a) => a.id === "done" && a.enabled);
+        if (c.actions.some((a) => a.id === "land" && a.enabled)) return allowed(c.ticket, "land");
+        return (c.kind === "audit" || c.kind === "conflict") && c.actions.some((a) => a.id === "done" && a.enabled) &&
+          allowed(c.ticket, "done");
       });
       if (!target) landingWaits.delete(opId);
       if (target) {
@@ -122,15 +173,17 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
             landingWaits.delete(opId);
             await deps.run({ op: opId, contact: target.ticket, action: landable ? "land" : "done", args: {}, by: "auto" });
           } catch (error) {
-            if ((error instanceof PortError || error instanceof ActionError) &&
-                (error.code === "integration-dirty" || error.code === "integration-wrong-branch")) {
+            const code = error instanceof PortError || error instanceof ActionError ? error.code : null;
+            if (code === "integration-dirty" || code === "integration-wrong-branch") {
               // Readiness can change between preflight and merge. Never retry a blocked merge each poll.
-              landingWaits.set(opId, { reason: `${target.ticket}: ${error.message}`, retryAt: deps.now().getTime() + 30_000 });
-            } else if (error instanceof ActionError && error.code === "not-merged") {
+              landingWaits.set(opId, { reason: `${target.ticket}: ${error instanceof Error ? error.message : String(error)}`, retryAt: deps.now().getTime() + 30_000 });
+            } else if (code === "not-merged") {
               unmerged.set(`${opId}/${target.ticket}`, deps.now().getTime() + 10 * 60_000);
-            } else if (!(error instanceof ActionError && error.code === "conflict-opened")) {
-              await pause(opId, error instanceof Error ? error.message : String(error));
-              return;
+            } else if (code !== "conflict-opened") {
+              const reason = `${target.ticket}: ${error instanceof Error ? error.message : String(error)}`;
+              deps.warn(`auto ${opId} land ${reason}`);
+              // A preflight failure never reached the runner, so it leaves no event to back off on.
+              if (!(error instanceof ActionError)) landingWaits.set(opId, { reason, retryAt: deps.now().getTime() + BACKOFF_MS[0]! });
             }
           }
         }
@@ -156,14 +209,10 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
             await pause(opId, error instanceof Error ? error.message : String(error));
             return;
           }
-        } else if (!auto.capacityWait && live < auto.maxLive && open < projection.header.cap) {
-          try {
-            await deps.run({ op: opId, contact: target.ticket, action: "decide-agent", args: {}, by: "auto" });
+        } else if (!auto.capacityWait && live < auto.maxLive && open < projection.header.cap && allowed(target.ticket, "decide-agent")) {
+          if (await attempt({ contact: target.ticket, action: "decide-agent", args: {} })) {
             live += 1;
             open += 1;
-          } catch (error) {
-            await pause(opId, error instanceof Error ? error.message : String(error));
-            return;
           }
         }
       }
@@ -179,16 +228,11 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
       }
       const next = projection.contacts.reduce<typeof projection.contacts[number] | undefined>((best, c) => {
         if (c.group !== "queue" || c.state !== "ready" || !c.actions.some((a) => a.id === "launch" && a.enabled)) return best;
+        if (!allowed(c.ticket, "launch")) return best;
         if (!best || (unblocks.get(c.ticket) ?? 0) > (unblocks.get(best.ticket) ?? 0)) return c;
         return best;
       }, undefined);
-      if (next) {
-        try {
-          await deps.run({ op: opId, contact: next.ticket, action: "launch", args: {}, by: "auto" });
-        } catch (error) {
-          await pause(opId, error instanceof Error ? error.message : String(error));
-        }
-      }
+      if (next) await attempt({ contact: next.ticket, action: "launch", args: {} });
     }
   }
 

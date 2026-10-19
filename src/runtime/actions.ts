@@ -13,6 +13,7 @@ import { cleanupAfterLand } from "./cleanup.ts";
 import { ActionError } from "./errors.ts";
 import { landContact, type LanderDeps } from "./lander.ts";
 import { launchContact, relaunchContact } from "./launcher.ts";
+import { MAX_AUTO_CHECKS } from "./auto.ts";
 
 /** Port failures an operator can act on are conflicts (409); anything else is an upstream failure (502). */
 const CONFLICT_CODES = ["owner-offline", "stale", "busy", "rejected", "no-session", "terminal-missing"];
@@ -181,6 +182,14 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     await fleet.control(status, op, args);
   }
 
+  /** Rechecked at send time: the operation's auto landing intent and the per-contact attempt bound. */
+  async function assertAutoCheck(opId: string, ticket: string): Promise<void> {
+    const operation = await readOperation(deps.home, opId);
+    if (!operation.auto?.enabled || !operation.auto.land) throw new ActionError(409, "refused", "Automatic landing is disabled");
+    const attempts = (await readEvents(deps.home, opId)).filter((e) => e.kind === "operator" && e.contact === ticket && e.op === "check" && e.by === "auto");
+    if (attempts.length >= MAX_AUTO_CHECKS) throw new ActionError(409, "refused", `Automatic PR checks already used (${MAX_AUTO_CHECKS})`);
+  }
+
   /** Same legality the board enforces: the Relaunch button exists and is enabled on a fresh projection. */
   async function relaunch(opId: string, ticket: string, recovering: boolean): Promise<void> {
     const projection = await loadProjection(deps.home, opId, await deps.settings(), deps.now().getTime(), deps.extras(opId));
@@ -220,9 +229,12 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         run = () => fleetOp(req.op, req.contact, "review", req.args.repairBudgetOnly === true ? { repairBudgetOnly: true } : {}, false, req.by === "auto");
         break;
       case "check":
-        // Check pushes to the PR branch and replies on review threads as the operator: never unattended.
-        if (req.by !== undefined) throw new ActionError(403, "refused", "Checking a PR requires an operator");
-        run = () => fleetOp(req.op, req.contact, "check", {});
+        // Auto mode may ask a finished mission to fix its own failing PR checks, bounded; Recovery never does.
+        if (req.by !== undefined && req.by !== "auto") throw new ActionError(403, "refused", "Checking a PR requires an operator or auto mode");
+        run = async () => {
+          if (req.by === "auto") await assertAutoCheck(req.op, req.contact);
+          await fleetOp(req.op, req.contact, "check", {});
+        };
         break;
       case "retry-model":
         if (req.by !== undefined) throw new ActionError(403, "refused", "Model recovery requires an operator");
