@@ -12,7 +12,7 @@ import { relaunchesPending } from "./recover.ts";
 /** Waits after consecutive failed automatic attempts on one contact; one more failure stops retrying it. */
 const BACKOFF_MS = [5 * 60_000, 15 * 60_000, 60 * 60_000];
 /** Land refusals auto mode treats as waits with their own pacing, not failures. */
-const WAIT_CODES = ["integration-dirty", "integration-wrong-branch", "not-merged", "conflict-opened"];
+const WAIT_CODES = ["integration-dirty", "integration-wrong-branch", "not-merged", "conflict-opened", "checks-pending"];
 export const MAX_AUTO_CHECKS = 2;
 const CHECK_SPACING_MS = 10 * 60_000;
 const CHECK_STALE_MS = 45 * 60_000;

@@ -135,10 +135,12 @@ export function githubPrDelivery(run: Run): DeliveryPort {
           "pr-base-mismatch",
           `PR base is ${String(pr.baseRefName)}, expected ${operation.base}`,
         );
-      if (i.ignoreChecks !== true && checksFrom(pr.statusCheckRollup) === "fail") {
+      const checks = i.ignoreChecks === true ? "pass" : checksFrom(pr.statusCheckRollup);
+      if (checks === "fail") {
         const failing = failedChecks(pr.statusCheckRollup);
         throw new PortError("checks-failing", failing.length ? `failing check: ${failing.join(", ")}` : "a required check failed");
       }
+      if (checks === "pending") throw new PortError("checks-pending", "checks still running");
       if (typeof pr.headRefName !== "string" || pr.headRefName.length === 0)
         throw new PortError("pr-view-failed", "gh pr view omitted headRefName");
       const url = typeof pr.url === "string" ? pr.url : "";

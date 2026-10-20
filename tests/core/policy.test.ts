@@ -232,6 +232,9 @@ describe("actionsFor", () => {
     expect(blocked.find((a) => a.id === "land-anyway")).toMatchObject({ enabled: true, primary: false });
     const ignoring = actionsFor(policy({ ...op, ignoreChecks: true }, "a", { state: "complete", status, probe }));
     expect(ignoring.find((a) => a.id === "land")).toMatchObject({ enabled: true, reason: null });
+    const running = actionsFor(policy(op, "a", { state: "complete", status, probe: { ...probe, checks: "pending" as const, failing: [] } }));
+    expect(running.find((a) => a.id === "land")).toMatchObject({ enabled: false, reason: "checks still running" });
+    expect(running.some((a) => a.id === "land-anyway")).toBe(false);
     expect(ignoring.some((a) => a.id === "land-anyway")).toBe(false);
     // A closed PR is not something Land anyway can fix.
     const closed = actionsFor(policy(op, "a", { state: "complete", status, probe: { ...probe, state: "closed" } }));

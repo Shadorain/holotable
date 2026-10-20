@@ -245,6 +245,8 @@ export function actionsFor(i: PolicyInput): ActionView[] {
         const failingChecks = reason === null && probe?.checks === "fail" && !operation.ignoreChecks;
         if (failingChecks)
           reason = probe.failing?.length ? `failing check: ${probe.failing.join(", ")}` : "a required check failed";
+        // A rerun turns red checks pending; landing then would merge before CI has said anything.
+        else if (reason === null && probe?.checks === "pending" && !operation.ignoreChecks) reason = "checks still running";
         actions.push(view("land", "Land", true, reason === null, reason));
         // The operator can still land past red CI for this one PR; auto mode only looks at `land`.
         if (failingChecks) actions.push(view("land-anyway", "Land anyway", false, true));
