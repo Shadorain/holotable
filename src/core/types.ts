@@ -591,6 +591,8 @@ export interface ContactView {
   lane: { worktree: string; branch: string | null; frontend: Lane["frontend"]; terminal: boolean } | null;
   /** The operator has something to do here now (approve, land, decide, recover). */
   attention: boolean;
+  /** Why to leave it alone: the mission is working, or auto mode or Recovery owns the next step; null otherwise. */
+  handsOff: string | null;
   actions: ActionView[];
 }
 

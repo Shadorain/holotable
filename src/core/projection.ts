@@ -1,6 +1,6 @@
 import { foldEvents, contactDerived } from "./fold.ts";
 import { countTasks } from "./notes.ts";
-import { actionsFor, contactState, launchRefusal } from "./policy.ts";
+import { actionsFor, contactState, handsOff, launchRefusal } from "./policy.ts";
 import { computeStats } from "./stats.ts";
 import { missionProblem, retryWaiting } from "./mission-problem.ts";
 import type {
@@ -306,6 +306,7 @@ function contactView(
   if (reviewStale)
     detail = `Review stalled past its deadline (${review!.deadlineAt.slice(0, 16).replace("T", " ")} UTC); the pane may be stuck — Relaunch it`;
   const actions = actionsFor(policy);
+  const hands = handsOff({ ...policy, actions, reviewStalled: reviewStale });
   if (state === "complete") {
     const next = actions.find(action => action.primary);
     detail = next?.reason ? `Mission complete; ${next.reason}`
@@ -353,10 +354,11 @@ function contactView(
     recommended: contact.recommended,
     decision: d.decision,
     decisionPane: decisionPaneOpen,
-    // A decision an agent is working on is not waiting on the operator.
-    attention: (ATTENTION_STATES.includes(state) && !(state === "decision" && decisionPaneOpen) &&
+    // A decision an agent is working on is not waiting on the operator, nor is anything automation owns.
+    attention: hands === null && ((ATTENTION_STATES.includes(state) && !(state === "decision" && decisionPaneOpen) &&
       (state !== "review" || status?.actions.includes("review") === true || reviewStale)) ||
-      (state === "complete" && contact.kind !== "conflict"),
+      (state === "complete" && contact.kind !== "conflict")),
+    handsOff: hands,
     actions,
   };
 }

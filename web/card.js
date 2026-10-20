@@ -587,6 +587,8 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan) {
       ? `Review paused. Automatic retry: ${new Date(problem.retryAt).toLocaleString()}.`
       : contact.detail;
     next.append(el("div", "kicker", contact.state === "waiting" && problem ? "Retry scheduled" : contact.attention ? "Your move" : "Status"), el("div", "next-text", message));
+    // Only when the operator should not touch it: the mission or auto mode/Recovery owns the next step.
+    if (contact.handsOff) next.append(el("div", "hands-off", `Hands off · ${contact.handsOff}`));
     if (problem?.completed !== null && problem?.completed !== undefined && problem.total !== null)
       next.append(el("div", "set-note", `${problem.completed}/${problem.total} reviewers retained${problem.attempt ? ` · failed attempt ${problem.attempt}` : ""}`));
     if (contact.review)

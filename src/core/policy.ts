@@ -283,6 +283,41 @@ export function actionsFor(i: PolicyInput): ActionView[] {
   }
 }
 
+/**
+ * Why the operator should leave this contact alone right now: the mission is working, or auto mode or
+ * Recovery owns its next step. Null whenever it waits on a person: a question, a gate, a decision auto
+ * mode does not make, red CI with no fix under way, or an automation switched off.
+ */
+export function handsOff(i: PolicyInput & { actions: ActionView[]; reviewStalled?: boolean }): string | null {
+  const { operation, contact, state, status, owner, probe, actions } = i;
+  const auto = operation.auto?.enabled ? operation.auto : null;
+  const enabled = (id: string) => actions.some((a) => a.id === id && a.enabled);
+  if (status?.hold === "question" || status?.hold === "gate" || status?.hold === "quota" || status?.hold === "blocked") return null;
+  if (state === "decision") return i.decisionPaneOpen ? "An agent pane is deciding this" : null;
+  if (state === "waiting") {
+    const problem = missionProblem(status);
+    if (problem?.retryAt) return `Retrying automatically at ${problem.retryAt.slice(11, 16)} UTC`;
+    if (i.recoveryWait && operation.recover && i.recoveryWait.kind !== "refused") return "Recovery restarts this mission when it can";
+    return null;
+  }
+  if (owner !== "live") return null;
+  if (status?.hold === "resume") return operation.recover && status.verify !== "failed" ? "Recovery continues this mission" : null;
+  if (status?.hold === "plan-approval") {
+    if (!status.actions.includes("plan-approve")) return "Writing its plan";
+    return auto?.plans ? "Auto mode approves this plan" : null;
+  }
+  if ((state === "planning" || state === "running" || state === "verify" || state === "review") && !i.reviewStalled &&
+      !status?.actions.some((a) => a === "resend" || a === "review" || a === "continue"))
+    return "Working on its own";
+  if (state === "complete" && auto?.land && contact.kind !== "conflict") {
+    if (probe?.checks === "pending") return "Waiting for CI; auto mode lands it when green";
+    if (status?.check?.state === "fixing" && probe?.checks !== "fail") return "The mission is fixing its PR";
+    if (enabled("land")) return "Auto mode lands this next";
+    if (contact.kind === "audit" && enabled("done")) return "Auto mode marks this done, or opens a PR for its commits";
+  }
+  return null;
+}
+
 const PANE_MEMORY_BYTES = 600 * 1024 * 1024;
 const MEMORY_RESERVE_BYTES = 512 * 1024 * 1024;
 

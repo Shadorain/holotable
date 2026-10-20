@@ -498,6 +498,32 @@ test("a live review reports progress and model; past its deadline it asks for a 
  expect(stalled.detail).toContain("Review stalled");
 });
 
+test("work automation owns is hands-off and not 'Your move'; a question or a manual decision never is", () => {
+  const auto = { enabled: true, launch: true, land: true, maxLive: 4, plans: true, decide: false };
+  const op = makeOp([makeContact("a", { lane: live() }), makeContact("d", { kind: "decision" })], { frontend: "orca", fleet: "omp-mission", delivery: "github-pr", auto });
+  const at = (status: Parameters<typeof makeStatus>[0], probe?: object) =>
+    viewOf(op, "a", { statuses: { a: makeStatus(status) }, owners: { a: "live" }, ...(probe ? { probes: { a: probe } } : {}) } as never);
+
+  const working = at({ phase: "execute" });
+  expect(working.handsOff).toBe("Working on its own");
+  const landing = at({ complete: true, phase: "complete" }, { url: "u", state: "open", mergeable: "clean", checks: "pass" });
+  expect(landing.handsOff).toBe("Auto mode lands this next");
+  expect(landing.attention).toBe(false);
+  expect(at({ complete: true, phase: "complete" }, { url: "u", state: "open", mergeable: "clean", checks: "pending" }).handsOff)
+    .toBe("Waiting for CI; auto mode lands it when green");
+
+  const asking = at({ phase: "plan", hold: "question", next: "Answer in mission: which scope?" });
+  expect(asking.handsOff).toBeNull();
+  expect(asking.attention).toBe(true);
+  const red = at({ complete: true, phase: "complete" }, { url: "u", state: "open", mergeable: "clean", checks: "fail", failing: ["lint"] });
+  expect(red.handsOff).toBeNull();
+  // auto.decide is off: the decision is the operator's.
+  expect(viewOf(op, "d", {}).handsOff).toBeNull();
+
+  const manual = makeOp([makeContact("a", { lane: live() })], { frontend: "orca", fleet: "omp-mission", delivery: "github-pr" });
+  expect(viewOf(manual, "a", { statuses: { a: makeStatus({ complete: true, phase: "complete" }) }, owners: { a: "live" }, probes: { a: { url: "u", state: "open", mergeable: "clean", checks: "pass" } } } as never).handsOff).toBeNull();
+});
+
 test("completed work with blocked landing needs attention instead of appearing to run", () => {
   const op = makeOp([makeContact("a", { lane: live() })], { delivery: "github-pr" });
   const v = viewOf(op, "a", {
