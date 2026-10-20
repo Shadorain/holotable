@@ -45,6 +45,8 @@ function shellCommand(i: TerminalCommand): string {
   return `${envPrefix ? `${envPrefix} ` : ""}${i.argv.map(shellQuote).join(" ")}`;
 }
 
+const TYPE_PAUSE_MS = 300;
+
 export function orcaFrontend(run: Run): FrontendPort {
   const cwd = process.cwd(); // orca commands do not depend on the caller cwd
 
@@ -165,6 +167,15 @@ export function orcaFrontend(run: Run): FrontendPort {
     async close(t, worktree) {
       await validatedTerminal(t, worktree);
       decode(await run("orca", ["terminal", "close", "--terminal", t.handle, "--tab", "--json"], cwd));
+    },
+
+    async type(t, worktree, chunks) {
+      await validatedTerminal(t, worktree);
+      for (const [index, text] of chunks.entries()) {
+        // The pane's dialog reacts asynchronously (Enter on "Other" opens an editor); let it settle per chunk.
+        if (index > 0) await new Promise((resolve) => setTimeout(resolve, TYPE_PAUSE_MS));
+        decode(await run("orca", ["terminal", "send", "--terminal", t.handle, "--text", text, "--json"], cwd));
+      }
     },
 
     async removeWorkspace(i) {

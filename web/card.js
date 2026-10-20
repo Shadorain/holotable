@@ -105,8 +105,8 @@ export function clearDecideModel(opId, ticket) {
 
 function actionBar(contact, ctx) {
   const modelKey = `${ctx.opId}/${contact.ticket}`;
-  // plan-save/plan-refine render inside the Plan tab, never the action bar.
-  const wired = contact.actions.filter((a) => isWired(a) && !a.id.startsWith("plan-"));
+  // plan-save/plan-refine render inside the Plan tab and answer inside the question box, never the action bar.
+  const wired = contact.actions.filter((a) => isWired(a) && !a.id.startsWith("plan-") && a.id !== "answer");
   const wrap = el("div", "");
   if (!wired.length && !contact.plan) return null;
   const box = el("div", "actions");
@@ -602,6 +602,8 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan) {
   }
   const decided = decisionBox(contact, projection.operation.id);
   if (decided) body.append(decided);
+  const asked = askBox(contact, ctx, projection.operation.id);
+  if (asked) body.append(asked);
   for (const part of [actionBar(contact, ctx), relations(contact, projection)]) if (part) body.append(part);
 }
 
@@ -701,5 +703,90 @@ function decisionBox(contact, opId) {
   }
   box.append(list);
   updatePick(choice);
+  return box;
+}
+
+// The operator's picks for a mission's open question survive re-renders until it is answered or replaced.
+const askPicks = new Map();
+
+/** The mission's in-pane question with its choices; sending types the answer into the pane. */
+function askBox(contact, ctx, opId) {
+  const ask = contact.ask;
+  if (!ask) return null;
+  const action = contact.actions.find((a) => a.id === "answer");
+  const key = `${opId}/${contact.ticket}/${ask.id}`;
+  let picks = askPicks.get(key);
+  if (!picks) {
+    picks = ask.questions.map((q) => (q.recommended === null ? null : { option: q.recommended }));
+    askPicks.set(key, picks);
+  }
+  const box = el("div", "decision-box ask-box");
+  const send = el("button", "btn primary");
+  send.type = "button";
+  send.append(icon("send", { size: 13 }), document.createTextNode("Send answer"));
+  const ready = () => picks.every((p) => p !== null && ("option" in p || p.text.trim() !== ""));
+  const refresh = () => {
+    send.disabled = !action?.enabled || ctx.busy.has(`${contact.ticket}/*`) || !ready();
+  };
+  const many = ask.questions.length > 1;
+  ask.questions.forEach((q, qi) => {
+    box.append(el("div", "kicker", many ? `The mission asks · ${qi + 1} of ${ask.questions.length}` : "The mission asks"));
+    box.append(renderMarkdown(q.question));
+    if (q.multi) {
+      box.append(el("div", "set-note", "Multi-select: answer this one in the mission pane."));
+      return;
+    }
+    const list = el("fieldset", "decide-opts");
+    list.setAttribute("role", "radiogroup");
+    list.setAttribute("aria-label", `Answer ${qi + 1}`);
+    const name = `ask-${contact.ticket}-${qi}`;
+    const other = el("input", "ask-other");
+    other.type = "text";
+    other.placeholder = "Your own answer";
+    other.maxLength = 4000;
+    other.value = picks[qi] && "text" in picks[qi] ? picks[qi].text : "";
+    const row = (label, value, recommended) => {
+      const optId = `${name}-${value}-${Math.random().toString(36).slice(2, 6)}`;
+      const r = el("label", "decide-opt");
+      r.htmlFor = optId;
+      const radio = el("input", "decide-radio");
+      radio.type = "radio";
+      radio.id = optId;
+      radio.name = name;
+      radio.checked = value === "other" ? Boolean(picks[qi] && "text" in picks[qi]) : picks[qi]?.option === value;
+      radio.addEventListener("change", () => {
+        if (!radio.checked) return;
+        picks[qi] = value === "other" ? { text: other.value } : { option: value };
+        other.hidden = value !== "other";
+        if (value === "other") other.focus();
+        refresh();
+      });
+      const dot = el("span", "decide-dot");
+      dot.setAttribute("aria-hidden", "true");
+      r.append(radio, dot, el("span", "decide-label", label));
+      if (recommended) r.append(el("span", "tag tag-recommended", "recommended"));
+      return r;
+    };
+    q.options.forEach((option, oi) => list.append(row(option, oi, oi === q.recommended)));
+    list.append(row("Other…", "other", false));
+    other.hidden = !(picks[qi] && "text" in picks[qi]);
+    other.addEventListener("input", () => {
+      picks[qi] = { text: other.value };
+      refresh();
+    });
+    list.append(other);
+    box.append(list);
+  });
+  send.addEventListener("click", async () => {
+    if (send.disabled) return;
+    send.disabled = true;
+    const res = await ctx.run(contact.ticket, "answer", { id: ask.id, answers: picks });
+    if (res?.ok) askPicks.delete(key);
+    else refresh();
+  });
+  refresh();
+  const foot = el("div", "ask-foot");
+  foot.append(send, el("span", "set-note", action?.enabled ? "Typed into the mission pane, as if you answered there." : `Answer here unavailable: ${action?.reason ?? "no answer action"}. Use Answer in mission.`));
+  box.append(foot);
   return box;
 }

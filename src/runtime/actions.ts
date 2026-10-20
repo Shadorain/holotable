@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import type { ActionRequest } from "../board.ts";
-import type { Contact, ControlOp, OperatorOp } from "../core/types.ts";
+import type { AskAnswer, Contact, ControlOp, OperatorOp } from "../core/types.ts";
+import { askKeys, parseAskAnswers } from "../core/ask.ts";
 import { PortError } from "../ports.ts";
 import { foldEvents } from "../core/fold.ts";
 import { loadProjection } from "../snapshot.ts";
@@ -223,6 +224,28 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     await deps.portsFor(operation, await deps.settings()).frontend.focus(lane.terminal, lane.worktree, purpose);
   }
 
+  /**
+   * Answer the mission's open `ask` by typing into its pane: OMP has no way to answer it from outside.
+   * The status is re-read first, so nothing is typed unless that same question is still on screen.
+   */
+  async function answer(opId: string, ticket: string, id: string, answers: AskAnswer[]): Promise<void> {
+    const operation = await readOperation(deps.home, opId);
+    const lane = operation.contacts.find((c) => c.ticket === ticket)?.lane;
+    if (!lane?.terminal) throw new ActionError(409, "refused", "no terminal recorded");
+    const ports = deps.portsFor(operation, await deps.settings());
+    if (!ports.frontend.type) throw new ActionError(409, "refused", "This frontend cannot type into the pane; answer in the mission");
+    const status = await ports.fleet.read({ worktree: lane.worktree });
+    if (status?.hold !== "question" || !status.ask) throw new ActionError(409, "stale", `${ticket} is no longer asking a question`);
+    if (status.ask.id !== id) throw new ActionError(409, "stale", `${ticket} is asking a different question now; read it again`);
+    let keys: string[];
+    try {
+      keys = askKeys(status.ask, answers);
+    } catch (error) {
+      throw new ActionError(400, "bad-request", error instanceof Error ? error.message : String(error));
+    }
+    await ports.frontend.type(lane.terminal, lane.worktree, keys);
+  }
+
   return async (req) => {
     let run: () => Promise<void>;
     switch (req.action) {
@@ -234,6 +257,16 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         return focus(req.op, req.contact, purpose).catch((error) => {
           throw asActionError(error);
         });
+      }
+      case "answer": {
+        // Answering is the operator's call; no automation types into a pane.
+        if (req.by !== undefined) throw new ActionError(403, "refused", "Only the operator answers a mission's question");
+        const answers = parseAskAnswers(req.args.answers);
+        if (typeof req.args.id !== "string" || !req.args.id || answers === null)
+          throw new ActionError(400, "bad-request", "answer needs {id: string, answers: [{option: number} | {text: string}]}");
+        const id = req.args.id;
+        run = () => answer(req.op, req.contact, id, answers);
+        break;
       }
       case "approve":
       case "continue":

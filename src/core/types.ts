@@ -425,8 +425,16 @@ export interface ContactStatus {
     owned: boolean;
   };
   ctl: { socket: string; generation: number } | null;
+  /** The pane's open `ask` while hold is "question": the tool call id and each question's choices. */
+  ask?: MissionAsk | null;
   updatedAt: string;
 }
+
+/** One question of a mission's open `ask`; the pane lists `options`, then "Other". */
+export interface AskQuestion { question: string; options: string[]; recommended: number | null; multi: boolean }
+export interface MissionAsk { id: string; questions: AskQuestion[] }
+/** The operator's answer to one question: an option's index, or free text typed into "Other". */
+export type AskAnswer = { option: number } | { text: string };
 
 // ---- delivery (C6) ----
 
@@ -575,6 +583,8 @@ export interface ContactView {
   model?: string | null;
   /** Latest PR check the producer reported; null until the first /mission check. */
   check?: MissionCheck | null;
+  /** The mission's open question with its choices, while it waits on hold "question"; null otherwise. */
+  ask: MissionAsk | null;
   progress: { step: number; of: number } | null;
   phase: string | null;
   blockedBy: Array<{ ticket: string; landed: boolean }>;

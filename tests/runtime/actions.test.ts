@@ -122,6 +122,23 @@ test("focus forwards the purpose to the frontend", async () => {
   expect(t.fake.calls.at(-1)?.args).toMatchObject({ purpose: "plan-approval" });
 });
 
+test("answer types the picks into the pane only while that same question is still open", async () => {
+  const t = await setup();
+  const ask = { id: "call-7", questions: [{ question: "How far?", options: ["Status only", "Status + send"], recommended: 0, multi: false }] };
+  const open = JSON.parse(readFileSync(t.file, "utf8"));
+  writeFileSync(t.file, JSON.stringify({ ...open, hold: "question", gate: null, actions: [], ask }));
+  await t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", answers: [{ option: 1 }] } });
+  expect(t.fake.calls.find((c) => c.method === "type")?.args).toMatchObject({ t: { handle: "t1" }, chunks: ["\x1b[A\x1b[A\x1b[A\x1b[B", "\r"] });
+  // The pane moved on to another question: nothing is typed.
+  const stale = await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-6", answers: [{ option: 0 }] } }));
+  expect(stale).toMatchObject({ status: 409, code: "stale" });
+  const auto = await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", answers: [{ option: 0 }] }, by: "auto" }));
+  expect(auto).toMatchObject({ status: 403 });
+  writeFileSync(t.file, JSON.stringify({ ...open, hold: "none", gate: null, ask: null }));
+  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", answers: [{ option: 0 }] } }))).toMatchObject({ code: "stale" });
+  expect(t.fake.count("frontend.type")).toBe(1);
+});
+
 test("the model tools never touch the fleet or the frontend", async () => {
   const t = await setup();
   const tools = holotableToolDefs({ home: t.home, current: () => "lab", now: () => new Date("2026-01-01T02:00:00Z") });

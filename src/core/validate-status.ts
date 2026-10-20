@@ -208,6 +208,22 @@ export function validateStatus(
     check = { at: k.at, state: k.state as NonNullable<ContactStatus["check"]>["state"], detail: k.detail, conflicts: k.conflicts as string[], threads: { open, total } };
   }
 
+  let ask: ContactStatus["ask"] = null;
+  if (value.ask !== undefined && value.ask !== null) {
+    const a = value.ask;
+    const valid = isRecord(a) && typeof a.id === "string" && a.id !== "" && Array.isArray(a.questions) && a.questions.length > 0 &&
+      a.questions.every((q) => isRecord(q) && typeof q.question === "string" && Array.isArray(q.options) &&
+        q.options.every((o) => typeof o === "string") && typeof q.multi === "boolean" &&
+        (q.recommended === null || (typeof q.recommended === "number" && Number.isSafeInteger(q.recommended) && q.recommended >= 0 && q.recommended < q.options.length)));
+    if (!valid) return fail("ask must carry id and questions of {question, options, recommended, multi}");
+    ask = {
+      id: a.id as string,
+      questions: (a.questions as Array<Record<string, unknown>>).map((q) => ({
+        question: q.question as string, options: [...(q.options as string[])], recommended: q.recommended as number | null, multi: q.multi as boolean,
+      })),
+    };
+  }
+
   let session: ContactStatus["session"];
   if (value.session !== undefined) {
     const s = value.session;
@@ -248,6 +264,7 @@ export function validateStatus(
     ...(value.usageEvidence === undefined ? {} : { usageEvidence: parseUsageEvidence(value.usageEvidence) }),
     ...(value.problem === undefined ? {} : { problem }),
     ...(value.check === undefined ? {} : { check }),
+    ...(value.ask === undefined ? {} : { ask }),
     ...(value.review === undefined ? {} : { review }),
     ...(value.model === undefined ? {} : { model }),
     ...(session === undefined ? {} : { session }),

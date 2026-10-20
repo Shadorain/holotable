@@ -51,6 +51,19 @@ test("a pending question needs attention and focuses its owner instead of approv
   expect(v.actions.some(action => action.id === "plan-approve" || action.id === "continue")).toBe(false);
 });
 
+test("an open ask with its choices is answered from the board when the frontend can type into the pane", () => {
+  const ask = { id: "call-1", questions: [{ question: "Where?", options: ["Here", "There"], recommended: 1, multi: false }] };
+  const statuses = { a: makeStatus({ hold: "question", next: "Answer in mission: Where?", ask }) };
+  const orca = viewOf(makeOp([makeContact("a", { lane: makeLane({ frontend: "orca", terminal: { handle: "h", incarnationId: "i" } }) })], { fleet: "omp-mission", frontend: "orca" }), "a", { statuses, owners: { a: "live" } });
+  expect(orca.ask).toEqual(ask);
+  expect(orca.actions.filter((a) => a.primary && a.enabled).map((a) => a.id)).toEqual(["answer"]);
+  const herdr = viewOf(makeOp([makeContact("a", { lane: makeLane({ frontend: "herdr", terminal: { handle: "h", incarnationId: "i" } }) })], { fleet: "omp-mission", frontend: "herdr" }), "a", { statuses, owners: { a: "live" } });
+  expect(herdr.actions.find((a) => a.id === "answer")).toMatchObject({ enabled: false, reason: "this frontend cannot type into the pane" });
+  // Answered: the hold clears and the choices go with it.
+  const after = viewOf(makeOp([makeContact("a", { lane: live() })], { fleet: "omp-mission", frontend: "orca" }), "a", { statuses: { a: makeStatus({ hold: "none", ask }) }, owners: { a: "live" } });
+  expect(after.ask).toBeNull();
+});
+
 describe("project: state table", () => {
   test("landed beats everything", () => {
     const op = makeOp([makeContact("a", { kind: "decision" })], {

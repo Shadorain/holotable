@@ -46,6 +46,10 @@ interface ContactStatus {
   complete: boolean;
   revision: string;
   ctl: { socket: string; generation: number } | null; // null: no control socket
+  ask?: {                           // the open `ask` call while hold is "question"; null otherwise; absent = older producer
+    id: string;                     // its tool call id; the board refuses to answer once this changes
+    questions: Array<{ question: string; options: string[]; recommended: number | null; multi: boolean }>;
+  } | null;
   plan?: { path: string; revision: string } | null;   // pending plan awaiting approval; revision bumps on every edit
   mode?: "auto" | "pause" | "force" | null;           // the mission's review mode (the planned one while a plan is pending)
   problem?: {
@@ -91,7 +95,7 @@ As implemented by `omp-mission`: `next` may carry `/mission <verb> — <text>` (
 
 `source: "repair-budget"` identifies confirmed findings blocked only by the native repair-cycle limit; it publishes `kind: "error"`. Genuine decision escalations remain `source: "triage"`. This distinction requires updated producer code; the board must not infer budget authorization from older free-text failures.
 
-While the main mission agent's `ask` tool is waiting, `hold: question` replaces plan approval, `next` carries the question text, and `actions` is empty. The board offers **Answer in mission** (frontend focus), not answer submission. Matching tool completion clears the hold; unrelated tool completions do not. Recovery must not continue or relaunch it. The producer rejects mutating socket operations with `question-waiting` until answered. Planning provider blockers publish blocked/quota holds and no plan-approval action until a new turn clears the blocker.
+While the main mission agent's `ask` tool is waiting, `hold: question` replaces plan approval, `next` carries the question text, and `actions` is empty. When every question parsed, `ask` carries the call id and each question's option labels in dialog order (the dialog then lists "Other"). The board answers by typing into the pane, never through the socket, and only while the freshly read `ask.id` still matches; without `ask` it offers **Answer in mission** (frontend focus). Matching tool completion clears the hold and `ask`; unrelated tool completions do not. Recovery must not continue or relaunch it. The producer rejects mutating socket operations with `question-waiting` until answered. Planning provider blockers publish blocked/quota holds and no plan-approval action until a new turn clears the blocker.
 
 ### Optional evaluation evidence (v1)
 
