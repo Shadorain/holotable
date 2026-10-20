@@ -137,6 +137,11 @@ export interface DeliveryPort {
     /** Merge even when PR checks are failing (the operation's setting or Land anyway); absent = enforce checks. */
     ignoreChecks?: boolean;
   }): Promise<LandResult>;
+  /**
+   * Open a review for `branch`'s unmerged work when the mission delivered none (an audit that committed
+   * code). Deliveries without reviews omit it. Returns the review URL.
+   */
+  publish?(i: { operation: Operation; contact: Contact; branch: string }): Promise<{ url: string }>;
 }
 
 export interface Ports {

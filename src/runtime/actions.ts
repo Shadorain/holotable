@@ -44,8 +44,17 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     // be in the base first; a decision or a conflict mission lands through another contact's merge.
     const branch = contact?.lane?.branch;
     if (contact && branch && contact.kind !== "decision" && contact.kind !== "conflict") {
-      const verdict = await deps.portsFor(operation, await deps.settings()).delivery.verifyMerged({ operation, contact, branch, url: view?.delivery?.url });
-      if (!verdict.merged) throw new ActionError(409, "not-merged", `${ticket} is not merged into ${operation.base}: ${verdict.reason}`);
+      const delivery = deps.portsFor(operation, await deps.settings()).delivery;
+      const verdict = await delivery.verifyMerged({ operation, contact, branch, url: view?.delivery?.url });
+      if (!verdict.merged) {
+        // An audit that committed code delivers no PR; without one, Mark done could only refuse forever.
+        // Open the review it never opened, and Land takes over once the probe sees it.
+        if (contact.kind === "audit" && delivery.publish && !view?.delivery?.url && !deps.extras(opId).probes?.[ticket]) {
+          const { url } = await delivery.publish({ operation, contact, branch });
+          throw new ActionError(409, "pr-opened", `${ticket}'s commits are not in ${operation.base}; opened ${url} for them. Land it once its checks pass`);
+        }
+        throw new ActionError(409, "not-merged", `${ticket} is not merged into ${operation.base}: ${verdict.reason}`);
+      }
     }
     const at = deps.now().toISOString();
     if (contact?.kind === "decision") {

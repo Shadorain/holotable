@@ -67,6 +67,24 @@ test("Mark done refuses an audit whose branch is not in the base, and removes no
   expect(kinds).not.toContain("reaped");
 });
 
+test("Mark done on an audit with unmerged commits and no PR opens one for Land instead of refusing forever", async () => {
+  const t = await setup([audit()]);
+  t.fake.world.unmerged.set("a", "3 commits on b/a not in main");
+  const published: string[] = [];
+  t.fake.ports.delivery.publish = async (i) => { published.push(i.branch); return { url: "https://github.com/acme/w/pull/9" }; };
+  const failed = await t.failure(t.act({ op: "lab", contact: "a", action: "done", args: {} }));
+  expect(failed).toMatchObject({ status: 409, code: "pr-opened" });
+  expect(failed.message).toContain("pull/9");
+  expect(published).toEqual(["b/a"]);
+  expect(await t.kinds()).not.toContain("landed");
+
+  // Once the probe sees that PR, Mark done goes back to refusing: Land owns it now.
+  t.fake.world.probes.set("a", { url: "https://github.com/acme/w/pull/9", state: "open", mergeable: "clean", checks: "pending" });
+  const again = await t.failure(t.act({ op: "lab", contact: "a", action: "done", args: {} }));
+  expect(again.code).not.toBe("pr-opened");
+  expect(published).toHaveLength(1);
+});
+
 test("Mark done lands an audit once its work is really in the base", async () => {
   const t = await setup([audit()]);
   await t.act({ op: "lab", contact: "a", action: "done", args: {} });
