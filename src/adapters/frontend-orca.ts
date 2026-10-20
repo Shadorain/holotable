@@ -11,6 +11,7 @@ interface OrcaTerminalRow {
   incarnationId: string;
   worktreePath: string;
   connected: boolean;
+  setup: boolean;
 }
 
 function parseTerminalList(payload: Record<string, unknown>): OrcaTerminalRow[] {
@@ -30,6 +31,8 @@ function parseTerminalList(payload: Record<string, unknown>): OrcaTerminalRow[] 
       incarnationId: value.incarnationId,
       worktreePath: value.worktreePath,
       connected: value.connected === true,
+      // Orca names the tab that runs a worktree's setup hook "Setup" (worktree create, local and remote).
+      setup: value.title === "Setup",
     });
   }
   return rows;
@@ -150,6 +153,7 @@ export function orcaFrontend(run: Run): FrontendPort {
         incarnationId: row.incarnationId,
         worktree: row.worktreePath,
         connected: row.connected,
+        setup: row.setup,
       }));
     },
 

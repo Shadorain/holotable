@@ -152,6 +152,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     run: action,
     integrationReady: (op, branch) => assertIntegrationReady(run, op.integration, op.base, branch),
     warn,
+    settle: (id) => watcher.pass(id),
   });
   const recover = createRecover({
     home,

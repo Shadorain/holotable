@@ -259,6 +259,22 @@ describe("recovery: relaunch", () => {
     expect(t.fake.count("frontend.openTerminal")).toBe(0);
   });
 
+  test("automatic relaunch ignores the frontend's leftover setup tab, but not a second session beside it", async () => {
+    const t = await setup();
+    const setupTab = { handle: "setup-tab", incarnationId: "s1", worktree: "/wt/a", connected: true, setup: true };
+    t.fake.world.terminals = [setupTab];
+    t.dead("a");
+    t.vanished.add("a");
+    await t.act({ op: "lab", contact: "a", action: "relaunch", args: {}, by: "recover" });
+    expect(t.fake.count("frontend.openTerminal")).toBe(1);
+
+    const busy = await setup();
+    busy.fake.world.terminals = [setupTab, { handle: "resumed", incarnationId: "r1", worktree: "/wt/a", connected: true }];
+    busy.dead("a");
+    busy.vanished.add("a");
+    await expect(busy.act({ op: "lab", contact: "a", action: "relaunch", args: {}, by: "recover" })).rejects.toThrow("empty workspace");
+  });
+
   test("disabling Recovery prevents stale automatic actions from touching panes or missions", async () => {
     const t = await setup({ recover: false });
     t.live("a", resume);

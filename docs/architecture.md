@@ -99,7 +99,9 @@ marker beside it, and an owning pane retries socket open on its polling passes o
 a pane revived without `OMP_HOLOTABLE_CHILD` comes back under board control without a relaunch.
 
 Automatic relaunch additionally requires a fresh, non-null terminal inventory with no rows
-in the lane's canonical worktree and no row for its recorded handle. This check runs in
+in the lane's canonical worktree and no row for its recorded handle. It ignores a row the
+frontend marks `setup`, which on Orca is the tab titled "Setup" that runs the worktree's
+setup hook and stays open afterward; this does not apply to the recorded handle. This check runs in
 the launcher after queueing: a manually resumed pane with a different incarnation still
 blocks it, even after all status activity windows expire. Socket failure never proves a
 listed pane is dead. Only manual Relaunch may close a listed pane or proceed without
@@ -261,6 +263,8 @@ Browser lifecycle: streaming `fetch` on `/api/stream` refetches when the board p
 Each watcher pass also runs `git status --porcelain` on a local-merge operation's integration checkout; the uncommitted path count rides the projection as `operation.integrationDirty` and drives the header's `integration dirty · n` warning pill. The probe is advisory only: readiness is rechecked inside `assertIntegrationReady` at land time.
 
 Opt-in `auto.repairs` sends `review` with `args.repairBudgetOnly: true` once per contact, after a native `problem.source: repair-budget` hold. Selection requires a live owner, passed verification, non-Pause mode and an enabled Review action; capacity waits suppress it. The action runner rechecks operation opt-in, prior `operator` events and freshly read native status. Any prior auto Review attempt carrying that flag, successful or failed, consumes the allowance across restarts. The producer independently rejects the scoped request outside a confirmed budget hold or in Pause. Explicit triage escalations remain manual.
+
+Auto mode settles the watcher after each launch or decision pane it opens, so the next pass reads the new pane's load. Without that, consecutive passes counted against stale load and opened one pane past the cap.
 
 Opt-in `auto.reviews` sends `mode` with `args.mode: "force"` once per contact. The target is a live mission whose status reports `mode: "auto"`, is not complete, and advertises `mode`; the producer advertises `mode` only outside native plan review. Capacity waits suppress the request. In omp-mission, Force is Auto plus `reviewRequested`. Without that flag, a delivered Auto mission holds at "Result is ready" until someone runs `/mission review`. The action runner refuses any other automatic mode change. It rechecks operation opt-in, the prior successful `by: "auto"` Force event and a freshly read status. A failure backs off through `autoRetryAllowed` like other automatic ops. A mission the operator later sets back to Auto stays in Auto.
 

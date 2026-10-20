@@ -49,7 +49,8 @@ export interface TrackerPort {
 }
 
 
-export type ListedTerminal = TerminalRef & { worktree: string; connected: boolean; agent?: string | null };
+/** `setup`: the frontend's own tab running the worktree's setup hook, never an agent session. */
+export type ListedTerminal = TerminalRef & { worktree: string; connected: boolean; agent?: string | null; setup?: boolean };
 
 export interface WorkspaceInput {
   repo: string;

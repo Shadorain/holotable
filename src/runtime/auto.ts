@@ -71,6 +71,8 @@ export interface AutoDeps {
   integrationReady(operation: Operation, branch: string): Promise<void>;
   /** Internal failures (store reads, settings); action failures already pause via `auto` events. */
   warn(message: string): void;
+  /** Refresh watcher load after opening a pane, so the next pass does not count against a stale cap. */
+  settle?(opId: string): Promise<void>;
 }
 
 /**
@@ -113,6 +115,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
     const attempt = async (req: Omit<ActionRequest, "op" | "by">): Promise<boolean> => {
       try {
         await deps.run({ ...req, op: opId, by: "auto" });
+        if (req.action === "launch" || req.action === "decide-agent") await deps.settle?.(opId);
         return true;
       } catch (error) {
         deps.warn(`auto ${opId} ${req.action} ${req.contact}: ${error instanceof Error ? error.message : String(error)}`);
