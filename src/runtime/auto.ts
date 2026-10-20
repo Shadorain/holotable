@@ -7,6 +7,7 @@ import { listOperations, mutateOperation, readOperation } from "../store/operati
 import { ActionError } from "./errors.ts";
 import { PortError } from "../ports.ts";
 import { newestConflict } from "./lander.ts";
+import { relaunchesPending } from "./recover.ts";
 
 /** Waits after consecutive failed automatic attempts on one contact; one more failure stops retrying it. */
 const BACKOFF_MS = [5 * 60_000, 15 * 60_000, 60 * 60_000];
@@ -106,6 +107,8 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
     const events = await readEvents(deps.home, opId);
     const now = deps.now().getTime();
     const allowed = (ticket: string, op: string) => autoRetryAllowed(events, ticket, op, now);
+    // Slots Recovery is about to reuse for crashed missions; new work must not take them.
+    const reserved = relaunchesPending(projection, deps.extras(opId), events, now).length;
     /** The runner already recorded the failure as an `operator` event; the backoff reads it from there. */
     const attempt = async (req: Omit<ActionRequest, "op" | "by">): Promise<boolean> => {
       try {
@@ -227,7 +230,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
             await pause(opId, error instanceof Error ? error.message : String(error));
             return;
           }
-        } else if (!auto.capacityWait && live < auto.maxLive && open < projection.header.cap && allowed(target.ticket, "decide-agent")) {
+        } else if (!auto.capacityWait && live + reserved < auto.maxLive && open + reserved < projection.header.cap && allowed(target.ticket, "decide-agent")) {
           if (await attempt({ contact: target.ticket, action: "decide-agent", args: {} })) {
             live += 1;
             open += 1;
@@ -236,7 +239,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
       }
     }
 
-    if (auto.launch && !auto.capacityWait && projection.header.live < auto.maxLive && projection.header.open < projection.header.cap) {
+    if (auto.launch && !auto.capacityWait && projection.header.live + reserved < auto.maxLive && projection.header.open + reserved < projection.header.cap) {
       // Ready contacts launch in declaration order, biased toward the one that unblocks
       // the most unlanded work: long dependency chains cost more wall time than order.
       const unblocks = new Map<string, number>();

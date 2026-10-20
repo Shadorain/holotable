@@ -473,7 +473,9 @@ Per operation, off by default and never inherited from a project: `/holotable se
 Saved missions deferred by Recovery show **Waiting**, with the actual session-slot
 or memory reason, rather than a misleading crash/attention alert. Recovery reserves
 capacity for queued restarts and rechecks each one before opening a pane. After a
-restart it refreshes ownership and load before admitting the next mission. Once a
+restart it refreshes ownership and load before admitting the next mission. Auto mode
+leaves a crashed mission's slot empty while Recovery waits out the one-minute startup
+grace, so new work cannot take it. This also applies to decision panes. Once a
 slot or sufficient memory returns, it retries automatically without spending the
 crash-loop budget on resource refusals. Idle and held panes still consume memory and
 count against the Agents cap. **Started** counts assigned missions; Load counts

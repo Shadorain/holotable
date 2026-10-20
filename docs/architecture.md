@@ -264,6 +264,8 @@ Opt-in `auto.repairs` sends `review` with `args.repairBudgetOnly: true` once per
 
 Opt-in `auto.reviews` sends `mode` with `args.mode: "force"` once per contact. The target is a live mission whose status reports `mode: "auto"`, is not complete, and advertises `mode`; the producer advertises `mode` only outside native plan review. Capacity waits suppress the request. In omp-mission, Force is Auto plus `reviewRequested`. Without that flag, a delivered Auto mission holds at "Result is ready" until someone runs `/mission review`. The action runner refuses any other automatic mode change. It rechecks operation opt-in, the prior successful `by: "auto"` Force event and a freshly read status. A failure backs off through `autoRetryAllowed` like other automatic ops. A mission the operator later sets back to Auto stays in Auto.
 
+Auto launch and auto decision panes count `recover.ts::relaunchesPending` against `auto.maxLive` and the cap. That function lists the dead panes Recovery will relaunch: offline, pane vanished or process gone, not reaped, not complete, not parked on quota or a question, under the relaunch limit, Relaunch enabled. Without this, the slot a crash frees went to new work during Recovery's one-minute startup grace, and the crashed mission then waited behind it.
+
 Completed non-conflict contacts require attention even when their primary landing action is disabled; their detail names the refusal or awaiting-landing state. GitHub delivery probe, land and `verifyMerged` prefer the producer's delivered PR URL, falling back to branch lookup only when no URL is known. Reused branches cannot substitute a historical PR for the delivered one.
 
 ## Invariants

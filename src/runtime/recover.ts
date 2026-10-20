@@ -1,7 +1,7 @@
 import type { ActionRequest } from "../board.ts";
 import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
 import { foldEvents } from "../core/fold.ts";
-import type { Event, RecoveryWait, Settings } from "../core/types.ts";
+import type { ContactStatus, ContactView, Event, Projection, RecoveryWait, Settings } from "../core/types.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { listOperations } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
@@ -27,6 +27,70 @@ const RELAUNCH_WINDOW_MS = 30 * 60 * 1000;
 const CONTINUE_RETRY_MS = 30 * 1000;
 /** A stale watcher pass must not replace a child whose startup is still in flight. */
 const RELAUNCH_GRACE_MS = 60 * 1000;
+
+interface Recovery {
+  /** Recover-driven relaunches inside the window, after the last operator relaunch reset the count. */
+  relaunches: number;
+  /** The gave-up marker already recorded since the last operator relaunch. */
+  gaveUp: boolean;
+  /** When recovery last sent continue for this contact (pacing across restarts). */
+  lastContinueAt: number;
+}
+
+function recovery(events: Event[], ticket: string, now: number): Recovery {
+  const since = now - RELAUNCH_WINDOW_MS;
+  // An operator relaunch (any by but "recover") is the human taking over: it resets the crash count.
+  const lastReset = events.reduce(
+    (acc, e) => (e.kind === "operator" && e.contact === ticket && e.op === "relaunch" && e.by !== "recover" ? Math.max(acc, Date.parse(e.at)) : acc),
+    0,
+  );
+  const relaunchEvents = events.filter(
+    (e): e is Extract<Event, { kind: "operator" }> =>
+      e.kind === "operator" &&
+      e.contact === ticket &&
+      e.op === "relaunch" &&
+      e.by === "recover" &&
+      e.error?.startsWith("memory-pressure:") !== true &&
+      e.error?.startsWith("refused: cap ") !== true &&
+      Date.parse(e.at) >= since &&
+      Date.parse(e.at) > lastReset,
+  );
+  const lastContinueAt = events.reduce(
+    (acc, e) => (e.kind === "operator" && e.contact === ticket && e.op === "continue" && e.by === "recover" ? Math.max(acc, Date.parse(e.at)) : acc),
+    0,
+  );
+  return {
+    relaunches: relaunchEvents.length,
+    gaveUp: relaunchEvents.some((e) => e.ok === false && e.error?.startsWith("gave up:") === true),
+    lastContinueAt,
+  };
+}
+
+/**
+ * A dead pane Recovery brings back: offline with its pane vanished or its process gone, not reaped,
+ * not finished, and not parked on quota or an unanswered question.
+ */
+function deadPane(contact: ContactView, status: ContactStatus | null, extras: Required<ProjectionExtras>, reaped: boolean): boolean {
+  if (status?.hold === "quota" || status?.hold === "question") return false;
+  const lane = contact.lane;
+  if (contact.state !== "offline" || lane === null || !lane.terminal) return false;
+  // A pane whose process is alive stays observed/offline until its status window expires.
+  if (!extras.vanished.has(contact.ticket) && !extras.gone.has(contact.ticket)) return false;
+  return !reaped && !status?.complete;
+}
+
+/**
+ * Contacts Recovery will relaunch once their startup grace and a session slot allow. Auto launch leaves
+ * them their slots: otherwise a crashed mission's slot goes to new work while it waits out the grace.
+ */
+export function relaunchesPending(projection: Projection, extras: Required<ProjectionExtras>, events: Event[], now: number): string[] {
+  if (projection.operation.recover !== true) return [];
+  const folded = foldEvents(events);
+  return projection.contacts
+    .filter((c) => deadPane(c, extras.statuses[c.ticket] ?? null, extras, folded.contacts[c.ticket]?.reaped === true) &&
+      recovery(events, c.ticket, now).relaunches < MAX_RELAUNCHES && c.actions.some((a) => a.id === "relaunch" && a.enabled))
+    .map((c) => c.ticket);
+}
 
 export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; deferred(opId: string): Readonly<Record<string, RecoveryWait>> } {
   // Relaunch waits on a control socket for up to 90 s; one attempt per contact at a time.
@@ -68,45 +132,6 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
     }).catch(error => deps.warn(`recover ${opId}: ${error instanceof Error ? error.message : String(error)}`))
       .finally(() => queued.delete(key));
   }
-
-  interface Recovery {
-    /** Recover-driven relaunches inside the window, after the last operator relaunch reset the count. */
-    relaunches: number;
-    /** The gave-up marker already recorded since the last operator relaunch. */
-    gaveUp: boolean;
-    /** When recovery last sent continue for this contact (pacing across restarts). */
-    lastContinueAt: number;
-  }
-
-  function recovery(events: Event[], ticket: string): Recovery {
-    const since = deps.now().getTime() - RELAUNCH_WINDOW_MS;
-    // An operator relaunch (any by but "recover") is the human taking over: it resets the crash count.
-    const lastReset = events.reduce(
-      (acc, e) => (e.kind === "operator" && e.contact === ticket && e.op === "relaunch" && e.by !== "recover" ? Math.max(acc, Date.parse(e.at)) : acc),
-      0,
-    );
-    const relaunchEvents = events.filter(
-      (e): e is Extract<Event, { kind: "operator" }> =>
-        e.kind === "operator" &&
-        e.contact === ticket &&
-        e.op === "relaunch" &&
-        e.by === "recover" &&
-        e.error?.startsWith("memory-pressure:") !== true &&
-        e.error?.startsWith("refused: cap ") !== true &&
-        Date.parse(e.at) >= since &&
-        Date.parse(e.at) > lastReset,
-    );
-    const lastContinueAt = events.reduce(
-      (acc, e) => (e.kind === "operator" && e.contact === ticket && e.op === "continue" && e.by === "recover" ? Math.max(acc, Date.parse(e.at)) : acc),
-      0,
-    );
-    return {
-      relaunches: relaunchEvents.length,
-      gaveUp: relaunchEvents.some((e) => e.ok === false && e.error?.startsWith("gave up:") === true),
-      lastContinueAt,
-    };
-  }
-
 
   /** Timestamp of the newest `launched`/`socket-up` for the ticket; null when none. */
   function lastFreshAt(events: Event[], ticket: string): number | null {
@@ -152,7 +177,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
       const status = extras.statuses[contact.ticket] ?? null;
       // Neither spend another turn against exhausted quota nor discard an unanswered prompt.
       if (status?.hold === "quota" || status?.hold === "question") continue;
-      const state = recovery(events, contact.ticket);
+      const state = recovery(events, contact.ticket, now.getTime());
       if (
         status?.hold === "resume" &&
         contact.owner === "live" &&
@@ -165,13 +190,8 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
         continue;
       }
 
-      const lane = contact.lane;
-      // Vanished pane or a producer-confirmed dead process in a still-listed pane; a pane
-      // whose process is alive stays observed/offline until its status window expires.
-      if (contact.state !== "offline" || lane === null || !lane.terminal || (!extras.vanished.has(contact.ticket) && !extras.gone.has(contact.ticket))) continue;
       // An operator Reap means "leave it"; the only way back is the operator's own Relaunch.
-      if (folded.contacts[contact.ticket]?.reaped) continue;
-      if (status?.complete) continue;
+      if (!deadPane(contact, status, extras, folded.contacts[contact.ticket]?.reaped === true)) continue;
       const freshAt = lastFreshAt(events, contact.ticket);
       if (freshAt !== null && now.getTime() - freshAt < RELAUNCH_GRACE_MS) continue;
       if (state.relaunches < MAX_RELAUNCHES) {

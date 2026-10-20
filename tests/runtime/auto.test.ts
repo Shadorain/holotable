@@ -8,7 +8,7 @@ import { createActionRunner } from "../../src/runtime/actions.ts";
 import { createAuto } from "../../src/runtime/auto.ts";
 import { ActionError } from "../../src/runtime/errors.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings.ts";
-import { readEvents } from "../../src/store/events.ts";
+import { appendEvent, readEvents } from "../../src/store/events.ts";
 import { mutateOperation, readOperation } from "../../src/store/operations.ts";
 import { contact, fakePorts, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
 
@@ -26,6 +26,9 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
   fail?: Record<string, Error>;
   delivery?: "local-merge" | "none";
   integrationError?: PortError;
+  recover?: boolean;
+  /** Tickets whose recorded pane is gone. */
+  vanished?: string[];
 } = {}) {
   const home = tempDir("auto", dirs);
   await seedOperation(home, {
@@ -34,6 +37,7 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
     delivery: opts.delivery ?? "local-merge",
     integration: "/tmp/lab",
     auto: opts.auto ?? AUTO,
+    recover: opts.recover ?? false,
     contacts,
   });
   const fake = fakePorts();
@@ -67,10 +71,10 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
     settings: async () => ({ ...DEFAULT_SETTINGS, cleanup: true }),
     extras: (opId) => ({
       statuses: Object.fromEntries(statuses),
-      owners: Object.fromEntries([...statuses.keys()].map(k => [k, "live"])),
+      owners: Object.fromEntries([...[...statuses.keys()].map(k => [k, "live"]), ...(opts.vanished ?? []).map(k => [k, "offline"])]),
       probes: Object.fromEntries(probes),
       load: opts.load ?? { live: 0, open: 0 },
-      vanished: new Set(),
+      vanished: new Set(opts.vanished ?? []),
       gone: new Set<string>(),
       decisionPanes: new Set(),
       integrationDirty: null,
@@ -484,4 +488,18 @@ test("a queued review request rechecks the fresh mode and refuses any other auto
   await t.auto.pass();
   await expect(t.act({ op: "lab", contact: "a", action: "mode", args: { mode: "pause" }, by: "auto" })).rejects.toThrow("only request reviews");
   expect(t.fake.count("fleet.control")).toBe(0);
+});
+
+test("auto leaves a crashed mission's slot for Recovery instead of launching new work into it", async () => {
+  for (const recover of [true, false]) {
+    const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") }), contact("b")], {
+      auto: { ...AUTO, maxLive: 4 }, load: { live: 3, open: 3 }, recover, vanished: ["a"],
+    });
+    await appendEvent(t.home, "lab", { v: 1, at: "2026-01-01T02:00:00.000Z", kind: "launched", contact: "a", worktree: "/wt/a", frontend: "orca", terminal: { handle: "t1", incarnationId: "i1" } });
+    t.setStatus("a", status({ worktree: "/wt/a", phase: "execute", hold: "none" }));
+    t.liveWorktree("b");
+    await t.auto.pass();
+    const launched = (await t.events()).some(e => e.kind === "launched" && "contact" in e && e.contact === "b");
+    expect(launched).toBe(!recover);
+  }
 });
