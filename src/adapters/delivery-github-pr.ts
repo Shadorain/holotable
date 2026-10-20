@@ -5,6 +5,9 @@ import { assertIntegrationReady, branchInBase, probeMerge } from "./git-merge.ts
 
 const FAILED = new Set(["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]);
 
+/** How long a fresh PR head with no workflow runs and no checks may still be waiting for CI to register. */
+const CHECKS_REGISTER_MS = 20 * 60_000;
+
 function checksFrom(rollup: unknown): DeliveryProbe["checks"] {
   if (!Array.isArray(rollup) || rollup.length === 0) return "none";
   let sawPending = false;
@@ -186,6 +189,25 @@ export function githubPrDelivery(run: Run): DeliveryPort {
           : typeof pr.headRefOid === "string"
             ? pr.headRefOid
             : "";
+
+      // A head GitHub just updated has no check runs yet, which reads as "no CI". Its workflow runs exist first;
+      // a head younger than CHECKS_REGISTER_MS with neither is still waiting for CI to start.
+      if (checks === "none" && deliveredSha) {
+        const runs = await run("gh", ["run", "list", "--commit", deliveredSha, "--json", "status"], integration);
+        let active = false;
+        let any = false;
+        if (runs.code === 0) {
+          try {
+            const rows = JSON.parse(runs.stdout) as Array<{ status?: string }>;
+            any = rows.length > 0;
+            active = rows.some((row) => row.status !== "completed");
+          } catch { /* unparseable: fall back to the commit age */ }
+        }
+        const committed = await run("git", ["log", "-1", "--format=%ct", deliveredSha], integration);
+        const age = Date.now() - Number(committed.stdout.trim()) * 1000;
+        if (active || (!any && committed.code === 0 && age < CHECKS_REGISTER_MS))
+          throw new PortError("checks-pending", `checks not started yet on ${deliveredSha.slice(0, 7)}`);
+      }
 
       // Judge conflicts against the base as GitHub has it, not a stale local checkout. Best effort, like the post-land sync.
       const syncBase = await run("git", ["fetch", "origin", operation.base], integration);

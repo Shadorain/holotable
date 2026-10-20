@@ -46,12 +46,21 @@ export function autoRetryAllowed(events: Event[], ticket: string, op: string, no
 }
 
 /**
- * A finished contact whose PR checks fail gets at most two automatic Check PR requests. The second waits
- * until the mission reported the first result (or it went silent for 45 minutes) and CI reran; a mission
- * that reported it cannot fix the checks is left for the operator.
+ * Automatic Check PR requests for `ticket` since the base last moved (another contact landed). A move can
+ * be what turned the checks red, or what fixes them, so it opens a fresh budget.
+ */
+export function autoChecksSinceBase(events: Event[], ticket: string): Event[] {
+  const moved = events.reduce((at, e) => (e.kind === "landed" && "contact" in e && e.contact !== ticket ? Math.max(at, Date.parse(e.at)) : at), 0);
+  return autoAttempts(events, ticket, "check").filter((e) => Date.parse(e.at) > moved);
+}
+
+/**
+ * A finished contact whose PR checks fail gets at most two automatic Check PR requests per base. The second
+ * waits until the mission reported the first result (or it went silent for 45 minutes) and CI reran; a
+ * mission that reported it cannot fix the checks is left for the operator until the base moves.
  */
 export function autoCheckDue(events: Event[], c: ContactView, now: number): boolean {
-  const attempts = autoAttempts(events, c.ticket, "check");
+  const attempts = autoChecksSinceBase(events, c.ticket);
   if (attempts.length >= MAX_AUTO_CHECKS) return false;
   const last = attempts.at(-1);
   if (!last) return true;

@@ -278,6 +278,29 @@ describe("githubPrDelivery.land", () => {
       .toEqual({ outcome: "landed", via: "pr" });
   });
 
+  test("a fresh head with no checks yet is not landed as check-free; once its runs completed it lands", async () => {
+    const merges: string[][] = [];
+    let runs = "[]";
+    const { run } = realRun((args) => {
+      if (args[1] === "view") return { stdout: prJson({ statusCheckRollup: [] }), stderr: "", code: 0 };
+      if (args[0] === "run" && args[1] === "list") return { stdout: runs, stderr: "", code: 0 };
+      if (args[1] === "merge") merges.push(args);
+      return { stdout: "", stderr: "", code: 0 };
+    });
+    const { repo } = await prSetup(run);
+    const land = () => githubPrDelivery(run).land({ operation: makeOperation(repo), contact, sourceBranch: "feat", status });
+    // Just pushed by update-branch: GitHub has not registered its workflow runs.
+    await expect(land()).rejects.toMatchObject({ code: "checks-pending" });
+    runs = JSON.stringify([{ status: "queued" }]);
+    await expect(land()).rejects.toMatchObject({ code: "checks-pending" });
+    expect(merges).toEqual([]);
+
+    // Workflow runs that finished without reporting checks no longer hold the land.
+    runs = JSON.stringify([{ status: "completed" }]);
+    expect(await land()).toEqual({ outcome: "landed", via: "pr" });
+    expect(merges).toHaveLength(1);
+  });
+
   test("lands the delivered repair PR instead of a historical PR on its original branch", async () => {
     const merged: string[] = [];
     const url = "https://github.com/acme/w/pull/7";

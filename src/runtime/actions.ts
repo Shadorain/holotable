@@ -13,7 +13,7 @@ import { cleanupAfterLand } from "./cleanup.ts";
 import { ActionError } from "./errors.ts";
 import { landContact, type LanderDeps } from "./lander.ts";
 import { launchContact, relaunchContact } from "./launcher.ts";
-import { MAX_AUTO_CHECKS, reviewsRequested } from "./auto.ts";
+import { autoChecksSinceBase, MAX_AUTO_CHECKS, reviewsRequested } from "./auto.ts";
 
 /** Port failures an operator can act on, or wait out, are conflicts (409); anything else is an upstream failure (502). */
 const CONFLICT_CODES = ["owner-offline", "stale", "busy", "rejected", "no-session", "terminal-missing", "checks-pending", "branch-updated"];
@@ -194,8 +194,8 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
   async function assertAutoCheck(opId: string, ticket: string): Promise<void> {
     const operation = await readOperation(deps.home, opId);
     if (!operation.auto?.enabled || !operation.auto.land) throw new ActionError(409, "refused", "Automatic landing is disabled");
-    const attempts = (await readEvents(deps.home, opId)).filter((e) => e.kind === "operator" && e.contact === ticket && e.op === "check" && e.by === "auto");
-    if (attempts.length >= MAX_AUTO_CHECKS) throw new ActionError(409, "refused", `Automatic PR checks already used (${MAX_AUTO_CHECKS})`);
+    const attempts = autoChecksSinceBase(await readEvents(deps.home, opId), ticket);
+    if (attempts.length >= MAX_AUTO_CHECKS) throw new ActionError(409, "refused", `Automatic PR checks already used (${MAX_AUTO_CHECKS}) since the base last moved`);
   }
 
   /** Same legality the board enforces: the Relaunch button exists and is enabled on a fresh projection. */

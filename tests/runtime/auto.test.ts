@@ -233,6 +233,20 @@ describe("auto mode", () => {
       expect(await t.checks()).toHaveLength(1);
     });
 
+    test("another contact landing opens a fresh Check PR budget for an exhausted or given-up contact", async () => {
+      const t = await checking();
+      await t.auto.pass();
+      t.advance(11 * 60_000);
+      t.setStatus("a", { ...t.complete, check: { at: new Date(Date.parse("2026-01-01T03:05:00Z")).toISOString(), state: "checks", detail: "Fails on the base too", conflicts: [], threads: { open: 0, total: 0 } } });
+      await t.auto.pass();
+      expect(await t.checks()).toHaveLength(1);
+      // The base moved: what was red may now be fixed upstream, or newly red because of it.
+      await appendEvent(t.home, "lab", { v: 1, at: new Date(Date.parse("2026-01-01T03:15:00Z")).toISOString(), kind: "landed", contact: "z", via: "pr" });
+      t.advance(60_000);
+      await t.auto.pass();
+      expect(await t.checks()).toHaveLength(2);
+    });
+
     test("pending checks and ignoreChecks never trigger an automatic check", async () => {
       const pending = await checking();
       pending.setProbe("a", { ...failing, checks: "pending", failing: [] });
