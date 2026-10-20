@@ -27,6 +27,8 @@ const RELAUNCH_WINDOW_MS = 30 * 60 * 1000;
 const CONTINUE_RETRY_MS = 30 * 1000;
 /** A stale watcher pass must not replace a child whose startup is still in flight. */
 const RELAUNCH_GRACE_MS = 60 * 1000;
+/** A refused automatic relaunch (a pane in the way, a live socket) is retried this long after, never counted as a crash. */
+const REFUSAL_RETRY_MS = 5 * 60 * 1000;
 
 interface Recovery {
   /** Recover-driven relaunches inside the window, after the last operator relaunch reset the count. */
@@ -35,6 +37,8 @@ interface Recovery {
   gaveUp: boolean;
   /** When recovery last sent continue for this contact (pacing across restarts). */
   lastContinueAt: number;
+  /** The newest refused automatic relaunch since the last operator relaunch: a wait, not a crash. */
+  refusal: { at: number; error: string } | null;
 }
 
 function recovery(events: Event[], ticket: string, now: number): Recovery {
@@ -44,17 +48,19 @@ function recovery(events: Event[], ticket: string, now: number): Recovery {
     (acc, e) => (e.kind === "operator" && e.contact === ticket && e.op === "relaunch" && e.by !== "recover" ? Math.max(acc, Date.parse(e.at)) : acc),
     0,
   );
-  const relaunchEvents = events.filter(
+  const relaunches = events.filter(
     (e): e is Extract<Event, { kind: "operator" }> =>
       e.kind === "operator" &&
       e.contact === ticket &&
       e.op === "relaunch" &&
       e.by === "recover" &&
-      e.error?.startsWith("memory-pressure:") !== true &&
-      e.error?.startsWith("refused: cap ") !== true &&
-      Date.parse(e.at) >= since &&
       Date.parse(e.at) > lastReset,
   );
+  // A refusal or a resource wait never opened a pane, so it is not a crash; only real attempts spend the budget.
+  const waited = (e: Extract<Event, { kind: "operator" }>) =>
+    e.error?.startsWith("memory-pressure:") === true || e.error?.startsWith("refused:") === true;
+  const relaunchEvents = relaunches.filter((e) => !waited(e) && Date.parse(e.at) >= since);
+  const refused = relaunches.filter((e) => e.error?.startsWith("refused:") === true && !e.error.startsWith("refused: cap ")).at(-1);
   const lastContinueAt = events.reduce(
     (acc, e) => (e.kind === "operator" && e.contact === ticket && e.op === "continue" && e.by === "recover" ? Math.max(acc, Date.parse(e.at)) : acc),
     0,
@@ -63,6 +69,7 @@ function recovery(events: Event[], ticket: string, now: number): Recovery {
     relaunches: relaunchEvents.length,
     gaveUp: relaunchEvents.some((e) => e.ok === false && e.error?.startsWith("gave up:") === true),
     lastContinueAt,
+    refusal: refused ? { at: Date.parse(refused.at), error: refused.error!.slice("refused: ".length) } : null,
   };
 }
 
@@ -82,13 +89,18 @@ function deadPane(contact: ContactView, status: ContactStatus | null, extras: Re
 /**
  * Contacts Recovery will relaunch once their startup grace and a session slot allow. Auto launch leaves
  * them their slots: otherwise a crashed mission's slot goes to new work while it waits out the grace.
+ * A contact whose last restart was refused is not reserved for: the refusal can last (a pane someone reopened).
  */
 export function relaunchesPending(projection: Projection, extras: Required<ProjectionExtras>, events: Event[], now: number): string[] {
   if (projection.operation.recover !== true) return [];
   const folded = foldEvents(events);
   return projection.contacts
-    .filter((c) => deadPane(c, extras.statuses[c.ticket] ?? null, extras, folded.contacts[c.ticket]?.reaped === true) &&
-      recovery(events, c.ticket, now).relaunches < MAX_RELAUNCHES && c.actions.some((a) => a.id === "relaunch" && a.enabled))
+    .filter((c) => {
+      if (!deadPane(c, extras.statuses[c.ticket] ?? null, extras, folded.contacts[c.ticket]?.reaped === true)) return false;
+      const state = recovery(events, c.ticket, now);
+      return state.relaunches < MAX_RELAUNCHES && !(state.refusal && now - state.refusal.at < REFUSAL_RETRY_MS) &&
+        c.actions.some((a) => a.id === "relaunch" && a.enabled);
+    })
     .map((c) => c.ticket);
 }
 
@@ -195,6 +207,11 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
       const freshAt = lastFreshAt(events, contact.ticket);
       if (freshAt !== null && now.getTime() - freshAt < RELAUNCH_GRACE_MS) continue;
       if (state.relaunches < MAX_RELAUNCHES) {
+        if (state.refusal && now.getTime() - state.refusal.at < REFUSAL_RETRY_MS) {
+          const at = new Date(state.refusal.at + REFUSAL_RETRY_MS).toISOString().slice(11, 16);
+          defer(opId, contact.ticket, { kind: "refused", detail: `Restart refused (${state.refusal.error}); retrying at ${at} UTC` });
+          continue;
+        }
         if (queued.has(`${opId}/${contact.ticket}`)) {
           defer(opId, contact.ticket, { kind: "capacity", detail: "Restart queued" });
           continue;

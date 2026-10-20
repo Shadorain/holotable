@@ -58,7 +58,8 @@ export type ContactState = (typeof CONTACT_STATES)[number];
 export type Hold = (typeof HOLDS)[number];
 
 export interface RecoveryWait {
-  kind: "capacity" | "memory";
+  /** `refused`: the last automatic relaunch was refused (e.g. a pane in the way); retried after a pause. */
+  kind: "capacity" | "memory" | "refused";
   detail: string;
 }
 

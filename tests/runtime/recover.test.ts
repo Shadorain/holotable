@@ -476,6 +476,30 @@ describe("recovery: crash-loop guard", () => {
     expect(gave[0]).toMatchObject({ contact: "a", by: "recover", error: "gave up: 3 relaunches in 30 min" });
   });
 
+  test("a refused restart is paced, not counted as a crash, and retried once the pane is out of the way", async () => {
+    const t = await setup();
+    await t.ev("socket-up", T - 5 * MIN);
+    t.fake.world.terminals = [{ handle: "manual", incarnationId: "m1", worktree: "/wt/a", connected: true }];
+    t.dead("a");
+    t.vanished.add("a");
+    for (let pass = 0; pass < 4; pass++) {
+      await t.recover.pass();
+      await t.until(async () => (await t.relaunches()).length >= 1);
+      await t.settle();
+      t.advance(30_000);
+    }
+    const refused = (await t.relaunches()).filter((e) => e.error?.startsWith("refused:"));
+    expect(refused).toHaveLength(1);
+    expect(t.recover.deferred("lab").a?.kind).toBe("refused");
+    expect(await gaveUp(t)).toEqual([]);
+
+    t.fake.world.terminals = [];
+    t.advance(5 * MIN);
+    await t.recover.pass();
+    await t.until(async () => (await t.relaunches()).some((e) => e.ok));
+    expect(t.fake.count("frontend.openTerminal")).toBe(1);
+  });
+
   test("an operator Relaunch resets the count", async () => {
     const t = await setup();
     await t.ev("socket-up", T - MIN);
