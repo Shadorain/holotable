@@ -252,6 +252,32 @@ describe("githubPrDelivery.land", () => {
     expect(dirty.stdout.trim()).toBe("");
   });
 
+  test("a PR behind the base gets the base merged in on GitHub and is not merged until its checks rerun", async () => {
+    const ghCalls: string[][] = [];
+    const { run } = realRun((args) => {
+      ghCalls.push(args);
+      if (args[1] === "view") return { stdout: prJson(), stderr: "", code: 0 };
+      return { stdout: "", stderr: "", code: 0 };
+    });
+    const { repo } = await prSetup(run);
+    const featSha = (await git(run, repo, "rev-parse", "feat")).stdout.trim();
+    // Another PR landed on the base after this one's CI ran.
+    writeFileSync(join(repo, "other.txt"), "landed meanwhile\n");
+    await git(run, repo, "add", "other.txt");
+    await git(run, repo, "commit", "-qm", "other landing");
+    await git(run, repo, "push", "-q", "origin", "main");
+    await git(run, repo, "reset", "-q", "--hard", "HEAD~1");
+    await expect(githubPrDelivery(run).land({ operation: makeOperation(repo), contact, sourceBranch: "feat", status }))
+      .rejects.toMatchObject({ code: "branch-updated" });
+    expect(ghCalls.filter((a) => a[0] === "api")).toEqual([
+      ["api", "-X", "PUT", "repos/{owner}/{repo}/pulls/7/update-branch", "-f", `expected_head_sha=${featSha}`],
+    ]);
+    expect(ghCalls.filter((a) => a[1] === "merge")).toEqual([]);
+    // ignoreChecks lands it as before.
+    expect(await githubPrDelivery(run).land({ operation: makeOperation(repo), contact, sourceBranch: "feat", status, ignoreChecks: true }))
+      .toEqual({ outcome: "landed", via: "pr" });
+  });
+
   test("lands the delivered repair PR instead of a historical PR on its original branch", async () => {
     const merged: string[] = [];
     const url = "https://github.com/acme/w/pull/7";

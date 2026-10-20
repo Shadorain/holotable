@@ -187,7 +187,11 @@ export function githubPrDelivery(run: Run): DeliveryPort {
             ? pr.headRefOid
             : "";
 
-      const probeResult = await probeMerge(run, integration, "FETCH_HEAD");
+      // Judge conflicts against the base as GitHub has it, not a stale local checkout. Best effort, like the post-land sync.
+      const syncBase = await run("git", ["fetch", "origin", operation.base], integration);
+      if (syncBase.code === 0) await run("git", ["merge", "--ff-only", `origin/${operation.base}`], integration);
+
+      const probeResult = await probeMerge(run, integration, deliveredSha || "FETCH_HEAD");
       if (probeResult.outcome === "conflict")
         return {
           outcome: "conflict",
@@ -195,6 +199,24 @@ export function githubPrDelivery(run: Run): DeliveryPort {
           deliveredSha,
           baseSha: probeResult.baseSha,
         };
+
+      // Green CI on a PR built against an older base says nothing about the merge: two green PRs can combine into a red base.
+      // A PR behind the base gets the base merged in on GitHub, which reruns its checks; Land waits for them.
+      if (i.ignoreChecks !== true && syncBase.code === 0 && deliveredSha) {
+        const current = await run("git", ["merge-base", "--is-ancestor", `origin/${operation.base}`, deliveredSha], integration);
+        if (current.code === 1) {
+          const updated = await run(
+            "gh",
+            ["api", "-X", "PUT", `repos/{owner}/{repo}/pulls/${number}/update-branch`, "-f", `expected_head_sha=${deliveredSha}`],
+            integration,
+          );
+          if (updated.code !== 0)
+            throw new PortError("update-branch-failed", updated.stderr.trim() || `could not update PR #${number} from ${operation.base}`);
+          throw new PortError("branch-updated", `PR #${number} was behind ${operation.base}; merged ${operation.base} into it on GitHub. Land waits for its checks on the combined code.`);
+        }
+        if (current.code !== 0)
+          throw new PortError("fetch-failed", current.stderr.trim() || `cannot compare PR #${number} with origin/${operation.base}`);
+      }
 
       // Repo merge-method settings govern the flag: only-allowed methods on GitHub
       // reject the wrong flag ("Merge commits are not allowed") on a mergeable PR.

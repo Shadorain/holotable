@@ -15,8 +15,8 @@ import { landContact, type LanderDeps } from "./lander.ts";
 import { launchContact, relaunchContact } from "./launcher.ts";
 import { MAX_AUTO_CHECKS, reviewsRequested } from "./auto.ts";
 
-/** Port failures an operator can act on are conflicts (409); anything else is an upstream failure (502). */
-const CONFLICT_CODES = ["owner-offline", "stale", "busy", "rejected", "no-session", "terminal-missing"];
+/** Port failures an operator can act on, or wait out, are conflicts (409); anything else is an upstream failure (502). */
+const CONFLICT_CODES = ["owner-offline", "stale", "busy", "rejected", "no-session", "terminal-missing", "checks-pending", "branch-updated"];
 
 function asActionError(error: unknown): ActionError {
   if (error instanceof ActionError) return error;

@@ -12,7 +12,7 @@ import { relaunchesPending } from "./recover.ts";
 /** Waits after consecutive failed automatic attempts on one contact; one more failure stops retrying it. */
 const BACKOFF_MS = [5 * 60_000, 15 * 60_000, 60 * 60_000];
 /** Land refusals auto mode treats as waits with their own pacing, not failures. */
-const WAIT_CODES = ["integration-dirty", "integration-wrong-branch", "not-merged", "conflict-opened", "checks-pending"];
+const WAIT_CODES = ["integration-dirty", "integration-wrong-branch", "not-merged", "conflict-opened", "checks-pending", "branch-updated"];
 export const MAX_AUTO_CHECKS = 2;
 const CHECK_SPACING_MS = 10 * 60_000;
 const CHECK_STALE_MS = 45 * 60_000;
@@ -203,6 +203,9 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
               landingWaits.set(opId, { reason: `${target.ticket}: ${error instanceof Error ? error.message : String(error)}`, retryAt: deps.now().getTime() + 30_000 });
             } else if (code === "not-merged") {
               unmerged.set(`${opId}/${target.ticket}`, deps.now().getTime() + 10 * 60_000);
+            } else if (code === "branch-updated") {
+              // GitHub needs a moment to register the rerun checks; until then the new head looks check-free.
+              unmerged.set(`${opId}/${target.ticket}`, deps.now().getTime() + 3 * 60_000);
             } else if (code !== "conflict-opened") {
               const reason = `${target.ticket}: ${error instanceof Error ? error.message : String(error)}`;
               deps.warn(`auto ${opId} land ${reason}`);
