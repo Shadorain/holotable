@@ -3,7 +3,7 @@ import { icon } from "./icons.js";
 import { renderMarkdown } from "./markdown.js";
 import { modelDropdown } from "./models.js";
 import { ago } from "./plan.js";
-import { actionButton, clock, el, isWired, safeLink, statePill } from "./ui.js";
+import { actionButton, clock, el, isWired, safeLink, statePill, stateLabel } from "./ui.js";
 
 const OWNER_COPY = {
   live: ["live", "Mission session connected"],
@@ -77,7 +77,7 @@ function progress(contact) {
 }
 
 /** Small button that opens the contact's Plan tab; the board's door into plan review. */
-function reviewPlanButton(contact, cls = "") {
+export function reviewPlanButton(contact, cls = "") {
   const btn = el("button", `btn primary${cls ? ` ${cls}` : ""}`);
   btn.type = "button";
   btn.append(icon("file-text", { size: 13 }), document.createTextNode("Review plan"));
@@ -159,6 +159,8 @@ function actionBar(contact, ctx) {
   for (const a of wired)
     if (!a.enabled && a.reason && (a.primary || a.id === "launch" || a.id === "land")
       && contact.state !== "waiting"
+      // The detail line above already says it (blockers, a missing setting).
+      && !contact.detail.includes(a.reason)
       && !(a.id === "launch" && contact.state === "blocked" && a.reason.startsWith("blocked by ")))
       reasons.append(el("li", "", `${a.label} unavailable: ${a.reason}`));
   if (reasons.childElementCount) wrap.append(reasons);
@@ -289,7 +291,7 @@ function relations(contact, projection) {
     if (!contact.conflictOf) {
       const list = el("div", "rel-list");
       for (const c of conflicts) {
-        const btn = el("button", "rel", `${c.ticket} · ${c.state}`);
+        const btn = el("button", "rel", `${c.ticket} · ${stateLabel(c)}`);
         btn.type = "button";
         btn.dataset.id = c.ticket;
         btn.dataset.key = `rel/${c.ticket}`;
@@ -354,10 +356,6 @@ function planTab(contact, data, ctx, projection) {
     box.append(reload);
     return box;
   }
-
-  const head = el("div", "plan-head");
-  head.append(el("span", "mono ellipsis", data.path), el("span", "tag", `rev ${data.revision.slice(0, 8)}`));
-  box.append(head);
 
   if (ui.mode === "edit") {
     const area = el("textarea", "plan-edit");
@@ -818,8 +816,11 @@ function approvalBox(contact, ctx) {
   }
   const choices = el("div", "ask-foot");
   const buttons = approval.options.map((label, index) => {
-    // Deny is always the last option.
-    const button = el("button", index === approval.options.length - 1 ? "btn small danger" : "btn small", label);
+    // Approve comes first and Deny is always the last option.
+    let kind = "";
+    if (index === 0) kind = " primary";
+    else if (index === approval.options.length - 1) kind = " danger";
+    const button = el("button", `btn small${kind}`, label);
     button.type = "button";
     button.disabled = !action?.enabled || ctx.busy.has(`${contact.ticket}/*`);
     button.addEventListener("click", async () => {

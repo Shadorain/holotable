@@ -1,5 +1,6 @@
 // The contact list both views share, ordered by what the operator should look at first.
 import { addContactButton } from "./addcontact.js";
+import { reviewPlanButton } from "./card.js";
 import { allLanded, doneBanner } from "./endop.js";
 import { actionButton, el, primaryAction, statePill } from "./ui.js";
 import { icon } from "./icons.js";
@@ -34,7 +35,8 @@ export function sections(projection) {
   return {
     groups: [
       { id: "needs", title: "Needs you", items: needs, empty: "Nothing waiting on you." },
-      { id: "flight", title: "In flight", items: flight, empty: "No missions running." },
+      // Started missions that wait on you or a retry sit in their own sections; "none running" would contradict Started.
+      { id: "flight", title: "In flight", items: flight, empty: needs.some((c) => c.group === "live") || waiting.length ? "Nothing is running on its own." : "No missions running." },
       ...(waiting.length ? [{ id: "waiting", title: "Waiting", items: waiting }] : []),
       { id: "queue", title: "Queue", items: queue, empty: "Queue empty." },
       { id: "landed", title: "Landed", items: landed, collapsible: true },
@@ -63,6 +65,11 @@ function item(contact, selected, ctx) {
   meta.append(statePill(contact), el("span", "mono", contact.ticket), el("span", "item-detail", contact.detail));
   main.append(el("div", "item-title", contact.title ?? contact.ticket), meta);
   row.append(main);
+  // The same next step the card leads with: its Review plan door, else its primary action.
+  if (contact.plan) {
+    row.append(reviewPlanButton(contact, "small"));
+    return row;
+  }
   const next = primaryAction(contact) ?? (contact.attention ? contact.actions.find((a) => a.id === "focus" && a.enabled) : null);
   if (next) row.append(actionButton(contact, next, ctx, "small"));
   return row;

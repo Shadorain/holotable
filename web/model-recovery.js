@@ -20,7 +20,8 @@ function refusal(contact, busy) {
   if (action?.enabled) return null;
   if (action?.reason) return action.reason;
   if (contact.state === "offline") return "Relaunch this pane first";
-  if (contact.plan || contact.phase === "plan") return "Approve its plan first; the switch is offered once the mission runs";
+  if (contact.plan) return "Approve its plan first; the switch is offered once the mission runs";
+  if (contact.phase === "plan") return "Still writing its plan, where a model switch is not offered; change the model in its pane";
   return "Clear its gate, resume or verification hold first, or relaunch an older mission pane";
 }
 
@@ -39,7 +40,7 @@ export function openModelRecovery(contacts, { api, opId, run, busy }) {
   let loaded = false;
   let chosenByOperator = false;
   const single = contacts.length === 1;
-  const modal = openModal({ title: single ? `Switch model · ${contacts[0].ticket}` : "Switch models", onClose: () => { closed = true; activeRecovery = null; } });
+  const modal = openModal({ title: single ? `Switch model · ${contacts[0].ticket}` : "Switch model", onClose: () => { closed = true; activeRecovery = null; } });
   activeRecovery = modal;
 
   const list = el("div", "recovery-missions");
@@ -87,7 +88,7 @@ export function openModelRecovery(contacts, { api, opId, run, busy }) {
   const field = el("div", "modal-field recovery-field");
   field.append(el("span", "modal-label", single ? "Switch to" : "Switch the checked missions to"), picker.root, hint);
   const note = el("p", "set-note recovery-note", "Retries only the failed work. Running workers, finished reviews, claims and edits stay; gates and holds are not cleared.");
-  const error = el("p", "set-error");
+  const error = el("p", "set-err");
   error.hidden = true;
 
   const apply = modalButton("Switch & retry", { kind: "primary", iconName: "rotate-cw" });
