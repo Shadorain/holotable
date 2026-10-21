@@ -54,6 +54,12 @@ const ICONS = {
     ["path", { d: "M18 6 6 18" }],
     ["path", { d: "m6 6 12 12" }],
   ],
+  "maximize-2": [
+    ["path", { d: "M15 3h6v6" }],
+    ["path", { d: "m21 3-7 7" }],
+    ["path", { d: "m3 21 7-7" }],
+    ["path", { d: "M9 21H3v-6" }],
+  ],
   "chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
   minus: [["path", { d: "M5 12h14" }]],
   plus: [

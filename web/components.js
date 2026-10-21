@@ -57,7 +57,10 @@ export function dropdown(opts) {
   btn.setAttribute("aria-haspopup", "listbox");
   btn.setAttribute("aria-expanded", "false");
   if (opts.label) btn.setAttribute("aria-label", opts.label);
+  // The label names the control; the shown value (or "No operations") is read as its description.
   const text = el("span", "cmp-dd-text");
+  text.id = `${uid}-text`;
+  btn.setAttribute("aria-describedby", text.id);
   const caret = el("span", "cmp-dd-caret");
   caret.append(icon("chevron-down", { size: 11 }));
   caret.setAttribute("aria-hidden", "true");
@@ -134,18 +137,22 @@ export function dropdown(opts) {
     if (opts.maxOptions && options.filter((o) => !o.group && matches(o)).length > shown) {
       list.append(el("div", "cmp-dd-empty", "Search to find more models"));
     }
+    // Footer rows are actions (New operation, Archive), grouped apart from the values.
+    const actions = el("div", "cmp-dd-actions");
+    actions.setAttribute("role", "group");
+    actions.setAttribute("aria-label", "Actions");
     for (const [k, f] of footers.entries()) {
       const index = options.length + k;
       const row = el("div", `cmp-dd-opt cmp-dd-foot${f.className ? ` ${f.className}` : ""}${k === 0 ? " first" : ""}`);
       row.id = `${uid}-o${index}`;
       row.setAttribute("role", "option");
       row.dataset.index = String(index);
-      row.setAttribute("aria-selected", "false");
       if (f.icon) row.append(icon(f.icon, { size: 12 }));
       row.append(el("span", "", f.label));
       row.addEventListener("pointerenter", () => setActive(index));
-      list.append(row);
+      actions.append(row);
     }
+    if (footers.length) list.append(actions);
     if (!enabled().includes(active)) active = enabled()[0] ?? -1;
     markActive();
   }
@@ -270,8 +277,8 @@ export function dropdown(opts) {
     typeTimer = setTimeout(() => {
       typeahead = "";
     }, 500);
-    const wrap = options.findIndex((o) => !o.group && !o.disabled && matches(o) && o.label.toLowerCase().startsWith(typeahead));
-    if (wrap >= 0) setActive(wrap);
+    const hit = enabled().find((i) => i < options.length && options[i].label.toLowerCase().startsWith(typeahead));
+    if (hit !== undefined) setActive(hit);
   }
 
   btn.addEventListener("click", () => {
@@ -498,7 +505,12 @@ function stepper(iconName, dir, input, step) {
   b.tabIndex = -1;
   b.setAttribute("aria-hidden", "true");
   b.addEventListener("click", () => {
-    input.value = String((Number(input.value) || 0) + dir * step);
+    const min = input.min === "" ? -Infinity : Number(input.min);
+    const max = input.max === "" ? Infinity : Number(input.max);
+    const next = String(Math.min(max, Math.max(min, (Number(input.value) || 0) + dir * step)));
+    // At a bound the click changes nothing, so nothing is saved either.
+    if (next === input.value) return;
+    input.value = next;
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
   return b;
@@ -691,6 +703,7 @@ export function combobox(opts) {
     timer = setTimeout(query, opts.debounce ?? 200);
   });
   input.addEventListener("focus", () => query());
+  // The short delay lets a click on a row land first; aria-expanded is briefly stale meanwhile, by design.
   input.addEventListener("blur", () => setTimeout(close, 120));
   input.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {

@@ -92,7 +92,7 @@ function arm(host) {
   timer = setTimeout(() => show(host), DELAY_MS);
 }
 
-// Focus tooltips follow keyboard navigation only, not focus a dialog hands back after a click.
+// Focus tooltips follow keyboard navigation only (Tab and arrows), never focus set by code.
 let keyboard = false;
 
 // Touch has no hover: a tap toggles the tip of something that does nothing when tapped,
@@ -118,7 +118,14 @@ function cancelPress() {
 export function installTooltips() {
   coarse = matchMedia("(pointer: coarse)");
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Tab" || e.key.startsWith("Arrow")) keyboard = true;
+    // Only the focus move this key itself makes counts as keyboard navigation: focus a dialog or a
+    // rebuilt region hands back later (or after "," or Esc) is programmatic and shows no tip.
+    if (e.key === "Tab" || e.key.startsWith("Arrow")) {
+      keyboard = true;
+      setTimeout(() => {
+        keyboard = false;
+      });
+    }
     pressed = false;
   }, true);
   document.addEventListener("pointerdown", (e) => {
@@ -156,12 +163,15 @@ export function installTooltips() {
       e.stopPropagation();
       return;
     }
-    if (!touch) return;
+    // A click answers the control; its tip has done its job.
+    if (!touch) return hide();
     const host = tipFor(e.target);
     if (host && !e.target.closest(CONTROLS) && host !== tapOwner) show(host);
   }, true);
   document.addEventListener("pointerover", (e) => {
     if (isTouch(e)) return;
+    // A region rebuild can remove the host under a still pointer: its tip would never get a pointerout.
+    if (owner && !owner.isConnected) hide();
     const host = tipFor(e.target);
     if (host) arm(host);
     else if (owner || timer) hide();

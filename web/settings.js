@@ -7,7 +7,7 @@ import { enumRow, field, numberRow, switchRow, textRow } from "./fields.js";
 import { icon } from "./icons.js";
 import { modelDropdown, subscriptionPanel } from "./models.js";
 import { PORT_OPTIONS } from "./projectform.js";
-import { errorText, fetchJson, sectionBox, titleCase } from "./ui.js";
+import { copyButton, errorText, fetchJson, sectionBox, titleCase, trapTab } from "./ui.js";
 
 const THEME_LABELS = { holo: "Holo", omp: "OMP", slate: "Slate" };
 
@@ -45,10 +45,8 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
 
   async function saveSetting(key, value, done) {
     try {
-      const res = await api("/api/settings", { method: "PUT", body: JSON.stringify({ key, value: String(value) }) });
-      const data = await fetchJson(res);
-      settings = data;
-      settingsChanged?.(data.settings);
+      settings = await fetchJson(await api("/api/settings", { method: "PUT", body: JSON.stringify({ key, value: String(value) }) }));
+      settingsChanged?.(settings.settings);
       foot.textContent = `Saved to ${settings.path}`;
       if (key === "theme") applyTheme(settings.settings.theme);
       done?.(null);
@@ -352,7 +350,6 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
       };
 
       let accessField;
-      const explainEl = el("div", "set-note", ACCESS_EXPLANATIONS[s.access] || ACCESS_EXPLANATIONS.tailscale);
       const accessCtl = segmented({
         label: "Who can open the board",
         options: [
@@ -378,10 +375,14 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
         },
       });
 
-      const controlWrap = el("div", "set-access-wrap");
-      controlWrap.append(accessCtl.root, explainEl);
-      accessField = field(sec, "Who can open the board", controlWrap);
+      accessField = field(sec, "Who can open the board", accessCtl.root, { note: ACCESS_EXPLANATIONS[s.access] || ACCESS_EXPLANATIONS.tailscale });
+      const explainEl = accessField.row.querySelector(".set-note");
 
+      // A port that was taken (or a --port override) moves the board; say where it really answers.
+      const served = settings.urls?.[0] ? new URL(settings.urls[0]).port : "";
+      const portNote = served && served !== String(s.port)
+        ? `Saved as ${s.port}; the board is answering on ${served} right now. Port 0 picks a free port. Changes apply immediately.`
+        : "Port 0 picks a free port. Changes apply immediately.";
       numberRow(
         sec,
         "Port",
@@ -397,7 +398,7 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
             done?.(error);
           });
         },
-        { min: 0, max: 65535, note: "Port 0 picks a free port. Changes apply immediately." },
+        { min: 0, max: 65535, note: portNote },
       );
 
       const urlsContainer = el("div", "set-urls-wrap");
@@ -408,41 +409,11 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
         const urlsList = settings.urls && settings.urls.length > 0 ? settings.urls : [];
         if (urlsList.length === 0) return;
 
-        const heading = el("div", "set-name", "Board URLs");
-        heading.style.marginTop = "10px";
-        urlsContainer.append(heading);
+        urlsContainer.append(el("div", "set-name", "Board URLs"));
 
         for (const u of urlsList) {
-          const row = el("div", "set-inline");
-          row.style.marginTop = "6px";
-          row.style.display = "flex";
-          row.style.alignItems = "center";
-          row.style.justifyContent = "space-between";
-          row.style.gap = "8px";
-
-          const urlText = el("code", "mono", u);
-          urlText.style.fontSize = "11.5px";
-          urlText.style.overflow = "hidden";
-          urlText.style.textOverflow = "ellipsis";
-          urlText.style.whiteSpace = "nowrap";
-
-          const copyBtn = el("button", "btn small", "Copy");
-          copyBtn.type = "button";
-          copyBtn.style.flexShrink = "0";
-          copyBtn.addEventListener("click", () => {
-            navigator.clipboard?.writeText(u).then(
-              () => {
-                copyBtn.textContent = "Copied!";
-                setTimeout(() => {
-                  copyBtn.textContent = "Copy";
-                }, 2000);
-                toast("Copied URL", "ok");
-              },
-              () => toast("Failed to copy", "error"),
-            );
-          });
-
-          row.append(urlText, copyBtn);
+          const row = el("div", "set-url-row");
+          row.append(el("code", "mono", u), copyButton("Copy", u, { toast }));
           urlsContainer.append(row);
         }
       };
@@ -458,30 +429,8 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
 
     // ---- Defaults for new projects and standalone operations ----
     sec = section("Defaults for new operations");
-    const missionMode = s.defaults.pause ? "pause" : "auto";
-    let committedMode = missionMode;
-    const mode = segmented({
-      label: "Mission mode",
-      value: missionMode,
-      options: [
-        { value: "auto", label: "Auto", hint: "omp-mission runs without Pause gates" },
-        { value: "pause", label: "Pause", hint: "missions stop at each Pause gate" },
-      ],
-      onChange: (value) => {
-        modeField.setError(null);
-        saveSetting("defaults.pause", value, (error) => {
-          if (error) {
-            mode.setValue(committedMode);
-            modeField.setError(error);
-          } else {
-            committedMode = value;
-            modeField.saved();
-          }
-        });
-      },
-    });
-    const modeField = field(sec, "Mission mode", mode.root, {
-      note: "omp-mission mode for new projects and operations that do not inherit a project. Auto does not arm Pause gates. Existing projects and operations stay as saved. This is not board auto launch or land.",
+    switchRow(sec, "Pause gates", "defaults.pause", s.defaults.pause, saveSetting, {
+      note: "Missions in new projects, and in operations that do not inherit a project, stop at each Pause gate for your approval. Existing projects and operations keep theirs. Unrelated to an operation's Auto mode, which launches and lands for you.",
     });
     for (const kind of ["tracker", "fleet", "frontend", "delivery"])
       enumRow(sec, titleCase(kind), `defaults.${kind}`, PORT_OPTIONS[kind], s.defaults[kind], saveSetting);
@@ -525,12 +474,12 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
     sec = section("Help");
     const keys = el("button", "btn small");
     keys.type = "button";
-    keys.append(icon("keyboard", { size: 13 }), document.createTextNode("Keyboard shortcuts"));
+    keys.append(icon("keyboard", { size: 13 }), document.createTextNode("Show shortcuts"));
     keys.addEventListener("click", () => {
       close();
       openHelp();
     });
-    field(sec, "Keys", keys, { note: "Press ? anywhere for the same list." });
+    field(sec, "Keyboard shortcuts", keys, { note: "Press ? anywhere for the same list." });
     const guideRow = el("div", "list-tools left");
     const guide = el("button", "btn small");
     guide.type = "button";
@@ -560,32 +509,15 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
     body.replaceChildren(el("div", "set-note", "Loading…"));
     foot.textContent = "";
     try {
-      const res = await api("/api/settings");
-      const data = await fetchJson(res);
-      settings = data;
+      settings = await fetchJson(await api("/api/settings"));
       applyTheme(settings.settings.theme);
       foot.textContent = settings.path;
     } catch (error) {
       settings = null;
-      body.replaceChildren();
-      body.append(el("div", "set-err big", `Cannot load settings: ${error instanceof Error ? error.message : error}`));
+      body.replaceChildren(el("div", "set-err big", `Cannot load settings: ${errorText(error)}`));
       return;
     }
     build();
-  }
-
-  function trapTab(e) {
-    const items = [...drawer.querySelectorAll(FOCUSABLE)].filter((n) => n.offsetParent !== null);
-    if (!items.length) return;
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (e.shiftKey && (document.activeElement === first || !drawer.contains(document.activeElement))) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
   }
 
   function onKeydown(e) {
@@ -594,7 +526,7 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
       e.preventDefault();
       e.stopPropagation();
       close();
-    } else if (e.key === "Tab") trapTab(e);
+    } else trapTab(drawer, e);
   }
 
   function show() {

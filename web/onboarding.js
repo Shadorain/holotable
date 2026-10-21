@@ -3,6 +3,7 @@
 // ticking steps off from real counts. The tour points at the header controls one at a time.
 import { el } from "./components.js";
 import { icon } from "./icons.js";
+import { copyButton, trapTab } from "./ui.js";
 
 const DISMISSED = "holotable.onboarding.hidden";
 const TOURED = "holotable.onboarding.toured";
@@ -70,15 +71,8 @@ export function gettingStarted(setup, ctx) {
       const row = el("div", `ob-check ${c.ok ? "ok" : "bad"}`);
       row.append(icon(c.ok ? "check" : "triangle-alert", { size: 13 }), el("span", "ob-check-label", c.label), el("span", "set-note", c.detail));
       if (!c.ok && c.fix) {
-        const fix = el("button", "ob-fix", c.fix);
-        fix.type = "button";
+        const fix = copyButton(c.fix, c.fix, { className: "ob-fix", toast: ctx.toast });
         fix.title = "Click to copy";
-        fix.addEventListener("click", () => {
-          navigator.clipboard?.writeText(c.fix).then(
-            () => ctx.toast("Copied", "ok"),
-            () => ctx.toast("Failed to copy", "error")
-          );
-        });
         row.append(fix);
       }
       checks.append(row);
@@ -113,10 +107,10 @@ export function gettingStarted(setup, ctx) {
 const TOUR = [
   ["#projectsCrumb", "Projects", "Every repo you run campaigns on, and its settings. Start here when something is about a whole project."],
   ["#op", "Operations", "The operation you are looking at. Grouped by project; New operation and the Archive are at the bottom of this list."],
-  ["#toggle", "Three views", "Table is the radar, Board is the work list with the selected contact's card, Plan is the dependency map and the Operation page. Keys 1, 2, 3."],
+  ["#toggle", "Three views", "Table is the radar, Board is the work list with the selected contact's card, Plan is the dependency map and the Operation page.", "Keys 1, 2, 3."],
   ["#needs", "Needs you", "Contacts waiting on a click or a decision. Click to jump to the first one."],
   ["#conn", "Connection", "Live while the board is reachable. It polls every few seconds; nothing here needs a refresh."],
-  ["#settingsButton", "Settings and help", "Theme, the live omp cap, polling, defaults for new projects, and this tour again. Press ? for keyboard shortcuts."],
+  ["#settingsButton", "Settings and help", "Theme, the live omp cap, polling, defaults for new projects, and this tour again.", "Press ? for keyboard shortcuts."],
 ];
 
 let activeEnd = null;
@@ -157,16 +151,16 @@ export function startTour() {
     card.style.top = `${r.bottom + 14}px`;
   }
   function show() {
-    const [, title, text] = steps[i];
+    const [, title, text, keys] = steps[i];
     const back = button("Back", null, () => go(-1));
     back.disabled = i === 0;
     const next = button(i === steps.length - 1 ? "Done" : "Next", null, () => go(1), true);
-    const skip = el("button", "linkish", "Skip tour");
-    skip.type = "button";
-    skip.addEventListener("click", end);
+    const skip = button("Skip tour", null, end);
     const nav = el("div", "tour-nav");
     nav.append(skip, el("span", "set-note", `${i + 1} / ${steps.length}`), back, next);
-    card.replaceChildren(el("div", "ob-title", title), el("p", "set-note", text), nav);
+    // Shortcut hints only where there is a keyboard; narrow screens (where the radar's key strip hides too) skip them.
+    const hint = keys && matchMedia("(min-width: 761px) and (hover: hover)").matches ? ` ${keys}` : "";
+    card.replaceChildren(el("div", "ob-title", title), el("p", "set-note", text + hint), nav);
     place();
     next.focus();
   }
@@ -178,15 +172,12 @@ export function startTour() {
   }
   function onKey(e) {
     e.stopPropagation();
+    // Modal: Tab cycles the card's own buttons instead of wandering into the page behind it.
+    if (e.key === "Tab") return trapTab(card, e);
     if (e.key === "Escape") end();
     else if (e.key === "ArrowRight") go(1);
     else if (e.key === "ArrowLeft") go(-1);
-    else if (e.key === "Tab") {
-      // Modal: Tab cycles the card's own buttons instead of wandering into the page behind it.
-      const stops = [...card.querySelectorAll("button:not(:disabled)")];
-      const at = stops.indexOf(document.activeElement);
-      stops[(at + (e.shiftKey ? -1 : 1) + stops.length) % stops.length]?.focus();
-    } else return;
+    else return;
     e.preventDefault();
   }
   addEventListener("resize", place);

@@ -988,3 +988,12 @@ button.zone-chip[aria-pressed="true"] {
 .recovery-strip-cta { color: var(--warn); font-weight: 600; white-space: nowrap; }
 .recovery-strip:hover { background: color-mix(in srgb, var(--warn) 16%, transparent); }
 .recovery-strip:disabled { opacity: 0.6; cursor: default; }
+.set-urls-wrap > .set-name { display: block; margin-top: 10px; }
+.set-url-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.set-url-row code { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-url-row .btn { flex-shrink: 0; }
+/* The bell sits first in the right-hand group, so its arrival never pushes More or the gear. */
+@media (max-width: 1440px) { .top > .inbox-btn:not([hidden]) { margin-left: auto; } .top > .inbox-btn:not([hidden]) ~ .more-btn { margin-left: 0; } }
+dialog.help .modal-head { padding: 0 0 10px; }
+dialog.help kbd { display: inline-block; min-width: 1.6em; padding: 1px 5px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; background: var(--panel-2); color: var(--text); font: 600 12px/1.4 ui-monospace, monospace; text-align: center; }
+.help-foot { display: flex; justify-content: flex-end; }

@@ -28,6 +28,7 @@
       </div>
       <button class="needs" id="needs" type="button" hidden title="Contacts waiting on you: open the first one"><svg class="icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span id="needsText"></span></button>
       <div class="grow"></div>
+      <button class="icon-btn inbox-btn" id="inboxButton" type="button" hidden title="Errors this session" aria-label="Errors" aria-haspopup="dialog" aria-expanded="false" aria-controls="inbox"><span class="inbox-count" id="inboxCount"></span></button>
       <div class="more-pop" id="morePop">
         <a class="crumb" id="intelLink" href="/intel" title="Open Holotable Intel: on-demand evaluation">Intel</a>
         <div class="conn" id="conn" role="status"><span class="dot"></span><span id="connText">connecting</span></div>
@@ -40,15 +41,14 @@
         </div>
       </div>
       <button class="icon-btn more-btn" id="moreButton" type="button" title="Base, load, tasks, connection and Intel" aria-label="More" aria-expanded="false" aria-controls="morePop"><svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg><span class="dot" aria-hidden="true"></span></button>
-      <button class="icon-btn inbox-btn" id="inboxButton" type="button" hidden title="Errors this session" aria-label="Errors" aria-haspopup="dialog" aria-expanded="false" aria-controls="inbox"><span class="inbox-count" id="inboxCount"></span></button>
       <button class="icon-btn settings-btn" id="settingsButton" title="Settings (,)" type="button" aria-label="Settings"><svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
     </header>
 
     <main id="main">
       <div class="board-tabs" id="boardTabs" role="tablist" aria-label="Board panels">
-        <button type="button" role="tab" data-boardtab="list" aria-selected="true">List</button>
-        <button type="button" role="tab" data-boardtab="card" aria-selected="false">Card</button>
-        <button type="button" role="tab" data-boardtab="ops" aria-selected="false">Progress</button>
+        <button type="button" role="tab" data-boardtab="list" aria-selected="true" aria-controls="list">List</button>
+        <button type="button" role="tab" data-boardtab="card" aria-selected="false" aria-controls="card" tabindex="-1">Card</button>
+        <button type="button" role="tab" data-boardtab="ops" aria-selected="false" aria-controls="ops" tabindex="-1">Progress</button>
       </div>
       <aside class="panel list" id="list" aria-label="Contacts"></aside>
       <section class="panel stage" id="stage" aria-label="Table">
@@ -58,8 +58,9 @@
       <section class="panel card" id="card" aria-label="Contact"></section>
       <aside class="panel ops" id="ops" aria-label="Operation"></aside>
       <div class="plan-tabs" id="planTabs" role="tablist" aria-label="Plan view">
-        <button type="button" role="tab" data-planview="map" aria-selected="true">Map</button>
-        <button type="button" role="tab" data-planview="op" aria-selected="false">Operation</button>
+        <button type="button" role="tab" data-planview="map" aria-selected="true" aria-controls="planMap">Map</button>
+        <button type="button" role="tab" data-planview="op" aria-selected="false" aria-controls="opPage" tabindex="-1">Operation</button>
+        <button type="button" role="tab" data-planview="new" aria-selected="false" aria-controls="newOp" tabindex="-1" hidden>New operation</button>
       </div>
       <section class="panel plan-map" id="planMap" aria-label="Operation plan"></section>
       <section class="panel op-page" id="opPage" aria-label="Operation settings"></section>
@@ -97,20 +98,23 @@
     </div>
     <ol class="inbox-list" id="inboxList"></ol>
   </div>
-  <dialog class="help" id="help" aria-label="Keyboard shortcuts">
-    <h2>Keys</h2>
+  <dialog class="help" id="help" aria-labelledby="helpTitle">
+    <div class="modal-head">
+      <h2 id="helpTitle">Keyboard shortcuts</h2>
+      <button type="button" class="icon-btn modal-x" data-close aria-label="Close"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
     <dl>
-      <div><dt>W A S D · H J K L · arrows</dt><dd>Move between contacts: on the radar and the plan to the nearest one in that direction, in Board up and down the list</dd></div>
-      <div><dt>Enter</dt><dd>Put focus on the selected contact's main action; Enter again presses it</dd></div>
-      <div><dt>[ ]</dt><dd>Card tabs: Overview, Plan (when one is waiting), Details, History</dd></div>
-      <div><dt>1 2 3 · t b p</dt><dd>Table, Board, Plan</dd></div>
-      <div><dt>Shift+P</dt><dd>In Plan view: toggle between Map and Operation</dd></div>
-      <div><dt>Cmd/Ctrl + click</dt><dd>On a ticket: open it at its tracker (or its pull request) in a new tab</dd></div>
-      <div><dt>Esc</dt><dd>Clear notices, cancel a pending confirm, un-focus the plan map, leave a button</dd></div>
-      <div><dt>,</dt><dd>Settings</dd></div>
-      <div><dt>?</dt><dd>This list</dd></div>
+      <div><dt><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> · <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> · arrows</dt><dd>Move between contacts: on the radar and the plan to the nearest one in that direction, in Board up and down the list</dd></div>
+      <div><dt><kbd>Enter</kbd></dt><dd>Put focus on the selected contact's main action; Enter again presses it</dd></div>
+      <div><dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Card tabs: Overview, Plan (when one is waiting), Details, History</dd></div>
+      <div><dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> · <kbd>t</kbd> <kbd>b</kbd> <kbd>p</kbd></dt><dd>Table, Board, Plan</dd></div>
+      <div><dt><kbd>Shift</kbd> <kbd>P</kbd></dt><dd>In Plan view: toggle between Map and Operation</dd></div>
+      <div><dt><kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + click</dt><dd>On a ticket: open it at its tracker (or its pull request) in a new tab</dd></div>
+      <div><dt><kbd>Esc</kbd></dt><dd>Clear notices, cancel a pending confirm, un-focus the plan map, leave a button</dd></div>
+      <div><dt><kbd>,</kbd></dt><dd>Settings</dd></div>
+      <div><dt><kbd>?</kbd></dt><dd>This list</dd></div>
     </dl>
-    <button type="button" class="btn" data-close>Close</button>
+    <div class="help-foot"><button type="button" class="btn" data-close>Close</button></div>
   </dialog>
   <div class="scrim" id="scrim" hidden></div>
   <aside class="settings" id="settings" role="dialog" aria-modal="true" aria-label="Settings" hidden>

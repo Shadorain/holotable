@@ -3,6 +3,7 @@
 // first. Kept in memory for this page only.
 import { el } from "./components.js";
 import { icon } from "./icons.js";
+import { clock, trapTab } from "./ui.js";
 
 /** The inbox's contents: newest first, with how many arrived since it was last opened. */
 export function errorLog() {
@@ -29,8 +30,6 @@ export function errorLog() {
   };
 }
 
-const timeOf = (at) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-
 /** Wire the header bell and its panel; returns `add(text)` for the toast code. */
 export function installInbox({ button, count, panel, list, clear, fallbackFocus }) {
   const log = errorLog();
@@ -44,7 +43,7 @@ export function installInbox({ button, count, panel, list, clear, fallbackFocus 
     list.replaceChildren(
       ...log.entries.map(({ text, at }) => {
         const item = el("li", "inbox-item");
-        item.append(el("time", "inbox-time mono", timeOf(at)), el("span", "inbox-text", text));
+        item.append(el("time", "inbox-time mono", clock(at, { seconds: true })), el("span", "inbox-text", text));
         return item;
       }),
     );
@@ -74,7 +73,7 @@ export function installInbox({ button, count, panel, list, clear, fallbackFocus 
     close();
   });
   panel.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
+    if (e.key !== "Escape") return trapTab(panel, e);
     // The board's own Escape (clear notices, blur) must not also run behind the panel.
     e.stopPropagation();
     close();
