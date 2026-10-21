@@ -192,7 +192,9 @@ export function githubPrDelivery(run: Run): DeliveryPort {
       if (sourceBranch !== pr.headRefName) {
         const local = await run("git", ["rev-parse", sourceBranch], integration);
         // The resolution is already the PR head: land it like any PR, through the checks gate below.
-        if (local.code !== 0 || local.stdout.trim() !== pr.headRefOid) {
+        // A PR GitHub reports mergeable moved on by itself (its mission merged the base too): the resolution is
+        // superseded and the PR head lands as is; a stale verdict still meets the merge probe below.
+        if ((local.code !== 0 || local.stdout.trim() !== pr.headRefOid) && pr.mergeable !== "MERGEABLE") {
           // Resolution branch: push it onto the PR head, plain push, no force.
           const pushed = await run("git", ["push", "origin", `${sourceBranch}:${pr.headRefName}`], integration);
           if (pushed.code !== 0)

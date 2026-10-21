@@ -459,7 +459,8 @@ describe("githubPrDelivery.land", () => {
     const calls: Call[] = [];
     let headOid = "deadbeef";
     const { run: base0 } = realRun((args) => {
-      if (args[1] === "view") return { stdout: prJson({ headRefOid: headOid }), stderr: "", code: 0 };
+      // GitHub calls the PR conflicting until the resolution is its head.
+      if (args[1] === "view") return { stdout: prJson({ headRefOid: headOid, mergeable: headOid === "deadbeef" ? "CONFLICTING" : "MERGEABLE" }), stderr: "", code: 0 };
       return { stdout: "", stderr: "", code: 0 };
     });
     const run: Run = async (c, a, w) => {
@@ -484,9 +485,31 @@ describe("githubPrDelivery.land", () => {
     expect(calls.some((c) => c.args[0] === "push" && c.args.includes("resolve-1:feat"))).toBe(false);
   });
 
+  test("a PR that moved on by itself and merges cleanly lands as is, without pushing the stale resolution", async () => {
+    // CHR-64: its own mission merged the base into the PR while a conflict mission made an equivalent merge, so
+    // pushing the resolution was rejected as non-fast-forward on every auto pass.
+    const calls: Call[] = [];
+    const { run: base0 } = realRun((args) => {
+      if (args[1] === "view") return { stdout: prJson({ headRefOid: "cafebabe", mergeable: "MERGEABLE" }), stderr: "", code: 0 };
+      return { stdout: "", stderr: "", code: 0 };
+    });
+    const run: Run = async (c, a, w) => {
+      calls.push({ command: c, args: a, cwd: w });
+      return base0(c, a, w);
+    };
+    const { repo } = await prSetup(run);
+    await git(run, repo, "checkout", "-qb", "resolve-1", "feat");
+    writeFileSync(join(repo, "f.txt"), "resolved\n");
+    await git(run, repo, "commit", "-qam", "resolve");
+    await git(run, repo, "checkout", "-q", "main");
+    await git(run, repo, "push", "-q", "-f", "origin", "feat:refs/pull/7/head");
+    expect(await githubPrDelivery(run).land({ operation: makeOperation(repo), contact, sourceBranch: "resolve-1", status })).toEqual({ outcome: "landed", via: "pr" });
+    expect(calls.some((c) => c.args[0] === "push" && c.args.includes("resolve-1:feat"))).toBe(false);
+  });
+
   test("push rejection surfaces as push-rejected", async () => {
     const { run } = realRun((args) => {
-      if (args[1] === "view") return { stdout: prJson(), stderr: "", code: 0 };
+      if (args[1] === "view") return { stdout: prJson({ mergeable: "CONFLICTING" }), stderr: "", code: 0 };
       return { stdout: "", stderr: "", code: 0 };
     });
     const { repo, remote } = await prSetup(run);
