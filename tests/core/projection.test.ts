@@ -103,6 +103,15 @@ test("a reaped conflict mission is abandoned: the contact is landable again inst
   expect(resolved.detail).toBe("Mission complete; Land takes a-conflict-1's resolution onto the PR");
 });
 
+test("an abandoned conflict mission closes when its target lands another way, so the operation can finish", () => {
+  const op = makeOp([makeContact("a", { lane: live() }), makeContact("a-conflict-1", { kind: "conflict", conflictOf: "a", lane: live() })], { fleet: "omp-mission", frontend: "orca", delivery: "github-pr" });
+  const reaped = ev(0, "a-conflict-1", "reaped");
+  expect(viewOf(op, "a-conflict-1", { events: [reaped] } as never).state).not.toBe("landed");
+  expect(viewOf(op, "a-conflict-1", { events: [reaped, ev(1, "a", "landed")] } as never).state).toBe("landed");
+  // One still running is not closed under its pane.
+  expect(viewOf(op, "a-conflict-1", { statuses: { "a-conflict-1": makeStatus({ phase: "execute" }) }, owners: { "a-conflict-1": "live" }, events: [ev(1, "a", "landed")] } as never).state).not.toBe("landed");
+});
+
 describe("project: state table", () => {
   test("landed beats everything", () => {
     const op = makeOp([makeContact("a", { kind: "decision" })], {

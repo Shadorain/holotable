@@ -51,6 +51,8 @@ export function contactState(i: {
   const { contact, derived, status, owner, conflictContacts } = i;
   const d = contactDerived(derived, contact.ticket);
   if (d.landed) return "landed";
+  // An abandoned (reaped) conflict mission has nothing left to do once its target landed some other way.
+  if (contact.kind === "conflict" && d.reaped && contact.conflictOf && contactDerived(derived, contact.conflictOf).landed) return "landed";
   if (contact.lane === null) {
     if (contact.kind === "decision") return "decision";
     if (unmetBlockers(i.operation, derived, contact.ticket).length > 0)
