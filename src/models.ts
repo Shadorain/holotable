@@ -1,6 +1,7 @@
 import type { ModelsResult, ModelEntry } from "./core/types.ts";
 import type { CommandResult, Run } from "./ports.ts";
 import { subscriptionCapacity } from "./core/subscription-capacity.ts";
+import { withTimeout } from "./timeout.ts";
 
 export interface ModelCatalogOptions {
   ttlMs?: number;
@@ -45,23 +46,14 @@ export function createModelCatalog(run: Run, options: ModelCatalogOptions = {}):
   }
 
   async function fetchModels(): Promise<ModelsResult> {
-    let timer: NodeJS.Timeout | undefined;
     let result: CommandResult;
     try {
-      const { promise: timeout, reject } = Promise.withResolvers<CommandResult>();
-      timer = setTimeout(() => reject(new Error("Catalog fetch timed out")), timeoutMs);
-      timer.unref?.();
-      result = await Promise.race([
-        run("omp", ["models", "--json", "--no-extensions"], cwd),
-        timeout,
-      ]);
+      result = await withTimeout(run("omp", ["models", "--json", "--no-extensions"], cwd), timeoutMs, "Catalog fetch timed out");
     } catch (error) {
       return {
         models: [],
         error: error instanceof Error ? error.message : String(error),
       };
-    } finally {
-      clearTimeout(timer);
     }
 
     if (result.code !== 0) {
@@ -116,13 +108,8 @@ export function createModelCatalog(run: Run, options: ModelCatalogOptions = {}):
   }
 
   async function fetchUsage(): Promise<{ payload?: unknown; error?: string }> {
-    let timer: NodeJS.Timeout | undefined;
     try {
-      const timeout = new Promise<CommandResult>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("Subscription usage timed out")), timeoutMs);
-        timer.unref?.();
-      });
-      const result = await Promise.race([run("omp", ["usage", "--json", "--redact", "--no-extensions"], cwd), timeout]);
+      const result = await withTimeout(run("omp", ["usage", "--json", "--redact", "--no-extensions"], cwd), timeoutMs, "Subscription usage timed out");
       if (result.code !== 0) return { error: `OMP subscription usage unavailable (exit ${result.code})` };
       let payload: unknown;
       try { payload = JSON.parse(result.stdout); } catch { return { error: "Invalid subscription usage JSON" }; }
@@ -131,8 +118,6 @@ export function createModelCatalog(run: Run, options: ModelCatalogOptions = {}):
       return { payload };
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Subscription usage unavailable" };
-    } finally {
-      clearTimeout(timer);
     }
   }
 

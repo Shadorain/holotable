@@ -48,10 +48,3 @@ export async function loadProjection(
     now,
   });
 }
-
-
-export function statusText(p: Projection): string {
-  const queued = p.contacts.filter((c) => c.group === "queue").length;
-  const attention = p.contacts.filter((c) => c.attention).length;
-  return `holotable · ${p.operation.name} · ${p.header.open}/${p.header.cap} omp · ${queued} queued · ${attention} need you`;
-}

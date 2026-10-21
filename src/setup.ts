@@ -5,7 +5,8 @@ import { listOperations } from "./store/operations.ts";
 import { listProjects } from "./store/projects.ts";
 import { DEFAULT_SETTINGS } from "./settings.ts";
 import { readSettings } from "./store/settings.ts";
-import type { Run, CommandResult } from "./ports.ts";
+import type { Run } from "./ports.ts";
+import { withTimeout } from "./timeout.ts";
 import { loadProjection } from "./snapshot.ts";
 export interface SetupCheck {
   id: string;
@@ -34,19 +35,11 @@ async function runWithTimeout(
   cwd: string = process.cwd()
 ): Promise<{ code: number; stdout: string; stderr: string; detail?: string }> {
   // Run is a fire-and-forget port with no handle to kill; a timed-out child may
-  // still settle the race later. The timer is unref'd and cleared so a hung
-  // command never keeps the CLI alive.
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  // still settle the race later.
   try {
-    const timeout = new Promise<CommandResult>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("Timeout")), RUN_TIMEOUT);
-      timer.unref();
-    });
-    return await Promise.race([run(command, args, cwd), timeout]);
+    return await withTimeout(run(command, args, cwd), RUN_TIMEOUT, "Timeout");
   } catch (error) {
     return { code: -1, stdout: "", stderr: "", detail: error instanceof Error ? error.message : String(error) };
-  } finally {
-    clearTimeout(timer);
   }
 }
 

@@ -40,6 +40,14 @@ export function draftsDir(home: string): string {
   return join(home, "drafts");
 }
 
+const DRAFT_ID = /^draft-[0-9a-f]{8}$/;
+export const isDraftId = (id: string): boolean => DRAFT_ID.test(id);
+
+/** Draft ids become directory names; anything else is a path escape. */
+export function assertDraftId(id: string): void {
+  if (!DRAFT_ID.test(id)) throw new Error(`Invalid draft id "${id}"`);
+}
+
 export function draftDir(home: string, id: string): string {
   return join(draftsDir(home), id);
 }

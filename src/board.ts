@@ -42,7 +42,9 @@ import {
   type Tracker,
 } from "./core/types.ts";
 import { createModelCatalog } from "./models.ts";
-import { createDraftDir, draftEntry, draftPrompt, listDrafts, MAX_DRAFT_INPUT, newDraftId, readDraftDoc, readDraftUsage, recordDraftTerminal, recordDraftUsage, removeDraft } from "./store/drafts.ts";
+import { createDraftDir, draftEntry, listDrafts, MAX_DRAFT_INPUT, newDraftId, readDraftDoc, readDraftUsage, recordDraftTerminal, recordDraftUsage, removeDraft } from "./store/drafts.ts";
+import { draftPrompt } from "./store/draft-prompts.ts";
+import { withTimeout } from "./timeout.ts";
 import { draftDir } from "./paths.ts";
 import { validateProject } from "./core/validate-project.ts";
 import { normalizeTicket } from "./core/validate-operation.ts";
@@ -345,8 +347,11 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
   let reposCache: { timestamp: number; result: RepoRow[] } | null = null;
   const modelCatalog = createModelCatalog(hooks.run ?? createRun());
   async function projection(opId: string): Promise<Projection> {
-    const known = await listOperations(home);
-    if (!known.some((row) => row.id === opId)) throw new HttpError(404, `No open operation "${opId}"`);
+    await knownOperation(opId);
+    return loadKnownProjection(opId);
+  }
+  /** For callers that already listed the operation. */
+  async function loadKnownProjection(opId: string): Promise<Projection> {
     const p = await loadProjection(home, opId, await readSettings(home), now(), hooks.extras?.(opId), hooks.recoveryWaits?.(opId));
     if (p.operation.auto?.enabled) p.operation.auto.landWait = hooks.autoLandWait?.(opId) ?? null;
     return p;
@@ -356,17 +361,10 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
     if (!known.some((row) => row.id === opId)) throw new HttpError(404, `No open operation "${opId}"`);
   }
   async function settingsView(): Promise<SettingsView> {
-    const settings = await readSettings(home);
-    const rows = await listOperations(home);
-    let customInUse = settings.defaults.frontend === "custom";
-    if (!customInUse)
-      for (const row of rows) {
-        const op = await readOperation(home, row.id);
-        if (op.frontend === "custom") {
-          customInUse = true;
-          break;
-        }
-      }
+    const [settings, rows] = await Promise.all([readSettings(home), listOperations(home)]);
+    const customInUse =
+      settings.defaults.frontend === "custom" ||
+      (await Promise.all(rows.map((row) => readOperation(home, row.id)))).some((op) => op.frontend === "custom");
     const memoryGb = Math.round((usableMemoryBytes() / 1024 ** 3) * 10) / 10;
     const urls = hooks.urls?.() ?? (await readBoardInfo(home))?.urls ?? [];
     return { settings, path: displaySettingsPath(home), restartFields: [...RESTART_KEYS], themes: [...THEMES], customInUse, machine: { memoryGb, ompGb: 0.6 }, urls };
@@ -480,17 +478,16 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       return operationConfig(opId);
     },
     async history(opId) {
-      await projection(opId); // 404 for unknown operations
+      await knownOperation(opId);
       return history(await readEvents(home, opId)).reverse();
     },
     async operations() {
-      const rows = await listOperations(home);
-      const projects = await listProjects(home);
+      const [rows, projects] = await Promise.all([listOperations(home), listProjects(home)]);
       const byId = new Map(projects.map((p) => [p.id, p]));
       return Promise.all(
         rows.map(async (row) => {
           const p = row.project !== null ? byId.get(row.project) : null;
-          return summarize(await projection(row.id), p ? { id: p.id, name: p.name } : null);
+          return summarize(await loadKnownProjection(row.id), p ? { id: p.id, name: p.name } : null);
         }),
       );
     },
@@ -544,14 +541,13 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       if (tracker === "none" || q.length < 2) return { tracker, hits: [] };
       const port = hooks.tracker ? await hooks.tracker(tracker) : null;
       if (!port) return { tracker, hits: [], error: "no tracker port available" };
-      let hits: TrackerHit[] | null | "timeout" = null;
-      const timedOut = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 8_000));
+      let hits: TrackerHit[] | null;
       try {
-        hits = await Promise.race([port.search(q, cwd, 8), timedOut]);
+        // A failing port answers nothing; only the timer itself reports a timeout.
+        hits = await withTimeout((async () => port.search(q, cwd, 8))().catch(() => null), 8_000, "timeout");
       } catch {
-        hits = null;
+        return { tracker, hits: [], error: "timed out after 8 s" };
       }
-      if (hits === "timeout") return { tracker, hits: [], error: "timed out after 8 s" };
       if (hits === null) return { tracker, hits: [], error: "tracker answered nothing" };
       return { tracker, hits: taken ? hits.map((h) => (taken.has(normalizeTicket(tracker, h.ticket)) ? { ...h, taken: true as const } : h)) : hits };
     },
@@ -564,13 +560,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       if (operation.tracker === "none") return { url: null };
       const port = hooks.tracker ? await hooks.tracker(operation.tracker) : null;
       if (!port) return { url: null };
-      const timedOut = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000));
-      let sampled: { url: string | null } | null = null;
-      try {
-        sampled = await Promise.race([port.sample(ticket, operation.repo), timedOut]);
-      } catch {
-        sampled = null;
-      }
+      const sampled = await withTimeout((async () => port.sample(ticket, operation.repo))(), 8_000, "timeout").catch(() => null);
       const url = sampled?.url;
       if (typeof url !== "string" || !/^https?:\/\//i.test(url) || /\/pull\/\d+(?:[/?#]|$)/i.test(url))
         return { url: null };
