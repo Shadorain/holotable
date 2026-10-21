@@ -353,6 +353,12 @@ Every fleet control, including Mode, is producer-advertised; Review/Resend/Relea
 same operator socket path. Closed frontend handles cannot be focused. Automatic Continue
 re-reads producer status before sending and refuses new quota or failed-verification holds.
 
+A `running`, `verify` or `review` contact whose producer reports `coordinator.state: "idle"` for at least
+3 minutes (`IDLE_ALERT_MS`, measured against the projection's `now`), with no live workers, no live
+review and `verify` not `active`, needs attention: `handsOff` is null, the detail names the idle time,
+and Focus is primary unless the producer advertises its own primary step. Holds, questions, plan
+approval, completion and scheduled retries are other states and keep their own detail.
+
 Group: `queue` if lane is null and the contact has no `landed` event, else `live`.
 
 `launchRefusal` returns the first matching reason (strings exact), else null:

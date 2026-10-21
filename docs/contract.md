@@ -50,6 +50,10 @@ interface ContactStatus {
     id: string;                     // its tool call id; the board refuses to answer once this changes
     questions: Array<{ question: string; options: string[]; recommended: number | null; multi: boolean }>;
   } | null;
+  coordinator?: {                   // the pane's main agent; null = no turn seen yet; absent = older producer
+    state: "working" | "idle";      // working: in a turn, or OMP already scheduled the next one (retry, compaction, awaited async work) or a message is queued
+    since: string;                  // ISO time of the last state change
+  } | null;
   plan?: { path: string; revision: string } | null;   // pending plan awaiting approval; revision bumps on every edit
   mode?: "auto" | "pause" | "force" | null;           // the mission's review mode (the planned one while a plan is pending)
   problem?: {
@@ -94,6 +98,8 @@ As implemented by `omp-mission`: `next` may carry `/mission <verb> — <text>` (
 `problem` is display and scheduling evidence, not a capability. Only advertised `actions` authorize socket controls. Missing fields from older panes do not authorize board retries or model switching.
 
 `source: "repair-budget"` identifies confirmed findings blocked only by the native repair-cycle limit; it publishes `kind: "error"`. Genuine decision escalations remain `source: "triage"`. This distinction requires updated producer code; the board must not infer budget authorization from older free-text failures.
+
+`coordinator` is evidence, not a capability. The board flags a mission whose coordinator has been `idle` for at least 3 minutes while nothing else runs for it: its state is running, verify or review (so no hold, question, plan approval, completion or scheduled retry), with no live workers, no `review` and `verify` not `active`. Such a coordinator ended its turn, often asking something in plain text. The flag never authorizes a socket op; the board only points the operator at the pane. Absent or null `coordinator` never flags.
 
 While the main mission agent's `ask` tool is waiting, `hold: question` replaces plan approval and `next` carries the question text. While the pane's dialog is open and every question parsed, `ask` carries the call id and each question's option labels in dialog order, and `actions` is `["answer"]`; otherwise `actions` is empty. The `answer` op (`{id, answers: [{option: n} | {options: [n…]} | {text}]}`, operator) settles that dialog as if answered in the pane; a changed `id` is `stale`, answers that do not fit are `rejected`. Without `answer` the board offers **Answer in mission** (frontend focus). Matching tool completion clears the hold and `ask`; unrelated tool completions do not. Recovery must not continue or relaunch it. The producer rejects every other mutating socket operation with `question-waiting` until answered. Planning provider blockers publish blocked/quota holds and no plan-approval action until a new turn clears the blocker.
 

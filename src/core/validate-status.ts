@@ -224,6 +224,14 @@ export function validateStatus(
     };
   }
 
+  let coordinator: ContactStatus["coordinator"] = null;
+  if (value.coordinator !== undefined && value.coordinator !== null) {
+    const k = value.coordinator;
+    if (!isRecord(k) || (k.state !== "working" && k.state !== "idle") || typeof k.since !== "string" || !Number.isFinite(Date.parse(k.since)))
+      return fail("coordinator must carry state (working or idle) and an ISO since");
+    coordinator = { state: k.state, since: k.since };
+  }
+
   let session: ContactStatus["session"];
   if (value.session !== undefined) {
     const s = value.session;
@@ -267,6 +275,7 @@ export function validateStatus(
     ...(value.ask === undefined ? {} : { ask }),
     ...(value.review === undefined ? {} : { review }),
     ...(value.model === undefined ? {} : { model }),
+    ...(value.coordinator === undefined ? {} : { coordinator }),
     ...(session === undefined ? {} : { session }),
   };
 }

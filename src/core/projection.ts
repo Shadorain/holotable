@@ -1,6 +1,6 @@
 import { foldEvents, contactDerived } from "./fold.ts";
 import { countTasks } from "./notes.ts";
-import { actionsFor, contactState, handsOff, launchRefusal } from "./policy.ts";
+import { actionsFor, contactState, handsOff, idleSince, launchRefusal } from "./policy.ts";
 import { computeStats } from "./stats.ts";
 import { missionProblem, retryWaiting } from "./mission-problem.ts";
 import type {
@@ -278,6 +278,7 @@ function contactView(
   const review = state === "landed" ? null : status?.review ?? null;
   const reviewStale = review !== null && Date.parse(review.deadlineAt) <= input.now;
   const problem = state === "landed" ? null : missionProblem(status);
+  const idle = idleSince(state, status, input.now);
   const policy: PolicyInput = {
     operation: op,
     contact,
@@ -292,6 +293,7 @@ function contactView(
     decisionPaneOpen,
     recoveryWait: input.recoveryWaits?.[contact.ticket],
     terminalMissing: input.vanished?.has(contact.ticket) ?? false,
+    idleSince: idle,
   };
 
   const blockers = contact.blockedBy.filter((b) => !contactDerived(derived, b).landed);
@@ -308,6 +310,8 @@ function contactView(
     detail = `Review retry at ${problem.retryAt.slice(0, 16).replace("T", " ")} UTC`;
   if (reviewStale)
     detail = `Review stalled past its deadline (${review!.deadlineAt.slice(0, 16).replace("T", " ")} UTC); the pane may be stuck — Relaunch it`;
+  if (idle)
+    detail = `Idle in its pane since ${new Date(idle).toISOString().slice(11, 16)} UTC; it may be waiting for you`;
   const actions = actionsFor(policy);
   const hands = handsOff({ ...policy, actions, reviewStalled: reviewStale });
   if (state === "complete") {
@@ -364,7 +368,7 @@ function contactView(
     // nor a conflict mission the operator reaped (abandoned; the next Land opens a fresh one).
     attention: hands === null && !(contact.kind === "conflict" && d.reaped) && ((ATTENTION_STATES.includes(state) && !(state === "decision" && decisionPaneOpen) &&
       (state !== "review" || status?.actions.includes("review") === true || reviewStale)) ||
-      (state === "complete" && contact.kind !== "conflict")),
+      (state === "complete" && contact.kind !== "conflict") || idle !== null),
     handsOff: hands,
     actions,
   };

@@ -29,6 +29,8 @@ const REVIEW_S = 8;
 // Seeded Charidel lanes parked on provider quota: one running (recoverable), one still at its plan (not yet).
 const QUOTA_PARKED = new Set(["chr-167", "chr-157-conflict-1"]);
 const RED_CI = new Set(["CHR-156"]);
+// A seeded lane whose coordinator ended its turn at review asking in plain text: it stays idle until reaped.
+const COORDINATOR_IDLE = new Set(["review"]);
 // Fixed PR-check verdicts per ticket so the demo exercises more than "clean".
 const CHECK_VERDICTS: Record<string, { state: MissionCheck["state"]; detail: string; conflicts: string[]; threads: { open: number; total: number } }> = {
   "CHR-157": { state: "conflict", detail: "Base moved under the PR; two files conflict.", conflicts: ["src/roster.ts", "docs/deploy.md"], threads: { open: 0, total: 0 } },
@@ -127,7 +129,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       branch,
       born: now(),
       stageStart: now(),
-      stage: initial.get(worktree) ?? "plan",
+      stage: COORDINATOR_IDLE.has(name) ? "review" : initial.get(worktree) ?? "plan",
       mode: "pause",
       gate: randomBytes(6).toString("hex"),
       noPause: false,
@@ -145,7 +147,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
     return m;
   };
   const advance = (m: SimMission) => {
-    if (m.closed || m.resumeHold || m.quota) return;
+    if (m.closed || m.resumeHold || m.quota || COORDINATOR_IDLE.has(m.ticket)) return;
     const age = (now() - m.stageStart) / 1000;
     const go = (stage: SimMission["stage"]) => {
       m.stage = stage;
@@ -231,6 +233,9 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
         config: { graph: "local" as const, frontend: "custom" as const, maxWorkers: 2, reviewConcurrency: 2, mode: (m.mode === "auto" || m.mode === "force" ? m.mode : "pause") as "auto" | "pause" | "force" },
       },
       updatedAt,
+      coordinator: COORDINATOR_IDLE.has(m.ticket)
+        ? { state: "idle", since: new Date(m.born - 10 * 60_000).toISOString() }
+        : { state: hold === "none" && m.stage !== "complete" ? "working" : "idle", since: new Date(m.stageStart).toISOString() },
       verify: null,
       problem: m.quota ? { kind: "quota", source: "coordinator", detail: m.quota, retryAt: null, attempt: null, completed: null, total: null } : null,
     };

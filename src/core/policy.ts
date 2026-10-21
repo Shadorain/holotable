@@ -20,6 +20,22 @@ export function hasRecentUncontrolledStatus(status: PolicyInput["status"], now: 
   return age <= 90_000;
 }
 
+/** How long a coordinator idles in its pane, with nothing else running for the mission, before the board flags it. */
+export const IDLE_ALERT_MS = 3 * 60_000;
+
+/**
+ * When an unfinished mission's coordinator went idle, once it has idled IDLE_ALERT_MS with nothing
+ * else running for it: it most likely ended its turn asking the operator something in plain text.
+ * Holds, questions, plan approval, completion and scheduled retries are other states with their own
+ * detail; live workers, a running review or verification wake the coordinator when they end.
+ */
+export function idleSince(state: ContactState, status: PolicyInput["status"], now: number): string | null {
+  const c = status?.coordinator;
+  if (c?.state !== "idle" || (state !== "running" && state !== "verify" && state !== "review")) return null;
+  if ((status!.workers?.live ?? 0) > 0 || status!.review || status!.verify === "active") return null;
+  return now - Date.parse(c.since) >= IDLE_ALERT_MS ? c.since : null;
+}
+
 /**
  * C7 state table, first match wins. `conflictContacts` are the contacts whose
  * `conflictOf` names this ticket, with their already-computed states.
@@ -109,12 +125,12 @@ export function actionsFor(i: PolicyInput): ActionView[] {
   const relaunch = (): ActionView =>
     view("relaunch", "Relaunch", true, capRefusal === null, capRefusal);
 
-  const focus = (): ActionView => {
+  const focus = (idlePrimary = false): ActionView => {
     const ok = terminal !== null && contact.lane?.frontend !== "external" && !i.terminalMissing;
     return view(
       "focus",
       status?.hold === "question" ? "Answer in mission" : "Focus",
-      status?.hold === "question" && !status.actions.includes("answer"),
+      (status?.hold === "question" && !status.actions.includes("answer")) || (idlePrimary && !!i.idleSince),
       ok,
       ok ? null : i.terminalMissing ? "terminal closed" : terminal === null ? "no terminal recorded" : "no frontend",
     );
@@ -234,8 +250,11 @@ export function actionsFor(i: PolicyInput): ActionView[] {
     case "running":
     case "verify":
     case "review":
-    case "hold":
-      return [...answer(), focus(), ...fleetButtons(), ...planButtons(), reap()];
+    case "hold": {
+      // An idle coordinator is waiting in its pane, unless the producer offers the next step itself.
+      const fleet = fleetButtons();
+      return [...answer(), focus(!fleet.some((b) => b.primary)), ...fleet, ...planButtons(), reap()];
+    }
     case "complete": {
       const actions: ActionView[] = [];
       // An audit that opened a PR (or committed on a local-merge base) carries code like any implementation.
@@ -295,7 +314,7 @@ export function actionsFor(i: PolicyInput): ActionView[] {
 /**
  * Why the operator should leave this contact alone right now: the mission is working, or auto mode or
  * Recovery owns its next step. Null whenever it waits on a person: a question, a gate, a decision auto
- * mode does not make, red CI with no fix under way, or an automation switched off.
+ * mode does not make, red CI with no fix under way, an automation switched off, or a coordinator idle in its pane.
  */
 export function handsOff(i: PolicyInput & { actions: ActionView[]; reviewStalled?: boolean }): string | null {
   const { operation, contact, state, status, owner, probe, actions } = i;
@@ -317,7 +336,7 @@ export function handsOff(i: PolicyInput & { actions: ActionView[]; reviewStalled
     if (!status.actions.includes("plan-approve")) return "Writing its plan";
     return auto?.plans ? "Auto mode approves this plan" : null;
   }
-  if ((state === "planning" || state === "running" || state === "verify" || state === "review") && !i.reviewStalled &&
+  if ((state === "planning" || state === "running" || state === "verify" || state === "review") && !i.reviewStalled && !i.idleSince &&
       !status?.actions.some((a) => a === "resend" || a === "review" || a === "continue"))
     return "Working on its own";
   if (state === "complete" && auto?.land && contact.kind !== "conflict") {

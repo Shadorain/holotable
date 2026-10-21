@@ -533,6 +533,33 @@ test("a live review reports progress and model; past its deadline it asks for a 
  expect(stalled.detail).toContain("Review stalled");
 });
 
+test("a coordinator idle in its pane with nothing else running needs you; normal waits stay hands-off", () => {
+  const op = makeOp([makeContact("a", { lane: live() })], { frontend: "orca", fleet: "omp-mission" });
+  const idleAt = (ago: number) => ({ state: "idle" as const, since: new Date(NOW - ago).toISOString() });
+  const at = (status: Parameters<typeof makeStatus>[0]) =>
+    viewOf(op, "a", { statuses: { a: makeStatus({ phase: "deliver", next: "/mission deliver — Open the PR", ...status }) }, owners: { a: "live" } });
+
+  const stuck = at({ coordinator: idleAt(180_000) });
+  expect(stuck.state).toBe("running");
+  expect(stuck.attention).toBe(true);
+  expect(stuck.handsOff).toBeNull();
+  expect(stuck.detail).toContain(new Date(NOW - 180_000).toISOString().slice(11, 16));
+  expect(stuck.actions.filter((a) => a.primary).map((a) => a.id)).toEqual(["focus"]);
+
+  const waits = [
+    at({ coordinator: idleAt(179_000) }),
+    at({ coordinator: { state: "working", since: new Date(NOW - 3_600_000).toISOString() } }),
+    at({ coordinator: idleAt(600_000), workers: { live: 1, total: 2 } }),
+    at({ coordinator: idleAt(600_000), phase: "review", review: { startedAt: iso(0), deadlineAt: new Date(NOW + 600_000).toISOString(), active: 1, completed: 0, total: 1, models: [] } }),
+    at({ coordinator: idleAt(600_000), phase: "verify", verify: "active" }),
+    at({ coordinator: idleAt(600_000), phase: "review", problem: { kind: "error", source: "review", detail: "Reviewer timed out", retryAt: new Date(NOW + 60_000).toISOString(), attempt: 1, completed: 0, total: 1 } }),
+    at({}),
+  ];
+  expect(waits[5]!.state).toBe("waiting");
+  expect(waits.map((v) => [v.attention, v.handsOff !== null])).toEqual(Array(waits.length).fill([false, true]));
+  for (const view of waits) expect(view.actions.some((a) => a.id === "focus" && a.primary)).toBe(false);
+});
+
 test("work automation owns is hands-off and not 'Your move'; a question or a manual decision never is", () => {
   const auto = { enabled: true, launch: true, land: true, maxLive: 4, plans: true, decide: false };
   const op = makeOp([makeContact("a", { lane: live() }), makeContact("d", { kind: "decision" })], { frontend: "orca", fleet: "omp-mission", delivery: "github-pr", auto });

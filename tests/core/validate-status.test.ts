@@ -107,3 +107,11 @@ describe("validateStatus review/model", () => {
     expect(() => validateStatus({ ...makeStatus(), model: 42 })).toThrow();
   });
 });
+
+test("coordinator activity passes through; malformed activity is rejected and older panes omit it", () => {
+  const coordinator = { state: "idle" as const, since: "2026-01-01T00:00:00.000Z" };
+  expect(validateStatus({ ...makeStatus(), coordinator }).coordinator).toEqual(coordinator);
+  expect(validateStatus(makeStatus()).coordinator).toBeUndefined();
+  expect(() => validateStatus({ ...makeStatus(), coordinator: { ...coordinator, state: "sleeping" } })).toThrow();
+  expect(() => validateStatus({ ...makeStatus(), coordinator: { ...coordinator, since: "a while ago" } })).toThrow();
+});

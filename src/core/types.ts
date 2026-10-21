@@ -427,6 +427,8 @@ export interface ContactStatus {
   ctl: { socket: string; generation: number } | null;
   /** The pane's open `ask` while hold is "question": the tool call id and each question's choices. */
   ask?: MissionAsk | null;
+  /** The pane's coordinator agent: in a turn (or continuing on its own) or idle since `since`; null/absent when unknown or from an older producer. */
+  coordinator?: { state: "working" | "idle"; since: string } | null;
   updatedAt: string;
 }
 
@@ -511,6 +513,8 @@ export interface PolicyInput {
   decisionPaneOpen: boolean;
   recoveryWait?: RecoveryWait;
   terminalMissing?: boolean;
+  /** When the coordinator went idle, set only once it has idled long enough with nothing else running for it. */
+  idleSince?: string | null;
 }
 
 export interface Stats {
