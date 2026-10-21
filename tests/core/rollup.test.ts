@@ -164,6 +164,38 @@ describe("computeRollup", () => {
     expect(computeRollup([missing, observed], NOW).totals.reviews).toBe(0);
   });
 
+  test("activity, operator wait and spend sum over the sources that report them", () => {
+    const mk = (cost: number) => evalOf([
+      ev(0, "a", "queued"), ev(1000, "a", "launched"),
+      ev(2000, "a", "sample", { usageEvidence: makeUsageEvidence(1000, cost) }),
+      ev(3_601_000, "a", "landed"),
+    ]);
+    const a = mk(4), b = mk(6);
+    const archived = mk(100);
+    const old = archived.evaluation!;
+    delete old.activity;
+    delete old.operatorWait;
+    delete old.usage.spend;
+    const r = computeRollup([a, b, archived], NOW);
+    const ea = a.evaluation!, eb = b.evaluation!;
+    expect(r.totals.activity).toMatchObject({ operations: 2, activeMs: ea.activity!.activeMs + eb.activity!.activeMs, delivered: 2 });
+    expect(r.totals.activity!.deliveriesPerActiveHour).toBeCloseTo(2 * 3_600_000 / (ea.activity!.activeMs + eb.activity!.activeMs));
+    expect(r.totals.operatorWait).toMatchObject({
+      operations: 2,
+      operatorMs: ea.operatorWait!.operatorMs + eb.operatorWait!.operatorMs,
+      missionMs: ea.operatorWait!.missionMs + eb.operatorWait!.missionMs,
+    });
+    expect(r.totals.operatorWait!.byKind.launch!.waits).toBe(ea.operatorWait!.byKind.launch!.waits + eb.operatorWait!.byKind.launch!.waits);
+    expect(r.totals.spend).toMatchObject({ operations: 2, landedPriced: 2 });
+    expect(r.totals.spend!.landedUsd).toBeCloseTo(10); // the archive without a spend split adds nothing
+    expect(r.totals.spend!.perLandedUsd).toBeCloseTo(5);
+    expect(r.totals.knownCostUsd).toBeCloseTo(110);
+
+    const legacy = computeRollup([archived], NOW).totals;
+    expect(legacy.activity).toBeNull();
+    expect(legacy.operatorWait).toBeNull();
+    expect(legacy.spend).toBeNull();
+  });
 
   test("rollups are deterministic for identical inputs", () => {
     const entries = [evalOf([ev(0, "a", "queued"), ev(1, "a", "launched"), ev(2, "a", "landed")])];

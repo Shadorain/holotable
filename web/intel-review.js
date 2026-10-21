@@ -31,6 +31,12 @@ export function buildReviewPrompt(evidence) {
   const phaseRows = (path, values, project) => values == null ? null : rows(path, Object.entries(values).sort(([a], [b]) => a.localeCompare(b)), ([phase, value]) => ({ phase: text(phase), ...project(value) }), 12);
   const tokens = value => fields(value, TOKEN_KEYS);
   const pane = value => fields(value, "tokens costUsd sessions partial");
+  const SPEND = "landedUsd landedPriced perLandedUsd supportUsd openUsd abandonedUsd paneUsd wastedUsd knownShare pricedShare";
+  const WAIT = "operatorMs automationMs pendingMs waits";
+  const operatorWait = value => value == null ? null : {
+    ...fields(value, `${WAIT} missionMs`),
+    byKind: Object.fromEntries(Object.entries(value.byKind).map(([kind, totals]) => [text(kind), fields(totals, WAIT)])),
+  };
   let packet;
   if (evidence.scope === "operation" && evidence.snapshot?.evaluation) {
     const s = evidence.snapshot, e = s.evaluation;
@@ -56,10 +62,33 @@ export function buildReviewPrompt(evidence) {
           ...fields(e.usage, "basis knownCostUsd costPerDelivered missingSources unsupportedWorkers pricedMessages unpricedMessages malformedLines resets backlogBytes coordinatorSessionAssociated partial"),
           tokens: tokens(e.usage.tokens), pane: pane(e.usage.pane),
           byPhase: phaseRows("metrics.usage.byPhase", e.usage.byPhase, value => fields(value, "tokens costUsd")),
+          spend: fields(e.usage.spend, SPEND),
+        },
+        activity: fields(e.activity, "activeMs idleMs deliveriesPerActiveHour"),
+        operatorWait: operatorWait(e.operatorWait),
+        stalls: e.stalls == null ? null : {
+          // Episode families ({ms, episodes}) pass through by name, so new stall kinds export without changes here.
+          ...Object.fromEntries(Object.entries(e.stalls).filter(([, v]) => v !== null && typeof v === "object" && "episodes" in v).map(([kind, v]) => [text(kind), fields(v, "ms episodes")])),
+          launchRefusals: fields(e.stalls.launchRefusals, "memory sessionCap refused gaveUp"),
+          reviewFailures: e.stalls.reviewFailures,
+        },
+        conflicts: e.conflicts == null ? null : {
+          ...fields(e.conflicts, "rate unpathed truncated"),
+          paths: rows("metrics.conflicts.paths", e.conflicts.paths, p => ({ path: text(p.path), conflicts: p.conflicts }), 5),
+          contacts: rows("metrics.conflicts.contacts", e.conflicts.contacts, c => fields(c, "ticket conflicts landAttempts"), 5),
         },
       },
+      // The longest-active contacts; the rest are counted in omittedRows.
+      contacts: e.contacts == null ? null : rows("contacts", [...e.contacts].sort((a, b) => b.activeMs - a.activeMs), c => ({
+        ...fields(c, "ticket kind state outcome leadMs activeMs"),
+        blockedMs: c.blockedMs.beforeLaunch + c.blockedMs.afterLaunch,
+        waitMs: fields(c.waitMs, "operator automation pending"),
+        reviewRounds: c.review?.rounds ?? null, relaunches: c.relaunches.total, conflicts: c.conflicts.count,
+        costUsd: c.spend.costUsd, spendComplete: c.spend.complete,
+      })),
       recommendations: rows("recommendations", e.recommendations ?? [], r => ({
         ...fields(r, "id ruleVersion level"), message: text(r.message, 512), caveat: text(r.caveat, 512),
+        impact: fields(r.impact, "ms usd scoreMs"),
         evidence: {
           ...fields(r.evidence, "numerator denominator observedMs"),
           contacts: rows("recommendation.contacts", r.evidence.contacts, value => text(value), 3),
@@ -80,6 +109,9 @@ export function buildReviewPrompt(evidence) {
       totals: {
         ...fields(r.totals, "delivered knownCostUsd reviews repairRounds costPerDelivered usagePartial timed"),
         tokens: tokens(r.totals.tokens), panes: pane(r.totals.panes), drafts: pane(r.totals.drafts),
+        activity: fields(r.totals.activity, "operations activeMs idleMs delivered deliveriesPerActiveHour"),
+        operatorWait: r.totals.operatorWait == null ? null : { operations: r.totals.operatorWait.operations, ...operatorWait(r.totals.operatorWait) },
+        spend: fields(r.totals.spend, `operations ${SPEND}`),
       },
       ...Object.fromEntries(["failures", "waits", "costs", "phases"].map(key => [key, rows(key, r[key], row => fields(row, "id label value unit denominator rate operations"))])),
       internalAffairs: rows("internalAffairs", fleetDocket(r, docketCtx()), c => ({

@@ -131,6 +131,7 @@ function synthesizedCases(e, ctx) {
   if (phaseTotal >= 3_600_000 && reworkShare !== null && reworkShare >= 50 && !alreadySurfaced) {
     cases.push({
       id: "rework-dominates",
+      impact: { ms: reviewRepairMs, usd: rrCost > 0 ? rrCost : null, scoreMs: reviewRepairMs },
       title: `Review and repair absorbed ${reworkShare}% of recorded phase time`,
       severity: "critical",
       stats: `${ctx.duration(reviewRepairMs)} in review+repair vs ${ctx.duration(e.phaseMs.execute ?? 0)} executing` + (rrCost > 0 ? ` · ${ctx.money(rrCost)} attributed` : ` · ${ctx.number(rrTokens)} tokens attributed`),
@@ -145,6 +146,7 @@ function synthesizedCases(e, ctx) {
   if (e.queued.n >= 5 && e.queued.maxMs !== null && e.queued.maxMs >= 3_600_000 && e.connectivity.mean !== null && e.connectivity.mean < e.queued.n / 3) {
     cases.push({
       id: "starved-queue",
+      impact: { ms: e.queued.totalMs, usd: null, scoreMs: e.queued.totalMs },
       title: `${e.queued.n} contacts queued, ~${number0(e.connectivity.mean)} missions live`,
       severity: "watch",
       stats: `Oldest queued ${ctx.duration(e.queued.maxMs)} · ${e.unfinished.n} launched-not-delivered`,
@@ -160,14 +162,17 @@ function synthesizedCases(e, ctx) {
 }
 const number0 = n => Math.round(n * 10) / 10;
 
-/** Build the Internal Affairs docket for one evaluated operation/archive. */
+/**
+ * Build the Internal Affairs docket for one evaluated operation/archive. Cases carry the rule's `impact`
+ * (what it puts at stake) and rank by it; evaluations archived before impact ranking rank by severity.
+ */
 export function operationDocket(e, ctx) {
   const cases = e.recommendations
-    .map(rule => ({ id: rule.id, ...OPERATION_PLAYBOOKS[rule.id]?.(rule, e, ctx) }))
+    .map(rule => ({ id: rule.id, impact: rule.impact ?? null, ...OPERATION_PLAYBOOKS[rule.id]?.(rule, e, ctx) }))
     .filter(c => c.title);
   cases.push(...synthesizedCases(e, ctx));
-  const rank = c => SEVERITY_ORDER.indexOf(c.severity);
-  cases.sort((a, b) => rank(a) - rank(b));
+  if (e.recommendations.some(rule => rule.impact)) cases.sort((a, b) => (b.impact?.scoreMs ?? 0) - (a.impact?.scoreMs ?? 0));
+  else cases.sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
   return cases.slice(0, 6);
 }
 

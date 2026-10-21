@@ -1,5 +1,6 @@
 import { HOLDS, type MeasurementConfig } from "./types.ts";
-import type { Evaluation } from "./evaluation.ts";
+import type { Evaluation, OperatorWaitEvaluation, SpendEvaluation } from "./evaluation.ts";
+import type { WaitKind, WaitTotals } from "./evaluation/types.ts";
 
 /**
  * Cross-operation rollup over stored evaluations: ranked failure classes, wait
@@ -50,6 +51,15 @@ export interface IntelRollup {
     panes: { tokens: number; costUsd: number | null; sessions: number; partial?: boolean } | null;
     /** Board-wide drafting is not attributable to a delivered operation. */
     drafts: { tokens: number; costUsd: number | null; sessions: number; partial?: boolean } | null;
+    /**
+     * Sums over the evaluated sources that report each family (`operations` counts them); null when none does,
+     * as with archives evaluated before the family existed. Active time adds per operation, so concurrent
+     * operations count their overlap twice: `deliveriesPerActiveHour` is per operation-active hour.
+     */
+    activity: { operations: number; activeMs: number; idleMs: number; delivered: number; deliveriesPerActiveHour: number | null } | null;
+    operatorWait: (OperatorWaitEvaluation & { operations: number }) | null;
+    /** USD parts sum their known values; `perLandedUsd` re-divides, `knownShare` weights by launched contacts. */
+    spend: (SpendEvaluation & { operations: number }) | null;
   };
   failures: RankedMetric[];
   waits: RankedMetric[];
@@ -74,6 +84,16 @@ const configKey = (config: { value: MeasurementConfig | null; mixed: boolean }):
   return `${c.graph} / ${c.frontend} / ${c.maxWorkers} workers / ${c.mode}`;
 };
 
+type SpendPart = "landedUsd" | "supportUsd" | "openUsd" | "abandonedUsd" | "paneUsd" | "wastedUsd";
+const SPEND_PARTS: SpendPart[] = ["landedUsd", "supportUsd", "openUsd", "abandonedUsd", "paneUsd", "wastedUsd"];
+const emptyWait = (): WaitTotals => ({ operatorMs: 0, automationMs: 0, pendingMs: 0, waits: 0 });
+const addWait = (into: WaitTotals, from: WaitTotals): void => {
+  into.operatorMs += from.operatorMs;
+  into.automationMs += from.automationMs;
+  into.pendingMs += from.pendingMs;
+  into.waits += from.waits;
+};
+
 export function computeRollup(entries: RollupEntry[], now: number, draftUsage: { tokens: number; costUsd: number | null; sessions: number; partial?: boolean } | null = null): IntelRollup {
   const failures = new Map<string, RankedMetric>();
   const waits = new Map<string, RankedMetric>();
@@ -86,6 +106,10 @@ export function computeRollup(entries: RollupEntry[], now: number, draftUsage: {
   let qualityReported = false;
   const missingDenominators = new Set<string>();
   let recordedWaitMs = 0, recordedPhaseMs = 0, recordedPhaseCost = 0;
+  const activity = { operations: 0, activeMs: 0, idleMs: 0, delivered: 0 };
+  const operatorWait: OperatorWaitEvaluation & { operations: number } = { operations: 0, ...emptyWait(), missionMs: 0, byKind: {} };
+  const spend = { operations: 0, landedPriced: 0, launched: 0, knownLaunched: 0, pricedMessages: 0, messages: 0 };
+  const spendUsd: Record<SpendPart, number | null> = { landedUsd: null, supportUsd: null, openUsd: null, abandonedUsd: null, paneUsd: null, wastedUsd: null };
 
   const rank = (map: Map<string, RankedMetric>, id: string, label: string, unit: RankedMetric["unit"], value: number | null | undefined, denominator: number | null): void => {
     if (value === null || value === undefined || value < 0) return;
@@ -128,6 +152,32 @@ export function computeRollup(entries: RollupEntry[], now: number, draftUsage: {
       totals.panes.seen = true;
       totals.panes.tokens += e.usage.pane.tokens; totals.panes.sessions += e.usage.pane.sessions;
       if (e.usage.pane.costUsd !== null) totals.panes.costUsd = (totals.panes.costUsd ?? 0) + e.usage.pane.costUsd;
+    }
+    if (e.activity) {
+      activity.operations++;
+      activity.activeMs += e.activity.activeMs;
+      activity.idleMs += e.activity.idleMs;
+      activity.delivered += e.deliveredWork;
+    }
+    if (e.operatorWait) {
+      operatorWait.operations++;
+      addWait(operatorWait, e.operatorWait);
+      operatorWait.missionMs += e.operatorWait.missionMs;
+      for (const [kind, wait] of Object.entries(e.operatorWait.byKind) as Array<[WaitKind, WaitTotals]>) addWait(operatorWait.byKind[kind] ??= emptyWait(), wait);
+    }
+    const s = e.usage.spend;
+    if (s) {
+      spend.operations++;
+      spend.landedPriced += s.landedPriced;
+      for (const part of SPEND_PARTS) if (s[part] !== null) spendUsd[part] = (spendUsd[part] ?? 0) + s[part];
+      if (s.knownShare !== null) {
+        spend.launched += e.coverage.launched;
+        spend.knownLaunched += s.knownShare * e.coverage.launched;
+      }
+      if (e.usage.pricedMessages !== null && e.usage.unpricedMessages !== null) {
+        spend.pricedMessages += e.usage.pricedMessages;
+        spend.messages += e.usage.pricedMessages + e.usage.unpricedMessages;
+      }
     }
 
     const failuresOf: Array<[string, string, number, number | null]> = [
@@ -201,6 +251,14 @@ export function computeRollup(entries: RollupEntry[], now: number, draftUsage: {
       usagePartial: totals.usagePartial, timed: totals.timed,
       panes: totals.panes.seen ? { tokens: totals.panes.tokens, costUsd: totals.panes.costUsd, sessions: totals.panes.sessions, partial: totals.usagePartial || draftUsage?.partial === true } : null,
       drafts: draftUsage,
+      activity: activity.operations ? { ...activity, deliveriesPerActiveHour: activity.activeMs > 0 ? activity.delivered * 3_600_000 / activity.activeMs : null } : null,
+      operatorWait: operatorWait.operations ? operatorWait : null,
+      spend: spend.operations ? {
+        operations: spend.operations, ...spendUsd, landedPriced: spend.landedPriced,
+        perLandedUsd: spendUsd.landedUsd !== null && spend.landedPriced > 0 ? spendUsd.landedUsd / spend.landedPriced : null,
+        knownShare: spend.launched > 0 ? spend.knownLaunched / spend.launched : null,
+        pricedShare: spend.messages > 0 ? spend.pricedMessages / spend.messages : null,
+      } : null,
     },
     failures: finalize(failures), waits: finalize(waits, recordedWaitMs), costs: finalize(costs, recordedPhaseCost), phases: finalize(phases, recordedPhaseMs),
     cohorts: [...cohorts.values()].sort((a, b) => b.operations - a.operations || a.key.localeCompare(b.key)),
