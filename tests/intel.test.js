@@ -26,6 +26,16 @@ describe("operationDocket", () => {
     expect(cases.map(c => c.id)).toEqual(["relaunch-churn", "delivery-wait", "usage-coverage"]);
     expect(cases[0].impact).toBeNull();
   });
+
+  test("a fix that turns on a setting the operation already has is not offered", () => {
+    const fixes = auto => operationDocket(evaluation([rule("dependency-wait", 1)]), { ...ctx, auto })[0].fixes.map(f => f.text);
+    const launchOn = /set auto\.launch on/;
+    expect(fixes(null).some(t => launchOn.test(t))).toBe(true);
+    expect(fixes({ enabled: false, launch: false }).some(t => launchOn.test(t))).toBe(true);
+    expect(fixes({ enabled: false, launch: true }).some(t => launchOn.test(t))).toBe(false);
+    // The map link is not a setting and always stays.
+    expect(fixes({ enabled: true, launch: true })).toContain("map:op");
+  });
 });
 
 describe("sortContacts", () => {

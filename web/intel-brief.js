@@ -162,15 +162,24 @@ function synthesizedCases(e, ctx) {
 }
 const number0 = n => Math.round(n * 10) / 10;
 
+/** A `/holotable set <field> on` fix is pointless when that setting is already on for the operation. */
+function alreadyOn(fix, auto) {
+  if (!auto || fix.kind !== "cmd") return false;
+  const fields = [...fix.text.matchAll(/set (auto(?:\.\w+)?) on/g)].map(m => m[1]);
+  return fields.length > 0 && fields.every(f => (f === "auto" ? auto.enabled : auto[f.slice(5)]) === true);
+}
+
 /**
  * Build the Internal Affairs docket for one evaluated operation/archive. Cases carry the rule's `impact`
  * (what it puts at stake) and rank by it; evaluations archived before impact ranking rank by severity.
+ * `ctx.auto` is the operation's current auto settings when known (open operations).
  */
 export function operationDocket(e, ctx) {
   const cases = e.recommendations
     .map(rule => ({ id: rule.id, impact: rule.impact ?? null, ...OPERATION_PLAYBOOKS[rule.id]?.(rule, e, ctx) }))
     .filter(c => c.title);
   cases.push(...synthesizedCases(e, ctx));
+  for (const c of cases) if (c.fixes) c.fixes = c.fixes.filter(fix => !alreadyOn(fix, ctx.auto));
   if (e.recommendations.some(rule => rule.impact)) cases.sort((a, b) => (b.impact?.scoreMs ?? 0) - (a.impact?.scoreMs ?? 0));
   else cases.sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
   return cases.slice(0, 6);

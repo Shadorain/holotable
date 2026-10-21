@@ -807,7 +807,7 @@ function operationHeadlines(e, closed) {
   ];
   return headlineRow(current, legacy, "At a glance");
 }
-function renderSnapshot(root, snapshot, open, opId) {
+function renderSnapshot(root, snapshot, open, opId, auto) {
   root.replaceChildren();
   const title = el("div", "intel-title");
   title.append(el("h2", "", snapshot.name), el("span", "intel-badge", snapshot.closedAt ? "Frozen archive" : "Open operation · snapshot"));
@@ -817,7 +817,7 @@ function renderSnapshot(root, snapshot, open, opId) {
     root.append(el("p", "intel-empty intel-muted", "No evaluation stored for this archive (closed before Intel recorded evidence). Stored reports are not recalculated; operations closed now keep their close-time evaluation."), experiments());
     return;
   }
-  root.append(...operationHeadlines(e, Boolean(snapshot.closedAt)), docketSection(operationDocket(e, { duration, money, number, opId }), open, opId));
+  root.append(...operationHeadlines(e, Boolean(snapshot.closedAt)), docketSection(operationDocket(e, { duration, money, number, opId, auto: snapshot.closedAt ? null : auto }), open, opId));
   // Panels below need fields older archived evaluations lack; each shows only when its data exists.
   if (!e.operatorWait && !e.series && !e.contacts && !e.usage.spend && !e.stalls && !e.conflicts) {
     root.append(el("p", "intel-muted intel-note intel-legacy", "Evaluated before per-contact, wait, trend, spend, stall and conflict breakdowns were recorded; stored evaluations are not recalculated, so only these measures are available."));
@@ -856,9 +856,9 @@ function reviewHelp() {
  * The Intel view's body inside `root`. The board owns what it shows (header picker → source, sub-tabs → scope)
  * and calls show(); evidence loads only when that pair changes, on Refresh, or after invalidate().
  * `sources(archives)` hands the archive list to the picker; `sourceGone()` asks the board to drop a vanished archive;
- * `openBoard({ plan, op, ticket })` follows a finding's link.
+ * `openBoard({ plan, op, ticket })` follows a finding's link; `autoOf(opId)` is that open operation's auto settings, if loaded.
  */
-export function createIntel(root, { api, sources, sourceGone, openBoard }) {
+export function createIntel(root, { api, sources, sourceGone, openBoard, autoOf = () => null }) {
   const intro = el("div", "intel-intro");
   intro.append(
     el("p", "intel-eyebrow", "OPERATION INTELLIGENCE"),
@@ -944,7 +944,7 @@ export function createIntel(root, { api, sources, sourceGone, openBoard }) {
       } else if (source) {
         const snapshot = await get(`/api/intel?${queryFor(source)}`, signal);
         if (current !== generation) return;
-        renderSnapshot(dashboard, snapshot, open, opIdOf(source));
+        renderSnapshot(dashboard, snapshot, open, opIdOf(source), autoOf(opIdOf(source)));
         reviewEvidence = snapshot.evaluation ? { scope: "operation", source, snapshot } : null;
         snapshotTime.textContent = `${snapshot.closedAt ? "Frozen at close" : "Evidence as of"} ${date(snapshot.evaluation?.asOf ?? snapshot.closedAt ?? Date.now())}. No background updates.`;
       } else {

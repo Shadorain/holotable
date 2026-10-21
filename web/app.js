@@ -719,6 +719,7 @@ function renderIntelPage() {
             render();
           },
           openBoard: openFromIntel,
+          autoOf: (opId) => (state.projection?.operation.id === opId ? state.projection.operation.auto ?? null : null),
         });
         render();
       },
