@@ -627,31 +627,34 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
 
     const oldServer = currentServer;
     endStreams();
+    // close() unbinds at once; its callback waits for in-flight requests, this one included.
     oldServer.close();
 
     const newServer = createServer(trackRequest);
     try {
       actualPort = await listenWithFallback(newServer, newSettings.port, bindHost);
-      currentServer = newServer;
-      acceptedHosts = await buildAcceptedHosts(actualPort, currentAccess, input.run);
-      currentUrls = await resolveBoardUrls({ port: actualPort, token, access: currentAccess, run: input.run });
-      currentUrl = currentUrls[0] ?? `http://127.0.0.1:${actualPort}/#${token}`;
-      if (input.onRebind) {
-        await input.onRebind(currentUrl, currentUrls);
-      }
-      return { url: currentUrl, urls: currentUrls };
     } catch (err) {
+      // Nothing took the new socket: serve again on the port the board already had.
       currentServer = createServer(trackRequest);
       actualPort = await listenWithFallback(currentServer, actualPort, bindHost);
       throw err;
     }
+    // From here the new socket is the board's, even when publishing it fails.
+    currentServer = newServer;
+    await resolveAddresses();
+    await input.onRebind?.(currentUrl, currentUrls);
+    return { url: currentUrl, urls: currentUrls };
+  }
+
+  async function resolveAddresses(): Promise<void> {
+    acceptedHosts = await buildAcceptedHosts(actualPort, currentAccess, input.run);
+    currentUrls = await resolveBoardUrls({ port: actualPort, token, access: currentAccess, run: input.run });
+    currentUrl = currentUrls[0] ?? `http://127.0.0.1:${actualPort}/#${token}`;
   }
 
   currentServer = createServer(trackRequest);
   actualPort = await listenWithFallback(currentServer, input.settings.port, bindHost);
-  acceptedHosts = await buildAcceptedHosts(actualPort, currentAccess, input.run);
-  currentUrls = await resolveBoardUrls({ port: actualPort, token, access: currentAccess, run: input.run });
-  currentUrl = currentUrls[0] ?? `http://127.0.0.1:${actualPort}/#${token}`;
+  await resolveAddresses();
 
   return {
     get url() {

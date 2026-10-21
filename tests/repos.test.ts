@@ -93,6 +93,24 @@ describe("rebind", () => {
     const res = await api("/api/operations");
     expect(res.status).toBe(200);
   });
+
+  test("a rebind whose publish fails keeps the new socket and close releases it", async () => {
+    const home = tempHome();
+    const server = await startServer({
+      service: createBoardService(home, { run: fakeRun(() => null).run }),
+      settings: { access: "local", port: 0 },
+      token: "tok",
+      onRebind: () => {
+        throw new Error("publish failed");
+      },
+    });
+    await expect(server.rebind({ access: "local", port: 0 })).rejects.toThrow("publish failed");
+    const rebound = new URL(server.url);
+    const operations = () => fetch(`${rebound.origin}/api/operations`, { headers: { "x-holotable-token": "tok" } });
+    expect((await operations()).status).toBe(200);
+    await server.close();
+    expect(await operations().then(() => "served", () => "refused")).toBe("refused");
+  });
 });
 
 describe("repos and detect routes", () => {
