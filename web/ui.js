@@ -153,12 +153,12 @@ export function clock(iso) {
 
 // Action ids the server handles via POST /api/actions. plan-save/plan-refine are wired but
 // render inside the Plan tab, not the action bar (card.js filters them).
-const WIRED = new Set(["launch", "reap", "approve", "continue", "review", "dispatch", "check", "resend", "release", "retry-model", "mode", "focus", "done", "land", "land-anyway", "relaunch", "redecide", "decide-agent", "plan-save", "plan-refine", "answer"]);
+const WIRED = new Set(["launch", "reap", "approve", "continue", "review", "dispatch", "check", "resend", "release", "retry-model", "mode", "focus", "done", "land", "land-anyway", "relaunch", "redecide", "decide-agent", "plan-save", "plan-refine", "answer", "permit"]);
 // Shown while the request runs; launch and land can take a while against real tools.
 const BUSY_LABEL = {
   launch: "Launching…", land: "Landing…", "land-anyway": "Landing…", approve: "Approving…", continue: "Continuing…",
   review: "Requesting…", dispatch: "Dispatching…", check: "Checking…", done: "Saving…", reap: "Closing…", focus: "Focusing…", mode: "Setting…", relaunch: "Reopening…", "decide-agent": "Opening…", redecide: "Saving…",
-  "plan-save": "Saving…", "plan-refine": "Refining…", answer: "Sending…",
+  "plan-save": "Saving…", "plan-refine": "Refining…", answer: "Sending…", permit: "Sending…",
   resend: "Resending…", release: "Releasing…",
 };
 
@@ -173,8 +173,8 @@ export const CONFIRM = { reap: "Close terminal?", "land-anyway": "Merge with fai
 
 /** The action an operator most likely wants next for this contact, if it can run now. */
 export function primaryAction(contact) {
-  // Mode and answer need arguments the card collects; a bare click cannot run them.
-  return contact.actions.find((a) => a.primary && a.enabled && WIRED.has(a.id) && a.id !== "mode" && a.id !== "answer") ?? null;
+  // Mode, answer and permit need arguments the card collects; a bare click cannot run them.
+  return contact.actions.find((a) => a.primary && a.enabled && WIRED.has(a.id) && a.id !== "mode" && a.id !== "answer" && a.id !== "permit") ?? null;
 }
 
 /**

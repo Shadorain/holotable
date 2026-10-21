@@ -66,6 +66,26 @@ test("an open ask is answered from the board only while the pane advertises answ
   expect(after.ask).toBeNull();
 });
 
+test("an open tool approval is answered from the board only while the pane advertises permit", () => {
+  const approval = { id: "ap-1", tool: "bash", summary: "Allow tool: bash\nCommand: rm -rf build", prompt: "Allow tool: bash\nCommand: rm -rf build", options: ["Approve", "Deny"] };
+  const op = makeOp([makeContact("a", { lane: live() })], { fleet: "omp-mission", frontend: "orca", recover: true });
+  const open = { hold: "question" as const, next: "Answer in mission: Allow tool: bash Command: rm -rf build", approval, gate: null };
+  const answerable = viewOf(op, "a", { statuses: { a: makeStatus({ ...open, actions: ["permit"] }) }, owners: { a: "live" } });
+  expect(answerable.approval).toEqual(approval);
+  expect(answerable.attention).toBe(true);
+  expect(answerable.actions.filter((a) => a.primary && a.enabled).map((a) => a.id)).toEqual(["permit"]);
+  expect(answerable.actions.some((a) => a.id === "continue" || a.id === "approve")).toBe(false);
+  // A pane whose owner is not live cannot take the answer.
+  const observed = viewOf(op, "a", { statuses: { a: makeStatus({ ...open, actions: ["permit"] }) }, owners: { a: "observed" } });
+  expect(observed.actions.find((a) => a.id === "permit")).toMatchObject({ enabled: false, reason: "owner-offline" });
+  // A pane that does not take board approvals: Answer in mission is the way to it.
+  const older = viewOf(op, "a", { statuses: { a: makeStatus({ ...open, actions: [] }) }, owners: { a: "live" } });
+  expect(older.actions.some((a) => a.id === "permit")).toBe(false);
+  expect(older.actions.find((a) => a.id === "focus")).toMatchObject({ primary: true, label: "Answer in mission" });
+  const after = viewOf(op, "a", { statuses: { a: makeStatus({ hold: "none", approval }) }, owners: { a: "live" } });
+  expect(after.approval).toBeNull();
+});
+
 test("a reaped conflict mission is abandoned: the contact is landable again instead of waiting forever", () => {
   const op = makeOp([makeContact("a", { lane: live() }), makeContact("a-conflict-1", { kind: "conflict", conflictOf: "a", lane: live() })], { fleet: "omp-mission", frontend: "orca", delivery: "github-pr" });
   const over = { statuses: { a: makeStatus({ complete: true, phase: "complete" }), "a-conflict-1": makeStatus({ phase: "deliver" }) }, owners: { a: "live" as const, "a-conflict-1": "live" as const }, probes: { a: { url: "u", state: "open", mergeable: "conflict", checks: "fail" } } } as never;

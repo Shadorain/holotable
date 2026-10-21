@@ -38,6 +38,16 @@ describe("validateStatus", () => {
     const s = validateStatus({ ...makeStatus(), extra: { deep: true } });
     expect("extra" in s).toBe(false);
   });
+
+  test("an open tool approval is kept whole, a malformed one rejects the status, an older pane omits it", () => {
+    const approval = { id: "ap-1", tool: null, summary: "Allow cfg change", prompt: "Allow cfg change\nfoo: 1", options: ["Approve", "Deny"] };
+    expect(validateStatus({ ...makeStatus(), hold: "question", approval }).approval).toEqual(approval);
+    expect(validateStatus({ ...makeStatus(), approval: null }).approval).toBeNull();
+    expect("approval" in validateStatus(makeStatus())).toBe(false);
+    expect(bad({ ...makeStatus(), approval: { ...approval, options: [] } })).toContain("approval must carry");
+    expect(bad({ ...makeStatus(), approval: { ...approval, id: "" } })).toContain("approval must carry");
+    expect(bad({ ...makeStatus(), approval: { ...approval, tool: 3 } })).toContain("approval must carry");
+  });
 });
 
 test("explicitly healthy status clears an older error description, while absent metadata still reports it", () => {

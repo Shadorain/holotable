@@ -54,6 +54,13 @@ interface ContactStatus {
     state: "working" | "idle";      // working: in a turn, or OMP already scheduled the next one (retry, compaction, awaited async work) or a message is queued
     since: string;                  // ISO time of the last state change
   } | null;
+  approval?: {                      // the pane's open tool-approval prompt while hold is "question"; null otherwise; absent = older producer
+    id: string;                     // one per prompt; the board refuses to answer once this changes
+    tool: string | null;            // the tool when the prompt is OMP's "Allow tool: <name>"
+    summary: string;                // the prompt with its details cut to one row, as the pane shows it
+    prompt: string;                 // the whole prompt (command, path, content), at most 4000 chars plus "…"
+    options: string[];              // the pane's choices in order; Deny is always last
+  } | null;
   plan?: { path: string; revision: string } | null;   // pending plan awaiting approval; revision bumps on every edit
   mode?: "auto" | "pause" | "force" | null;           // the mission's review mode (the planned one while a plan is pending)
   problem?: {
@@ -102,6 +109,8 @@ As implemented by `omp-mission`: `next` may carry `/mission <verb> — <text>` (
 `coordinator` is evidence, not a capability. The board flags a mission whose coordinator has been `idle` for at least 3 minutes while nothing else runs for it: its state is running, verify or review (so no hold, question, plan approval, completion or scheduled retry), with no live workers, no `review` and `verify` not `active`. Such a coordinator ended its turn, often asking something in plain text. The flag never authorizes a socket op; the board only points the operator at the pane. Absent or null `coordinator` never flags.
 
 While the main mission agent's `ask` tool is waiting, `hold: question` replaces plan approval and `next` carries the question text. While the pane's dialog is open and every question parsed, `ask` carries the call id and each question's option labels in dialog order, and `actions` is `["answer"]`; otherwise `actions` is empty. The `answer` op (`{id, answers: [{option: n} | {options: [n…]} | {text}]}`, operator) settles that dialog as if answered in the pane; a changed `id` is `stale`, answers that do not fit are `rejected`. Without `answer` the board offers **Answer in mission** (frontend focus). Matching tool completion clears the hold and `ask`; unrelated tool completions do not. Recovery must not continue or relaunch it. The producer rejects every other mutating socket operation with `question-waiting` until answered. Planning provider blockers publish blocked/quota holds and no plan-approval action until a new turn clears the blocker.
+
+A tool-approval prompt open in the pane (OMP's `ui.approve`, wrapped by omp-mission on OMP 18.11.3 and later) also publishes `hold: question`, with the prompt's summary in `next`, `approval` set, and `permit` in `actions`. `ask` and `approval` can be open together, and then `actions` lists both `answer` and `permit`. The `permit` op (`{id, answer: <one of approval.options>}`, operator) answers the prompt as if that choice was picked in the pane and closes the pane's prompt. A changed `id` is `stale`, and a label the prompt does not offer is `rejected`, never read as Deny. Answering or the pane settling the prompt clears `approval`. The producer refuses every other mutation with `question-waiting` while a prompt is open, because a message steered into the pane would deny the call. Only the operator sends `permit`. Auto mode and Recovery never do.
 
 ### Optional evaluation evidence (v1)
 

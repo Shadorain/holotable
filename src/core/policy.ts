@@ -127,19 +127,25 @@ export function actionsFor(i: PolicyInput): ActionView[] {
 
   const focus = (idlePrimary = false): ActionView => {
     const ok = terminal !== null && contact.lane?.frontend !== "external" && !i.terminalMissing;
+    const boardAnswers = status?.actions.includes("answer") === true || status?.actions.includes("permit") === true;
     return view(
       "focus",
       status?.hold === "question" ? "Answer in mission" : "Focus",
-      (status?.hold === "question" && !status.actions.includes("answer")) || (idlePrimary && !!i.idleSince),
+      (status?.hold === "question" && !boardAnswers) || (idlePrimary && !!i.idleSince),
       ok,
       ok ? null : i.terminalMissing ? "terminal closed" : terminal === null ? "no terminal recorded" : "no frontend",
     );
   };
+  const socketRefusal = status?.ctl === null ? "no control socket" : owner !== "live" ? "owner-offline" : null;
   /** Answering the mission's open `ask` from the board, over the socket; offered only while the pane says it can take it. */
   const answer = (): ActionView[] => {
     if (status?.hold !== "question" || !status.ask || !status.actions.includes("answer")) return [];
-    const reason = status.ctl === null ? "no control socket" : owner !== "live" ? "owner-offline" : null;
-    return [view("answer", "Answer", true, reason === null, reason)];
+    return [view("answer", "Answer", true, socketRefusal === null, socketRefusal)];
+  };
+  /** Answering the pane's open tool-approval prompt from the board; offered only while the pane advertises `permit`. */
+  const permit = (): ActionView[] => {
+    if (status?.hold !== "question" || !status.approval || !status.actions.includes("permit")) return [];
+    return [view("permit", "Answer approval", true, socketRefusal === null, socketRefusal)];
   };
   const reap = (): ActionView => {
     const ok = terminal !== null && !d.reaped;
@@ -253,7 +259,7 @@ export function actionsFor(i: PolicyInput): ActionView[] {
     case "hold": {
       // An idle coordinator is waiting in its pane, unless the producer offers the next step itself.
       const fleet = fleetButtons();
-      return [...answer(), focus(!fleet.some((b) => b.primary)), ...fleet, ...planButtons(), reap()];
+      return [...answer(), ...permit(), focus(!fleet.some((b) => b.primary)), ...fleet, ...planButtons(), reap()];
     }
     case "complete": {
       const actions: ActionView[] = [];

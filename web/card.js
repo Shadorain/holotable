@@ -105,8 +105,8 @@ export function clearDecideModel(opId, ticket) {
 
 function actionBar(contact, ctx) {
   const modelKey = `${ctx.opId}/${contact.ticket}`;
-  // plan-save/plan-refine render inside the Plan tab and answer inside the question box, never the action bar.
-  const wired = contact.actions.filter((a) => isWired(a) && !a.id.startsWith("plan-") && a.id !== "answer");
+  // plan-save/plan-refine render inside the Plan tab, answer and permit inside their prompt boxes, never the action bar.
+  const wired = contact.actions.filter((a) => isWired(a) && !a.id.startsWith("plan-") && a.id !== "answer" && a.id !== "permit");
   const wrap = el("div", "");
   if (!wired.length && !contact.plan) return null;
   const box = el("div", "actions");
@@ -604,6 +604,8 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan) {
   if (decided) body.append(decided);
   const asked = askBox(contact, ctx, projection.operation.id);
   if (asked) body.append(asked);
+  const approval = approvalBox(contact, ctx);
+  if (approval) body.append(approval);
   for (const part of [actionBar(contact, ctx), relations(contact, projection)]) if (part) body.append(part);
 }
 
@@ -798,5 +800,38 @@ function askBox(contact, ctx, opId) {
   const foot = el("div", "ask-foot");
   foot.append(send, el("span", "set-note", action?.enabled ? "Answers the question in the mission pane, as if you answered there." : `This pane cannot take answers from the board${action?.reason ? ` (${action.reason})` : ""}. Use Answer in mission.`));
   box.append(foot);
+  return box;
+}
+
+/** The pane's open tool-approval prompt; each choice answers it over the socket as if picked in the pane. */
+function approvalBox(contact, ctx) {
+  const approval = contact.approval;
+  if (!approval) return null;
+  const action = contact.actions.find((a) => a.id === "permit");
+  const box = el("div", "decision-box ask-box approval-box");
+  box.append(el("div", "kicker", approval.tool ? `The mission asks to run ${approval.tool}` : "The mission asks for approval"));
+  box.append(el("pre", "approval-prompt", approval.summary));
+  if (approval.prompt !== approval.summary) {
+    const details = el("details", "mission-error");
+    details.append(el("summary", "", "Full prompt"), el("pre", "", approval.prompt));
+    box.append(details);
+  }
+  const choices = el("div", "ask-foot");
+  const buttons = approval.options.map((label, index) => {
+    // Deny is always the last option.
+    const button = el("button", index === approval.options.length - 1 ? "btn small danger" : "btn small", label);
+    button.type = "button";
+    button.disabled = !action?.enabled || ctx.busy.has(`${contact.ticket}/*`);
+    button.addEventListener("click", async () => {
+      if (button.disabled) return;
+      for (const b of buttons) b.disabled = true;
+      const res = await ctx.run(contact.ticket, "permit", { id: approval.id, answer: label });
+      if (!res?.ok) for (const b of buttons) b.disabled = !action?.enabled;
+    });
+    return button;
+  });
+  choices.append(...buttons);
+  box.append(choices);
+  box.append(el("div", "set-note", action?.enabled ? "Answers the approval in the mission pane, as if you chose there." : `This pane cannot take approvals from the board${action?.reason ? ` (${action.reason})` : ""}. Use Answer in mission.`));
   return box;
 }

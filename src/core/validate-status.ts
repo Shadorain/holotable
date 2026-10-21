@@ -232,6 +232,16 @@ export function validateStatus(
     coordinator = { state: k.state, since: k.since };
   }
 
+  let approval: ContactStatus["approval"] = null;
+  if (value.approval !== undefined && value.approval !== null) {
+    const a = value.approval;
+    if (!isRecord(a) || typeof a.id !== "string" || !a.id || (a.tool !== null && typeof a.tool !== "string") ||
+        typeof a.summary !== "string" || typeof a.prompt !== "string" ||
+        !Array.isArray(a.options) || a.options.length === 0 || a.options.some((o) => typeof o !== "string" || !o))
+      return fail("approval must carry id, tool, summary, prompt and options");
+    approval = { id: a.id, tool: a.tool as string | null, summary: a.summary, prompt: a.prompt, options: [...(a.options as string[])] };
+  }
+
   let session: ContactStatus["session"];
   if (value.session !== undefined) {
     const s = value.session;
@@ -273,6 +283,7 @@ export function validateStatus(
     ...(value.problem === undefined ? {} : { problem }),
     ...(value.check === undefined ? {} : { check }),
     ...(value.ask === undefined ? {} : { ask }),
+    ...(value.approval === undefined ? {} : { approval }),
     ...(value.review === undefined ? {} : { review }),
     ...(value.model === undefined ? {} : { model }),
     ...(value.coordinator === undefined ? {} : { coordinator }),

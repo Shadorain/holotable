@@ -45,7 +45,7 @@ export type Actor = "operator" | "model" | "mission" | "board";
 export const HOLDS = ["none", "plan-approval", "resume", "gate", "blocked", "quota", "question"] as const;
 
 /** Socket ops beyond the UI-exposed operator set: plan reading (no operator flag) is `FleetPort.readPlan`. */
-export const CONTROL_OPS = [...OPERATOR_OPS, "plan-edit", "plan-refine", "answer"] as const;
+export const CONTROL_OPS = [...OPERATOR_OPS, "plan-edit", "plan-refine", "answer", "permit"] as const;
 
 export type Tracker = (typeof TRACKERS)[number];
 export type Fleet = (typeof FLEETS)[number];
@@ -429,6 +429,8 @@ export interface ContactStatus {
   ask?: MissionAsk | null;
   /** The pane's coordinator agent: in a turn (or continuing on its own) or idle since `since`; null/absent when unknown or from an older producer. */
   coordinator?: { state: "working" | "idle"; since: string } | null;
+  /** The pane's open tool-approval prompt while hold is "question"; older panes omit it. */
+  approval?: MissionApproval | null;
   updatedAt: string;
 }
 
@@ -437,6 +439,11 @@ export interface AskQuestion { question: string; options: string[]; recommended:
 export interface MissionAsk { id: string; questions: AskQuestion[] }
 /** The operator's answer to one question: an option's index, or free text typed into "Other". */
 export type AskAnswer = { option: number } | { options: number[] } | { text: string };
+/**
+ * A tool-approval prompt open in the mission pane: `tool` when the prompt names one, `summary` in one row,
+ * the whole `prompt`, and the pane's choices in order with Deny last. Answered by option label.
+ */
+export interface MissionApproval { id: string; tool: string | null; summary: string; prompt: string; options: string[] }
 
 // ---- delivery (C6) ----
 
@@ -589,6 +596,8 @@ export interface ContactView {
   check?: MissionCheck | null;
   /** The mission's open question with its choices, while it waits on hold "question"; null otherwise. */
   ask: MissionAsk | null;
+  /** The mission's open tool-approval prompt, while it waits on hold "question"; null otherwise. */
+  approval: MissionApproval | null;
   progress: { step: number; of: number } | null;
   phase: string | null;
   blockedBy: Array<{ ticket: string; landed: boolean }>;

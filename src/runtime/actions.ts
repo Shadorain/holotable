@@ -238,6 +238,20 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     await fleet.control(status, "answer", { id, answers });
   }
 
+  /** Answer the pane's open tool-approval prompt through its socket with one of the prompt's own option labels. */
+  async function permit(opId: string, ticket: string, id: string, answer: string): Promise<void> {
+    const operation = await readOperation(deps.home, opId);
+    const lane = contactOf(operation, ticket)?.lane;
+    if (!lane) throw new ActionError(409, "refused", `${ticket} has no lane`);
+    const fleet = deps.portsFor(operation, await deps.settings()).fleet;
+    const status = await fleet.read({ worktree: lane.worktree });
+    if (status?.hold !== "question" || !status.approval || !status.actions.includes("permit"))
+      throw new ActionError(409, "stale", `${ticket} is no longer waiting on a tool approval it can take from the board`);
+    if (status.approval.id !== id) throw new ActionError(409, "stale", `${ticket} is waiting on a different approval now; read it again`);
+    if (!status.approval.options.includes(answer)) throw new ActionError(400, "bad-request", `"${answer}" is not one of this approval's options`);
+    await fleet.control(status, "permit", { id, answer });
+  }
+
   return async (req) => {
     let run: () => Promise<void>;
     switch (req.action) {
@@ -257,6 +271,15 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
           throw new ActionError(400, "bad-request", "answer needs {id: string, answers: [{option} | {options} | {text}]}");
         const id = req.args.id;
         run = () => answer(req.op, req.contact, id, req.args.answers);
+        break;
+      }
+      case "permit": {
+        // A tool approval is the operator's call alone: neither auto mode nor Recovery ever answers one.
+        if (req.by !== undefined) throw new ActionError(403, "refused", "Only the operator answers a tool approval");
+        const { id, answer } = req.args;
+        if (typeof id !== "string" || !id || typeof answer !== "string" || !answer)
+          throw new ActionError(400, "bad-request", "permit needs {id: string, answer: <option label>}");
+        run = () => permit(req.op, req.contact, id, answer);
         break;
       }
       case "approve":

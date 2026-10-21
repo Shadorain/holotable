@@ -139,6 +139,25 @@ test("answer goes to the owner's socket only while that same question is open an
   expect(t.requests).toHaveLength(1);
 });
 
+test("permit goes to the owner's socket only while that same approval is open, and only from the operator", async () => {
+  const t = await setup();
+  const approval = { id: "ap-3", tool: "bash", summary: "Allow tool: bash\nCommand: ls", prompt: "Allow tool: bash\nCommand: ls", options: ["Approve", "Approve bash for this session", "Deny"] };
+  const open = JSON.parse(readFileSync(t.file, "utf8"));
+  writeFileSync(t.file, JSON.stringify({ ...open, hold: "question", gate: null, actions: ["permit"], approval }));
+  await t.act({ op: "lab", contact: "a", action: "permit", args: { id: "ap-3", answer: "Approve bash for this session" } });
+  expect(t.requests).toEqual([{ v: 1, op: "permit", args: { id: "ap-3", answer: "Approve bash for this session" }, operator: true }]);
+  // Another approval is open now, or the label is not one of its options: nothing is sent.
+  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "permit", args: { id: "ap-2", answer: "Approve" } }))).toMatchObject({ status: 409, code: "stale" });
+  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "permit", args: { id: "ap-3", answer: "Always" } }))).toMatchObject({ status: 400 });
+  // Auto mode and Recovery never answer an approval.
+  for (const by of ["auto", "recover"] as const)
+    expect(await t.refused(t.act({ op: "lab", contact: "a", action: "permit", args: { id: "ap-3", answer: "Approve" }, by }))).toMatchObject({ status: 403 });
+  // A pane that cannot take board approvals is never sent one.
+  writeFileSync(t.file, JSON.stringify({ ...open, hold: "question", gate: null, actions: [], approval }));
+  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "permit", args: { id: "ap-3", answer: "Approve" } }))).toMatchObject({ code: "stale" });
+  expect(t.requests).toHaveLength(1);
+});
+
 test("the model tools never touch the fleet or the frontend", async () => {
   const t = await setup();
   const tools = holotableToolDefs({ home: t.home, current: () => "lab", now: () => new Date("2026-01-01T02:00:00Z") });

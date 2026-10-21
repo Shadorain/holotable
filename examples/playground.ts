@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Access, ContactStatus, MissionCheck, Operation, Settings, TerminalRef, Tracker } from "../src/core/types.ts";
+import type { Access, ContactStatus, MissionApproval, MissionCheck, Operation, Settings, TerminalRef, Tracker } from "../src/core/types.ts";
 import { PortError, type Ports, type Run, type TrackerHit, type TrackerPort } from "../src/ports.ts";
 import { DEFAULT_SETTINGS, settingsFile } from "../src/settings.ts";
 import { readSettings } from "../src/store/settings.ts";
@@ -31,6 +31,8 @@ const QUOTA_PARKED = new Set(["chr-167", "chr-157-conflict-1"]);
 const RED_CI = new Set(["CHR-156"]);
 // A seeded lane whose coordinator ended its turn at review asking in plain text: it stays idle until reaped.
 const COORDINATOR_IDLE = new Set(["review"]);
+// Seeded lanes whose pane waits on a tool approval (OMP's Approve/Deny prompt) until it is answered.
+const ASKS_APPROVAL = new Set(["socket"]);
 // Fixed PR-check verdicts per ticket so the demo exercises more than "clean".
 const CHECK_VERDICTS: Record<string, { state: MissionCheck["state"]; detail: string; conflicts: string[]; threads: { open: number; total: number } }> = {
   "CHR-157": { state: "conflict", detail: "Base moved under the PR; two files conflict.", conflicts: ["src/roster.ts", "docs/deploy.md"], threads: { open: 0, total: 0 } },
@@ -68,6 +70,8 @@ interface SimMission {
   model: string | null;
   /** Latest operator-requested PR check, set by the sim's `check` op. */
   check: MissionCheck | null;
+  /** The tool-approval prompt the pane is waiting on, until the `permit` op answers it. */
+  approval: MissionApproval | null;
 }
 
 const hash = (text: string) => [...text].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
@@ -142,12 +146,21 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       quota: QUOTA_PARKED.has(name) ? "429 usage_limit_reached: weekly Anthropic quota exhausted" : null,
       model: null,
       check: null,
+      approval: ASKS_APPROVAL.has(name) && (initial.get(worktree) ?? "plan") === "execute"
+        ? {
+            id: randomBytes(6).toString("hex"),
+            tool: "bash",
+            summary: "Allow tool: bash\nCommand: bun run migrate --apply …",
+            prompt: "Allow tool: bash\nCommand: bun run migrate --apply\n  && bun run seed --env staging",
+            options: ["Approve", "Approve bash for this session", "Deny"],
+          }
+        : null,
     };
     missions.set(worktree, m);
     return m;
   };
   const advance = (m: SimMission) => {
-    if (m.closed || m.resumeHold || m.quota || COORDINATOR_IDLE.has(m.ticket)) return;
+    if (m.closed || m.resumeHold || m.quota || m.approval || COORDINATOR_IDLE.has(m.ticket)) return;
     const age = (now() - m.stageStart) / 1000;
     const go = (stage: SimMission["stage"]) => {
       m.stage = stage;
@@ -161,9 +174,11 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
   const statusOf = (m: SimMission): ContactStatus => {
     advance(m);
     const step = { plan: 1, execute: 3, gate: 5, review: 6, complete: 7 }[m.stage];
-    const hold = m.quota ? "quota" : m.resumeHold ? "resume" : m.stage === "plan" ? "plan-approval" : m.stage === "gate" ? "gate" : "none";
+    const hold = m.approval ? "question" : m.quota ? "quota" : m.resumeHold ? "resume" : m.stage === "plan" ? "plan-approval" : m.stage === "gate" ? "gate" : "none";
     const phase = { plan: "plan", execute: "execute", gate: "verify", review: "review", complete: "complete" }[m.stage];
-    const next = m.quota
+    const next = m.approval
+      ? `Answer in mission: ${m.approval.summary.replace(/\s+/g, " ")}`
+      : m.quota
       ? "Provider quota exhausted. Restore quota or change the model, then /mission continue"
       : m.resumeHold
       ? "Session reopened under resume hold: continue it to pick up where it left off"
@@ -188,7 +203,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       hold,
       gate: m.stage === "gate" && !m.resumeHold ? { kind: "pause", id: m.gate } : null,
       next,
-      actions: m.quota && m.stage !== "plan" ? ["continue", "retry-model"] : m.resumeHold ? ["continue"] : m.stage === "plan" ? ["plan-approve"] : m.stage === "gate" ? ["approve", "continue"] : m.stage === "execute" ? ["dispatch"] : m.stage === "complete" ? ["check"] : [],
+      actions: m.approval ? ["permit"] : m.quota && m.stage !== "plan" ? ["continue", "retry-model"] : m.resumeHold ? ["continue"] : m.stage === "plan" ? ["plan-approve"] : m.stage === "gate" ? ["approve", "continue"] : m.stage === "execute" ? ["dispatch"] : m.stage === "complete" ? ["check"] : [],
       workers: m.resumeHold ? { live: 0, total: 3 } : m.stage === "execute" ? { live: 2, total: 3 } : m.stage === "plan" ? null : { live: 0, total: 3 },
       delivery: m.stage === "complete" ? { url: `https://github.example/demo/pull/${100 + (hash(m.ticket) % 50)}`, branch: m.branch } : null,
       complete: m.stage === "complete",
@@ -196,6 +211,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       revision: updatedAt,
       plan: m.stage === "plan" && !m.resumeHold ? { path: `${m.worktree}/.plan.md`, revision: `rev-${m.planRev}` } : null,
       ctl: { socket: `sim:${m.id}`, generation: m.gen },
+      approval: m.approval,
       mode: m.mode as ContactStatus["mode"],
       usage: {
         tokens: { input: 4000 + ageS * 137, output: 900 + ageS * 41, cacheRead: 1500 + ageS * 53, cacheWrite: 300 + ageS * 7 },
@@ -278,8 +294,14 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
         const m = [...missions.values()].find((x) => x.id === s.id);
         if (!m || m.closed) throw new PortError("owner-offline", "mission session is gone");
         if (m.resumeHold && op !== "continue" && op !== "mode") throw new PortError("rejected", "Resume hold: continue first");
+        if (m.approval && op !== "permit") throw new PortError("question-waiting", "Answer the pending question in the mission pane before controlling the mission");
         advance(m);
-        if (op === "plan-edit") {
+        if (op === "permit") {
+          if (!m.approval || args.id !== m.approval.id) throw new PortError("stale", "That approval is no longer open in the pane");
+          if (!m.approval.options.includes(String(args.answer))) throw new PortError("rejected", `No such option: ${String(args.answer)}`);
+          m.approval = null;
+          m.stageStart = now();
+        } else if (op === "plan-edit") {
           if (m.stage !== "plan") throw new PortError("rejected", "No pending plan to edit");
           if (args.base !== `rev-${m.planRev}`) throw new PortError("stale", "Plan moved on; reload before saving");
           m.planText = String(args.text ?? "");

@@ -89,6 +89,7 @@ const OPERATOR_VERBS: Record<string, string> = {
   "plan-save": "plan saved",
   "plan-refine": "plan refine requested",
   answer: "question answered",
+  permit: "tool approval answered",
   relaunch: "relaunched",
   "land-anyway": "landed past failing checks",
 };
@@ -340,6 +341,7 @@ function contactView(
     problem,
     check: status?.check ?? null,
     ask: status?.hold === "question" ? status.ask ?? null : null,
+    approval: status?.hold === "question" ? status.approval ?? null : null,
     progress: status?.progress ?? null,
     phase: status?.phase ?? null,
     blockedBy: contact.blockedBy.map((t) => ({
