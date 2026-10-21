@@ -21,8 +21,8 @@ const ASSET_TYPES: Record<string, string> = {
   html: "text/html; charset=utf-8",
 };
 function assetFor(pathname: string): readonly [string, string] | null {
-  if (pathname === "/") return ["index.html", ASSET_TYPES.html as string];
-  if (pathname === "/intel") return ["intel.html", ASSET_TYPES.html as string];
+  // /intel is an old entry: the board opens on its Intel view there.
+  if (pathname === "/" || pathname === "/intel") return ["index.html", ASSET_TYPES.html as string];
   const match = /^\/([a-z0-9][a-z0-9-]*)\.(js|css|svg)$/.exec(pathname);
   return match ? [`${match[1]}.${match[2]}`, ASSET_TYPES[match[2] as string] as string] : null;
 }

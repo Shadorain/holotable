@@ -27,6 +27,18 @@ installTooltips();
 
 const $ = (id) => document.getElementById(id);
 
+// Old /intel links get this page from the server: they open the Intel view, at the board's own address.
+if (location.pathname === "/intel") {
+  const params = new URLSearchParams(location.search);
+  const op = params.get("op");
+  const archive = params.get("archive");
+  localStorage.setItem("holotable.view", "intel");
+  localStorage.setItem("holotable.intelView", params.get("view") === "fleet" || (!op && !archive) ? "fleet" : "op");
+  if (op) localStorage.setItem("holotable.op", op);
+  if (archive) localStorage.setItem("holotable.intelArchive", archive);
+  else localStorage.removeItem("holotable.intelArchive");
+  history.replaceState(null, "", `/${location.hash}`);
+}
 
 // Token arrives in the URL fragment (never in a request line); keep it per tab, scrub the address bar.
 const tokenKey = `holotable-token:${location.pathname}`;
@@ -41,7 +53,7 @@ const state = {
   operations: [],
   projection: null,
   opId: localStorage.getItem("holotable.op") || "",
-  view: ["board", "plan"].includes(localStorage.getItem("holotable.view")) ? localStorage.getItem("holotable.view") : "table",
+  view: ["board", "plan", "intel"].includes(localStorage.getItem("holotable.view")) ? localStorage.getItem("holotable.view") : "table",
   history: null,
   cardTab: ["details", "history"].includes(localStorage.getItem("holotable.cardTab")) ? localStorage.getItem("holotable.cardTab") : "overview",
   historyFilter: { contact: null, actor: "all", text: "" },
@@ -50,6 +62,9 @@ const state = {
   confirming: null,
   conn: "connecting",
   planView: ["map", "op", "new"].includes(localStorage.getItem("holotable.planView")) ? localStorage.getItem("holotable.planView") : "map",
+  intelView: localStorage.getItem("holotable.intelView") === "fleet" ? "fleet" : "op",
+  intelArchive: localStorage.getItem("holotable.intelArchive"), // Intel only: a closed operation picked instead of an open one
+  intelArchives: [], // GET /api/intel/sources archives, listed in the picker while Intel is shown
   archive: null, // GET /api/archive rows, or {error}
   projects: null, // GET /api/projects rows
   setup: undefined, // GET /api/setup: undefined = not asked, null = loading, {error} on failure
@@ -151,6 +166,17 @@ function storePlanView(view) {
   localStorage.setItem("holotable.planView", view);
 }
 
+function storeIntelView(view) {
+  state.intelView = view;
+  localStorage.setItem("holotable.intelView", view);
+}
+
+function setIntelArchive(key) {
+  state.intelArchive = key;
+  if (key) localStorage.setItem("holotable.intelArchive", key);
+  else localStorage.removeItem("holotable.intelArchive");
+}
+
 /** Point the page at another operation; everything loaded or pending for the old one is dropped. */
 function switchOp(id) {
   state.opId = id;
@@ -187,13 +213,24 @@ const opPick = dropdown({
     },
     { label: "Archive", icon: "archive", onPick: () => setView("archive") },
   ],
-  onChange: (id) => {
-    switchOp(id);
-    if (state.planView === "new") storePlanView("map");
-    // Archive and project pages are not about one operation; choosing one means "go look at it".
-    if (state.view === "archive" || state.view === "project" || state.view === "projects") setView("board");
-    poll();
-    // The picker refocuses itself on close, and a focused picker takes 1/2/3 as type-ahead. A pick means
+  onChange: (value) => {
+    if (value.startsWith("archive:")) {
+      // Only Intel lists archives: picking one shows its frozen evidence.
+      setIntelArchive(value.slice("archive:".length));
+      storeIntelView("op");
+      render();
+    } else {
+      switchOp(value);
+      if (state.planView === "new") storePlanView("map");
+      if (state.view === "intel") {
+        setIntelArchive(null);
+        storeIntelView("op");
+      }
+      // Archive and project pages are not about one operation; choosing one means "go look at it".
+      if (state.view === "archive" || state.view === "project" || state.view === "projects") setView("board");
+      poll();
+    }
+    // The picker refocuses itself on close, and a focused picker takes the view keys as type-ahead. A pick means
     // "go look at it", so hand the keys back to the board.
     setTimeout(() => opPick.btn.blur());
   },
@@ -264,15 +301,11 @@ function region(root, data, build) {
 
 let lastHeaderSig = "";
 function renderHeader() {
-  let intelQuery = "";
-  if (state.view === "archive" && state.archiveKey) intelQuery = `archive=${encodeURIComponent(state.archiveKey)}`;
-  else if (state.opId) intelQuery = `op=${encodeURIComponent(state.opId)}`;
-  $("intelLink").href = `/intel${intelQuery ? `?${intelQuery}` : ""}#${token}`;
   const p = state.projection;
   const current = state.operations.find((o) => o.id === state.opId);
   let shown = current?.project;
   if (state.view === "project" && state.projectId) shown = { id: state.projectId, name: state.projectCfg?.fields?.name ?? state.projectId };
-  else if (state.view === "projects" || state.view === "archive") shown = null;
+  else if (state.view === "projects" || state.view === "archive" || state.intelArchive) shown = null;
   const needs = p ? p.contacts.filter((c) => c.attention).length : 0;
   const sig = JSON.stringify([
     state.operations.map((o) => [o.id, o.name, o.attention, o.project?.id, o.project?.name]),
@@ -281,6 +314,8 @@ function renderHeader() {
     shown,
     p ? [p.operation.base, p.header.open, p.header.cap, p.notes?.done, p.notes?.total, needs, p.operation.auto] : null,
     state.conn,
+    state.intelArchive,
+    state.view === "intel" ? state.intelArchives : null,
   ]);
   if (sig === lastHeaderSig) return;
   lastHeaderSig = sig;
@@ -304,6 +339,12 @@ function renderHeader() {
     for (const o of g.ops)
       options.push({ value: o.id, label: `${o.name}${o.attention ? ` · ${needsYou(o.attention)}` : ""}`, indent: grouped });
   }
+  // Intel also reads closed operations' frozen evidence, so there the picker lists the archive too.
+  if (state.view === "intel" && state.intelArchives.length) {
+    options.push({ value: "archive:", label: "Archived operations", group: true, disabled: true });
+    for (const a of state.intelArchives)
+      options.push({ value: `archive:${a.key}`, label: a.name, meta: new Date(a.closedAt).toLocaleDateString(), indent: true });
+  }
   const crumb = $("projectCrumb");
   crumb.hidden = !shown;
   if (shown) {
@@ -317,8 +358,9 @@ function renderHeader() {
   if (state.view === "projects") $("projectsCrumb").setAttribute("aria-current", "page");
   // In the Archive no open operation is in view: the picker says where you are instead.
   if (state.view === "archive") opPick.setOptions(options, null, "Archive");
+  else if (state.intelArchive) opPick.setOptions(options, `archive:${state.intelArchive}`, "Select operation");
   else opPick.setOptions(options, state.opId, state.operations.length ? "Select operation" : "No operations");
-  opPick.setDisabled(!state.operations.length);
+  opPick.setDisabled(!options.length);
   document.querySelectorAll("#toggle button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === state.view)));
   $("base").textContent = p ? p.operation.base : "—";
   $("load").textContent = p ? `${p.header.open} / ${p.header.cap} omp` : "—";
@@ -362,6 +404,7 @@ const PAGES = {
   projects: renderProjectsPage,
   project: renderProjectPage,
   archive: renderArchivePage,
+  intel: renderIntelPage,
 };
 
 /** A dialog, drawer, popover or tour is up, or a field has focus: the board must not move the selection. */
@@ -657,6 +700,52 @@ function renderArchivePage() {
     renderArchive(root, state.archive, state.archiveKey ? entry ?? { loading: true } : null, { open: openArchive }));
 }
 
+// Intel's module loads on its first visit, so the other views never fetch it.
+let intel = null;
+let intelImport = null;
+function renderIntelPage() {
+  markTabs($("intelTabs"), (b) => b.dataset.intelview === state.intelView);
+  if (!intel) {
+    intelImport ??= import("./intel.js").then(
+      ({ createIntel }) => {
+        intel = createIntel($("intelPage"), {
+          api,
+          sources: (archives) => {
+            state.intelArchives = archives;
+            renderHeader();
+          },
+          sourceGone: () => {
+            setIntelArchive(null);
+            render();
+          },
+          openBoard: openFromIntel,
+        });
+        render();
+      },
+      (error) => toast(`Intel did not load: ${errorText(error)}`, "error"),
+    );
+    return;
+  }
+  let source = "";
+  if (state.intelArchive) source = `archive:${state.intelArchive}`;
+  else if (state.opId) source = `op:${state.opId}`;
+  intel.show(state.intelView, source);
+}
+
+/** An Intel finding's link: its operation's Plan map, or the Board with the named contact selected. */
+function openFromIntel({ plan, op, ticket }) {
+  if (op && op !== state.opId) switchOp(op);
+  if (plan) {
+    storePlanView("map");
+    setView("plan"); // polls
+    return;
+  }
+  setView("board");
+  if (ticket) select(ticket);
+  showBoardTab("card");
+  poll();
+}
+
 function renderNewOp() {
   ensureProjects();
   // The form focuses its first field, and a focused region never rebuilds: build it once, with the real projects.
@@ -938,8 +1027,21 @@ $("planTabs").addEventListener("click", (event) => {
 });
 tabKeys($("planTabs"), (b) => showPlanView(b.dataset.planview));
 
+function showIntelView(view) {
+  storeIntelView(view);
+  render();
+}
+$("intelTabs").addEventListener("click", (event) => {
+  const b = event.target.closest("[data-intelview]");
+  if (b) showIntelView(b.dataset.intelview);
+});
+tabKeys($("intelTabs"), (b) => showIntelView(b.dataset.intelview));
+
 function setView(view) {
   if (view === "archive") state.archive = null; // fresh list each visit
+  if (view === "intel" && state.view !== "intel") intel?.invalidate(); // fresh evidence each visit
+  // Outside Intel the picker lists open operations only.
+  if (view !== "intel") setIntelArchive(null);
   state.view = view;
   localStorage.setItem("holotable.view", view);
   syncRadar();
@@ -989,6 +1091,14 @@ function openOperationPage(id = state.opId) {
 }
 $("autoInd").addEventListener("click", () => openOperationPage());
 $("intWarn").addEventListener("click", () => openOperationPage());
+$("intelLink").addEventListener("click", () => {
+  // From an archive report, Intel opens on that operation's frozen evidence.
+  if (state.view === "archive" && state.archiveKey) {
+    setIntelArchive(state.archiveKey);
+    storeIntelView("op");
+  }
+  setView("intel");
+});
 
 /** After close/abort the operation left the picker; poll() falls back to the first open one. */
 function opEnded() {
@@ -1068,7 +1178,7 @@ document.addEventListener("click", (event) => {
   if (openCard || fromList) showBoardTab("card");
 });
 
-const VIEW_KEYS = { t: "table", 1: "table", b: "board", 2: "board", p: "plan", 3: "plan" };
+const VIEW_KEYS = { t: "table", 1: "table", b: "board", 2: "board", p: "plan", 3: "plan", i: "intel", 4: "intel" };
 
 /** Points the arrow keys move between, in the current view's own layout. */
 function navPoints() {
@@ -1135,6 +1245,8 @@ document.addEventListener("keydown", (event) => {
   // On a focused button Enter and Space mean "press it"; every other key still drives the board.
   const onControl = event.target.closest?.("button");
   if (VIEW_KEYS[event.key]) return setView(VIEW_KEYS[event.key]);
+  // Pages have no contacts to move between or act on; arrows scroll them.
+  if (PAGES[state.view]) return;
   if (event.key.toUpperCase() === "P" && event.shiftKey && state.view === "plan") {
     event.preventDefault();
     showPlanView(state.planView === "map" ? "op" : "map");

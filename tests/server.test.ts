@@ -142,6 +142,14 @@ test("assets are served and a missing one is a 404, not a crash", async () => {
   expect([200, 404]).toContain(index.status);
 });
 
+test("/intel serves the board page, as an entry to its Intel view", async () => {
+  const { base } = await boot();
+  const intel = await fetch(`${base}/intel?op=lab`);
+  expect(intel.status).toBe(200);
+  expect(intel.headers.get("content-type")).toContain("text/html");
+  expect(await intel.text()).toBe(await (await fetch(`${base}/`)).text());
+});
+
 test("actions: refused as unavailable without a runtime", async () => {
   const { api } = await boot();
   const res = await api("/api/actions", { method: "POST", body: { op: "lab", contact: "a", action: "launch" } });

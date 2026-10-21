@@ -1,31 +1,6 @@
 import { el, errorText, fetchJson, fmtMs } from "./ui.js";
-import { dropdown } from "./components.js";
 import { buildReviewPrompt } from "./intel-review.js";
 import { operationDocket, fleetDocket } from "./intel-brief.js";
-
-const $ = id => document.getElementById(id);
-const fragment = location.hash.slice(1);
-const token = fragment || sessionStorage.getItem("holotable-token:/intel") || sessionStorage.getItem("holotable-token:/") || "";
-if (token) sessionStorage.setItem("holotable-token:/intel", token);
-if (fragment) history.replaceState(null, "", `${location.pathname}${location.search}`);
-$("back").href = `/#${token}`;
-const params = new URLSearchParams(location.search);
-let selected = params.has("archive") ? `archive:${params.get("archive")}` : params.has("op") ? `op:${params.get("op")}` : "";
-let scope = params.get("view") === "fleet" || !selected ? "fleet" : "operation";
-let sourcesLoaded = false;
-let sourceCount = 0;
-let request = null;
-let generation = 0;
-let reviewEvidence = null;
-const sourcePick = dropdown({
-  className: "intel-source-dd",
-  label: "Operation",
-  placeholder: "Loading operations…",
-  options: [],
-  onChange: value => { selected = value; void load(); },
-});
-sourcePick.setDisabled(true);
-$("sourceField").append(sourcePick.root);
 
 const duration = n => n == null ? "Unknown" : n === 0 ? "0s" : fmtMs(n);
 const money = n => n == null ? "Unknown" : n > 0 && n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
@@ -35,29 +10,12 @@ const decimal = n => n == null ? "Unknown" : n.toLocaleString(undefined, { maxim
 const percent = r => `${Math.round(r * 100)}%`;
 const sample = d => d.n ? `${duration(d.medianMs)} median · ${d.n} measured` : "None measured";
 const date = value => new Date(value).toLocaleString();
-const opId = () => selected.startsWith("op:") ? selected.slice(3) : "";
-// Board deep links: write the session keys app.js already reads, then navigate.
-function openBoard(fix) {
-  const [, opIdRaw, ticket] = fix.text.split(":");
-  if (opIdRaw) localStorage.setItem("holotable.op", opIdRaw);
-  if (fix.text.startsWith("map:")) {
-    localStorage.setItem("holotable.view", "plan");
-    localStorage.setItem("holotable.planView", "map");
-  } else {
-    localStorage.setItem("holotable.view", "board");
-    if (ticket) {
-      const sel = JSON.parse(localStorage.getItem("holotable.selected") || "{}");
-      sel[opIdRaw] = ticket;
-      localStorage.setItem("holotable.selected", JSON.stringify(sel));
-    }
-  }
-  location.href = `/#${token}`;
-}
+const opIdOf = source => source.startsWith("op:") ? source.slice(3) : "";
 function severityBadge(s) {
   const label = { critical: "ACTION", warning: "WATCH", watch: "WATCH", coverage: "COVERAGE" }[s] ?? s.toUpperCase();
   return el("span", `ia-badge ia-${s}`, label);
 }
-function fixCard(fix) {
+function fixCard(fix, open) {
   const row = el("div", "ia-fix");
   const label = el("span", "ia-fix-label", fix.label);
   row.append(label);
@@ -75,14 +33,14 @@ function fixCard(fix) {
   } else if (fix.kind === "link") {
     const link = el("button", "btn small", "Open on board →");
     link.type = "button";
-    link.addEventListener("click", () => openBoard(fix));
+    link.addEventListener("click", () => open(fix.text));
     row.append(link);
   } else {
     row.append(el("p", "intel-muted ia-note", fix.text));
   }
   return row;
 }
-function caseCard(c) {
+function caseCard(c, open, opId) {
   const card = el("article", `ia-case ia-${c.severity}`);
   const head = el("div", "ia-case-head");
   head.append(severityBadge(c.severity), el("h3", "", c.title));
@@ -94,17 +52,17 @@ function caseCard(c) {
       const chip = el("button", "ia-chip", ticket);
       chip.type = "button";
       chip.title = `Open ${ticket} on the board`;
-      chip.addEventListener("click", () => openBoard({ text: `board:${opId()}:${ticket}` }));
+      chip.addEventListener("click", () => open(`board:${opId}:${ticket}`));
       chips.append(chip);
     }
     card.append(chips);
   }
   const fixes = el("div", "ia-fixes");
-  for (const fix of c.fixes ?? []) fixes.append(fixCard(fix));
+  for (const fix of c.fixes ?? []) fixes.append(fixCard(fix, open));
   if (fixes.childElementCount) card.append(fixes);
   return card;
 }
-function docketSection(cases, source) {
+function docketSection(cases, open, opId) {
   const section = el("section", "ia-docket");
   const head = el("div", "ia-docket-head");
   head.append(el("h2", "intel-section-title", "Internal affairs"), el("span", "intel-muted", `${cases.length} open finding${cases.length === 1 ? "" : "s"}`));
@@ -116,7 +74,7 @@ function docketSection(cases, source) {
   const list = el("ol", "ia-list");
   for (const c of cases) {
     const item = el("li");
-    item.append(caseCard(c));
+    item.append(caseCard(c, open, opId));
     list.append(item);
   }
   section.append(list);
@@ -170,12 +128,6 @@ const queryFor = value => {
   const colon = value.indexOf(":");
   return new URLSearchParams([[value.slice(0, colon), value.slice(colon + 1)]]).toString();
 };
-async function api(path, signal) {
-  return fetchJson(await fetch(path, { signal, headers: { "X-Holotable-Token": token }, credentials: "same-origin", cache: "no-store" }));
-}
-function message(text, error = false) {
-  $("message").replaceChildren(el("p", error ? "intel-error" : "intel-muted", text));
-}
 function facts(rows) {
   const grid = el("dl", "intel-facts");
   for (const [label, value, note] of rows) {
@@ -247,7 +199,7 @@ function rankedSection(title, list, render, share = false) {
   }
   return section;
 }
-function rollupSection(rollup) {
+function rollupSection(rollup, open, opId) {
   const section = el("section", "intel-rollup");
   const t = rollup.totals;
   section.append(el("h2", "intel-section-title", "Fleet overview"));
@@ -265,7 +217,7 @@ function rollupSection(rollup) {
       headline("Per delivered", money(t.costPerDelivered), "Includes unfinished operation work; excludes drafts"),
       headline("Review rounds", number(t.reviews), t.repairRounds == null ? "No quality instrumentation recorded" : `${number(t.repairRounds)} accepted repairs · not external acceptance`),
     );
-    section.append(heads, docketSection(fleetDocket(rollup, { duration, money, number }), "fleet"));
+    section.append(heads, docketSection(fleetDocket(rollup, { duration, money, number }), open, opId));
   }
   if (t.panes) {
     const paneNote = `${number(t.panes.sessions)} draft/decision sessions · ${number(t.panes.tokens)} tokens${t.panes.partial ? " · partial coverage" : ""}`;
@@ -350,8 +302,7 @@ function throughputNote(e) {
   if (elapsedMs < 3_600_000) return `In ${duration(elapsedMs)} since the operation was created`;
   return `${decimal(e.throughputPerHour)}/h over ${duration(elapsedMs)} since creation`;
 }
-function renderSnapshot(snapshot, source) {
-  const root = $("dashboard");
+function renderSnapshot(root, snapshot, open, opId) {
   root.replaceChildren();
   const title = el("div", "intel-title");
   title.append(el("h2", "", snapshot.name), el("span", "intel-badge", snapshot.closedAt ? "Frozen archive" : "Open operation · snapshot"));
@@ -369,128 +320,175 @@ function renderSnapshot(snapshot, source) {
     headline("Recorded check failures", number(e.quality?.recordedFailed), e.quality ? "Producer-reported, not external judgment" : "No quality instrumentation recorded"),
     headline("Known spend", money(e.usage.knownCostUsd), e.usage.knownCostUsd == null ? "No usage cost recorded" : e.usage.partial ? "Partial coverage" : e.usage.coordinatorSessionAssociated ? "Session-associated estimate" : "Observed estimate"),
   );
-  root.append(headlines, docketSection(operationDocket(e, { duration, money, number, opId: opId() }), source));
+  root.append(headlines, docketSection(operationDocket(e, { duration, money, number, opId }), open, opId));
   const ledger = phaseLedger(e);
   if (ledger) root.append(ledger);
   root.append(evidenceDetails(e), experiments());
 }
-async function loadSnapshot(signal, current) {
-  const source = selected;
-  const snapshot = await api(`/api/intel?${queryFor(source)}`, signal);
-  if (current !== generation) return;
-  renderSnapshot(snapshot, source);
-  reviewEvidence = snapshot.evaluation ? { scope: "operation", source, snapshot } : null;
-  $("snapshotTime").textContent = `${snapshot.closedAt ? "Frozen at close" : "Evidence as of"} ${date(snapshot.evaluation?.asOf ?? snapshot.closedAt ?? Date.now())}. No background updates.`;
+function reviewHelp() {
+  const box = el("details", "intel-experiments");
+  box.id = "intelReviewHelp";
+  const code = el("code", "", "omp --model YOUR_SMALL_MODEL --no-tools --no-extensions --no-skills --no-rules --no-title --no-session --max-time 2m -p @holotable-intel-review.txt");
+  const pre = el("pre");
+  pre.append(code);
+  box.append(
+    el("summary", "", "Optional small-model review · manual"),
+    el("p", "intel-muted", "Export the current scope, inspect the downloaded evidence, then choose a small model explicitly. Exporting and refreshing never call a model. The prompt contains aggregate measurements, coverage limits and evidence references—not transcripts or access tokens."),
+    el("p", "intel-muted", "From the download directory, replace YOUR_SMALL_MODEL with your model selector:"),
+    pre,
+    el("p", "intel-muted", "This produces advisory interpretation, not an independent code check or permission to change missions. Two minutes is a wall-time limit, not a price cap. Model charges belong to the separate OMP session; they are not automatically added to this operation’s spend."),
+  );
+  return box;
 }
-async function load(reloadSources = false) {
-  request?.abort();
 
-  reviewEvidence = null;
-  $("exportReview").disabled = true;
-  request = new AbortController();
-  const signal = request.signal, current = ++generation;
-  const fleet = scope === "fleet";
-  $("scope-fleet").setAttribute("aria-pressed", String(fleet));
-  $("scope-operation").setAttribute("aria-pressed", String(!fleet));
-  $("sourceField").hidden = fleet;
-  $("rollup").hidden = !fleet;
-  $("dashboard").hidden = fleet;
-  const root = fleet ? $("rollup") : $("dashboard");
-  root.replaceChildren();
-  root.setAttribute("aria-busy", "true");
-  $("refresh").disabled = true;
-  sourcePick.setDisabled(true);
-  $("snapshotTime").textContent = "Loading evidence…";
-  message("Reading stored evidence…");
-  let notice = "";
-  try {
-    if (!token) throw new Error("No access token. Open Intel from your authenticated Holotable page.");
-    if (reloadSources || !sourcesLoaded) {
-      try {
-        const sources = await api("/api/intel/sources", signal);
-        if (current !== generation) return;
-        const options = [];
-        for (const [label, key, rows] of [["Open operations", "op", sources.operations], ["Archived operations", "archive", sources.archives]]) {
-          if (rows.length) options.push({ group: true, label });
-          for (const row of rows) {
-            options.push(key === "archive"
-              ? { value: `archive:${row.key}`, label: row.name, meta: new Date(row.closedAt).toLocaleDateString() }
-              : { value: `op:${row.id}`, label: row.name });
+/**
+ * The Intel view's body inside `root`. The board owns what it shows (header picker → source, sub-tabs → scope)
+ * and calls show(); evidence loads only when that pair changes, on Refresh, or after invalidate().
+ * `sources(archives)` hands the archive list to the picker; `sourceGone()` asks the board to drop a vanished archive;
+ * `openBoard({ plan, op, ticket })` follows a finding's link.
+ */
+export function createIntel(root, { api, sources, sourceGone, openBoard }) {
+  const intro = el("div", "intel-intro");
+  intro.append(
+    el("p", "intel-eyebrow", "OPERATION INTELLIGENCE"),
+    el("h1", "", "What’s helping. What’s holding work up."),
+    el("p", "intel-muted", "Delivery, rework and resource use from recorded evidence. Read-only: no scores, no automatic changes, no model calls."),
+  );
+  const refresh = el("button", "btn", "Refresh snapshot");
+  refresh.type = "button";
+  const exportReview = el("button", "btn", "Export review prompt");
+  exportReview.type = "button";
+  exportReview.disabled = true;
+  exportReview.title = "Downloads a bounded evidence prompt only; never launches a model";
+  exportReview.setAttribute("aria-details", "intelReviewHelp");
+  const snapshotTime = el("p", "intel-muted", "Loads only when opened or refreshed. No background updates.");
+  snapshotTime.setAttribute("role", "status");
+  const toolbar = el("section", "intel-toolbar");
+  toolbar.setAttribute("aria-label", "Snapshot");
+  toolbar.append(refresh, exportReview, snapshotTime);
+  const status = el("div");
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  const rollupBox = el("section");
+  rollupBox.setAttribute("aria-label", "Fleet overview");
+  const dashboard = el("div");
+  root.replaceChildren(intro, toolbar, status, rollupBox, dashboard, reviewHelp(), el("footer", "intel-footer", "Self-checks, reviews and landing are evidence of process—not externally verified correctness. Known cost is an estimate, not a bill."));
+
+  let scope = null;
+  let source = "";
+  let sourcesLoaded = false;
+  let notice = ""; // shown by the next load: it explains why the source changed
+  let request = null;
+  let generation = 0;
+  let reviewEvidence = null;
+  const get = async (path, signal) => fetchJson(await api(path, { signal }));
+  const open = text => {
+    const [kind, op, ticket] = text.split(":");
+    openBoard({ plan: kind === "map", op, ticket });
+  };
+  function message(text, error = false) {
+    status.replaceChildren(el("p", error ? "intel-error" : "intel-muted", text));
+  }
+
+  async function load() {
+    request?.abort();
+    reviewEvidence = null;
+    exportReview.disabled = true;
+    request = new AbortController();
+    const signal = request.signal, current = ++generation;
+    const fleet = scope === "fleet";
+    rollupBox.hidden = !fleet;
+    dashboard.hidden = fleet;
+    const box = fleet ? rollupBox : dashboard;
+    box.replaceChildren();
+    box.setAttribute("aria-busy", "true");
+    refresh.disabled = true;
+    snapshotTime.textContent = "Loading evidence…";
+    message("Reading stored evidence…");
+    let note = notice;
+    notice = "";
+    try {
+      if (!sourcesLoaded) {
+        try {
+          const list = await get("/api/intel/sources", signal);
+          if (current !== generation) return;
+          sourcesLoaded = true;
+          sources(list.archives);
+          if (source.startsWith("archive:") && !list.archives.some(a => `archive:${a.key}` === source)) {
+            notice = "The previous source is no longer available.";
+            sourceGone(); // the board shows its selected operation instead, which starts the next load
+            return;
           }
+        } catch (error) {
+          if (signal.aborted) return;
+          note = `Source list unavailable: ${errorText(error)}. Refresh to retry.`;
         }
-        const values = options.filter(o => !o.group).map(o => o.value);
-        sourceCount = values.length;
-        if (selected && !values.includes(selected)) {
-          notice = "The previous source is no longer available.";
-          selected = "";
-        }
-        if (!selected) {
-          const saved = sessionStorage.getItem("holotable.intel.selection") || `op:${localStorage.getItem("holotable.op")}`;
-          selected = values.includes(saved) ? saved : values[0] || "";
-        }
-        sourcePick.setOptions(options, selected, values.length ? "Choose an operation" : "No operations");
-        sourcesLoaded = true;
-      } catch (error) {
-        if (signal.aborted) return;
-        if (!fleet && !selected) throw error;
-        notice = `Source list unavailable: ${errorText(error)}. Refresh to retry.`;
+      }
+      if (fleet) {
+        const rollup = await get("/api/intel/rollup", signal);
+        if (current !== generation) return;
+        box.replaceChildren(rollupSection(rollup, open, opIdOf(source)));
+        reviewEvidence = { scope: "fleet", rollup };
+        snapshotTime.textContent = `Fleet evidence as of ${date(rollup.generatedAt)}. Refresh is manual.`;
+      } else if (source) {
+        const snapshot = await get(`/api/intel?${queryFor(source)}`, signal);
+        if (current !== generation) return;
+        renderSnapshot(dashboard, snapshot, open, opIdOf(source));
+        reviewEvidence = snapshot.evaluation ? { scope: "operation", source, snapshot } : null;
+        snapshotTime.textContent = `${snapshot.closedAt ? "Frozen at close" : "Evidence as of"} ${date(snapshot.evaluation?.asOf ?? snapshot.closedAt ?? Date.now())}. No background updates.`;
+      } else {
+        note = "No operations yet. Create one on the board; its evidence appears here once missions launch. Fleet overview can still show recorded draft spend.";
+        snapshotTime.textContent = "No operation selected.";
+      }
+      message(note);
+    } catch (error) {
+      if (!signal.aborted && current === generation) {
+        message(errorText(error), true);
+        snapshotTime.textContent = `${fleet ? "Fleet overview" : "Operation snapshot"} unavailable. Refresh to retry or switch scope.`;
+      }
+    } finally {
+      if (current === generation) {
+        refresh.disabled = false;
+        exportReview.disabled = !reviewEvidence;
+        box.setAttribute("aria-busy", "false");
       }
     }
-    const query = new URLSearchParams(selected ? queryFor(selected) : "");
-    if (fleet) query.set("view", "fleet");
-    history.replaceState(null, "", `/intel${query.size ? `?${query}` : ""}`);
-    if (selected) sessionStorage.setItem("holotable.intel.selection", selected);
-    if (fleet) {
-      const rollup = await api("/api/intel/rollup", signal);
-      if (current !== generation) return;
-      root.replaceChildren(rollupSection(rollup));
-      reviewEvidence = { scope: "fleet", rollup };
-      $("snapshotTime").textContent = `Fleet evidence as of ${date(rollup.generatedAt)}. Refresh is manual.`;
-    } else if (selected) {
-      await loadSnapshot(signal, current);
-    } else {
-      notice = "No operations yet. Create one on the board; its evidence appears here once missions launch. Fleet overview can still show recorded draft spend.";
-      $("snapshotTime").textContent = "No operation selected.";
-    }
-    if (current === generation) message(notice);
-  } catch (error) {
-    if (!signal.aborted && current === generation) {
-      message(errorText(error), true);
-      $("snapshotTime").textContent = `${fleet ? "Fleet overview" : "Operation snapshot"} unavailable. Refresh to retry or switch scope.`;
-    }
-  } finally {
-    if (current === generation) {
-      $("refresh").disabled = false;
-      sourcePick.setDisabled(!sourceCount);
-      $("exportReview").disabled = !reviewEvidence;
-      root.setAttribute("aria-busy", "false");
-    }
   }
-}
-$("refresh").addEventListener("click", () => { void load(true); });
-$("exportReview").addEventListener("click", () => {
-  if (!reviewEvidence) return;
-  try {
-    const prompt = buildReviewPrompt(reviewEvidence);
-    const url = URL.createObjectURL(new Blob([prompt], { type: "text/plain;charset=utf-8" }));
-    const link = el("a");
-    link.href = url;
-    link.download = "holotable-intel-review.txt";
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    message("Review prompt downloaded. No model was run. Choose a model explicitly using the optional review instructions below.");
-  } catch (error) {
-    message(errorText(error), true);
-  }
-});
-for (const next of ["operation", "fleet"]) {
-  $(`scope-${next}`).addEventListener("click", () => {
-    if (scope === next) return;
-    scope = next;
+
+  refresh.addEventListener("click", () => {
+    sourcesLoaded = false;
     void load();
   });
+  exportReview.addEventListener("click", () => {
+    if (!reviewEvidence) return;
+    try {
+      const prompt = buildReviewPrompt(reviewEvidence);
+      const url = URL.createObjectURL(new Blob([prompt], { type: "text/plain;charset=utf-8" }));
+      const link = el("a");
+      link.href = url;
+      link.download = "holotable-intel-review.txt";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      message("Review prompt downloaded. No model was run. Choose a model explicitly using the optional review instructions below.");
+    } catch (error) {
+      message(errorText(error), true);
+    }
+  });
+
+  return {
+    /** Scope "op" | "fleet"; source "op:<id>", "archive:<key>" or "" (no operations). */
+    show(nextScope, nextSource) {
+      if (nextScope === scope && nextSource === source) return;
+      scope = nextScope;
+      source = nextSource;
+      void load();
+    },
+    /** The next show() loads afresh, archive list included. */
+    invalidate() {
+      scope = null;
+      sourcesLoaded = false;
+    },
+  };
 }
-window.addEventListener("pagehide", () => { request?.abort(); });
-void load(true);

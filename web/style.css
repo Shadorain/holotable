@@ -209,18 +209,19 @@ body[data-view="board"] main { grid-template-columns: clamp(320px, 26vw, 420px) 
 body[data-view="table"] main { grid-template-columns: minmax(0, 1fr) 400px; grid-template-areas: "stage card"; }
 body[data-view="plan"] main { grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: auto 1fr; grid-template-areas: "tabs history" "map history"; }
 /* Each view shows only its own panels. */
-.stage, .ops, .plan-map, .history-panel, .op-page, .opnew, .archive-page, .project-page, .plan-tabs { display: none; }
+.stage, .ops, .plan-map, .history-panel, .op-page, .opnew, .archive-page, .project-page, .intel-page, .plan-tabs { display: none; }
 body[data-view="table"] .stage, body[data-view="board"] .ops { display: block; }
 body[data-view="plan"] .history-panel { display: flex; }
-body[data-view="plan"] .plan-tabs { display: flex; }
+body[data-view="plan"] #planTabs, body[data-view="intel"] #intelTabs { display: flex; }
 body[data-view="plan"]:not([data-planview="op"]):not([data-planview="new"]) .plan-map { display: block; }
 body[data-view="plan"][data-planview="op"] .op-page { display: block; }
 body[data-view="plan"][data-planview="new"] .opnew { display: block; }
-body[data-view="archive"] .archive-page, body[data-view="project"] #projectPage, body[data-view="projects"] #projectsPage { display: block; }
+body[data-view="archive"] .archive-page, body[data-view="project"] #projectPage, body[data-view="projects"] #projectsPage, body[data-view="intel"] .intel-page { display: block; }
 body[data-view="archive"] main, body[data-view="project"] main, body[data-view="projects"] main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "map"; }
 body[data-view="plan"][data-planview="op"] main, body[data-view="plan"][data-planview="new"] main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "tabs" "map"; }
+body[data-view="intel"] main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; grid-template-areas: "tabs" "map"; }
 body[data-view="plan"][data-planview="op"] .history-panel, body[data-view="plan"][data-planview="new"] .history-panel { display: none; }
-body[data-view="table"] .list, body[data-view="plan"] .list, body[data-view="plan"] .card, body[data-view="blank"] .list, body[data-view="blank"] .card, body[data-view="archive"] .list, body[data-view="archive"] .card, body[data-view="project"] .list, body[data-view="project"] .card, body[data-view="projects"] .list, body[data-view="projects"] .card, body:not([data-view]) .list, body:not([data-view]) .card { display: none; }
+body[data-view="table"] .list, body[data-view="plan"] .list, body[data-view="plan"] .card, body[data-view="blank"] .list, body[data-view="blank"] .card, body[data-view="archive"] .list, body[data-view="archive"] .card, body[data-view="project"] .list, body[data-view="project"] .card, body[data-view="projects"] .list, body[data-view="projects"] .card, body[data-view="intel"] .list, body[data-view="intel"] .card, body:not([data-view]) .list, body:not([data-view]) .card { display: none; }
 .board-tabs { display: none; grid-area: tabs; gap: 2px; padding: 6px 8px 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
 .board-tabs button { flex: 1; background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 6px; color: var(--muted); margin-bottom: -1px; font-weight: 600; }
 .board-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
@@ -257,7 +258,8 @@ body[data-view="table"] .list, body[data-view="plan"] .list, body[data-view="pla
   .op-pick .cmp-dd { flex: 1; }
   .op-pick .cmp-dd-btn { min-width: 0; width: 100%; }
   .op-pick { flex: 1 1 100%; }
-  .toggle button { padding: 6px 10px; }
+  /* Four icons, the needs pill, More and the gear share the second row at 390 px. */
+  .toggle button { padding: 6px 8px; }
   .toggle button > span, .top > .grow { display: none; }
   /* One Board panel at a time; the tabs stay in reach while the page scrolls. */
   body[data-view="board"] main { grid-template-columns: 1fr; grid-template-areas: "tabs" "pane"; align-content: start; }
@@ -598,12 +600,12 @@ dialog.help dd { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
 .plan-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 14px; color: var(--muted); margin-bottom: -1px; font-size: 13px; }
 .plan-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
 .plan-tabs button:hover { color: var(--text); }
-.op-page, .opnew, .archive-page, .project-page { grid-area: map; padding: 14px 18px; overflow: auto; }
+.op-page, .opnew, .archive-page, .project-page, .intel-page { grid-area: map; padding: 14px 18px; overflow: auto; }
 
 /* ---- operation document (Plan > Operation) ---- */
 .opdoc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 6px; }
 .op-page > *, .opnew > *, .archive-page > *, .project-page > * { max-width: 980px; margin-left: auto; margin-right: auto; }
-.op-page, .opnew, .archive-page, .project-page { padding: 22px 28px 40px; }
+.op-page, .opnew, .archive-page, .project-page, .intel-page { padding: 22px 28px 40px; }
 .set-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
 .set-grid.ports-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .set-grid .set-field { border-bottom: 0; }

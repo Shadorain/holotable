@@ -107,7 +107,7 @@ export function gettingStarted(setup, ctx) {
 const TOUR = [
   ["#projectsCrumb", "Projects", "Every repo you run campaigns on, and its settings. Start here when something is about a whole project."],
   ["#op", "Operations", "The operation you are looking at. Grouped by project; New operation and the Archive are at the bottom of this list."],
-  ["#toggle", "Three views", "Table is the radar, Board is the work list with the selected contact's card, Plan is the dependency map and the Operation page.", "Keys 1, 2, 3."],
+  ["#toggle", "Four views", "Table is the radar, Board is the work list with the selected contact's card, Plan is the dependency map and the Operation page, Intel is what helps and what holds work up, from recorded evidence.", "Keys 1, 2, 3, 4."],
   ["#needs", "Needs you", "Contacts waiting on a click or a decision. Click to jump to the first one."],
   ["#conn", "Connection", "Live while the board is reachable. It polls every few seconds; nothing here needs a refresh."],
   ["#settingsButton", "Settings and help", "Theme, the live omp cap, polling, defaults for new projects, and this tour again.", "Press ? for keyboard shortcuts."],
