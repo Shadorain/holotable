@@ -4,7 +4,6 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBoardService, type BoardHooks } from "../src/board.ts";
-import type { Operation } from "../src/core/types.ts";
 import { ActionError } from "../src/runtime/errors.ts";
 import { endOperation } from "../src/runtime/end.ts";
 import { startServer, type BoardServer } from "../src/server.ts";
@@ -13,45 +12,20 @@ import { archiveDir, operationDir } from "../src/paths.ts";
 import { appendEvent } from "../src/store/events.ts";
 import { archiveOperation, createOperation } from "../src/store/operations.ts";
 import { createProject } from "../src/store/projects.ts";
-import { fakePorts, noRun } from "./helpers.ts";
+import { contact, fakePorts, noRun, operation } from "./helpers.ts";
 
 const cleanup: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   for (const fn of cleanup.splice(0)) await fn();
 });
 
-function operation(over: Partial<Operation> = {}): Operation {
-  return {
-    v: 1,
-    id: "lab",
-    name: "Lab",
-    repo: "/tmp/lab",
-    base: "main",
-    integration: "/tmp/lab",
-    pause: true,
-    ignoreChecks: false,
-    tracker: "none",
-    fleet: "omp-mission",
-    frontend: "orca",
-    delivery: "none",
-    zones: [{ id: "ops", label: "Ops" }],
-    contacts: [
-      { ticket: "a", title: "First", zone: "ops", kind: "implement", blockedBy: [], conflictOf: null, lane: null },
-      { ticket: "b", title: null, zone: "ops", kind: "implement", blockedBy: ["a"], conflictOf: null, lane: null },
-      { ticket: "n", title: null, zone: "ops", kind: "decision", blockedBy: [], conflictOf: null, lane: null },
-    ],
-    project: null,
-    recover: false,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    ...over,
-  };
-}
-
 async function boot(hooks: BoardHooks = {}) {
   const home = mkdtempSync(join(tmpdir(), "holotable-srv-"));
-  await createOperation(home, operation());
-  for (const contact of ["a", "b", "n"])
-    await appendEvent(home, "lab", { v: 1, at: "2026-01-01T00:00:00.000Z", kind: "queued", contact });
+  await createOperation(home, operation({
+    contacts: [contact("a", { title: "First" }), contact("b", { blockedBy: ["a"] }), contact("n", { kind: "decision" })],
+  }));
+  for (const ticket of ["a", "b", "n"])
+    await appendEvent(home, "lab", { v: 1, at: "2026-01-01T00:00:00.000Z", kind: "queued", contact: ticket });
   const server: BoardServer = await startServer({ service: createBoardService(home, hooks), settings: { access: "local", port: 0 } });
   cleanup.push(async () => {
     await server.close();
