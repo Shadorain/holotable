@@ -31,12 +31,13 @@ export async function loadNotes(opId, api) {
   }
 }
 
-/** Load once per operation; `rerender` runs when the text arrives. */
+/** Load once per operation, again when its task counts move; `rerender` runs when the text arrives. */
 export function ensureNotes(opId, counts, api, rerender) {
   const sig = `${counts?.done}:${counts?.total}`;
   const current = cache.get(opId);
-  if (current && !current.error && countsFor.get(opId) === sig) return;
   if (current === null) return; // already loading
+  // A failed load is not retried on every poll either: only a change in the counts asks again.
+  if (current !== undefined && countsFor.get(opId) === sig) return;
   countsFor.set(opId, sig);
   cache.set(opId, null);
   loadNotes(opId, api).then(rerender);
@@ -45,9 +46,7 @@ export function ensureNotes(opId, counts, api, rerender) {
 async function save(opId, text, ctx) {
   const current = cache.get(opId);
   const res = await ctx.api("/api/notes", { method: "PUT", body: JSON.stringify({ op: opId, text, base: current?.revision ?? "" }) });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
-  cache.set(opId, data);
+  cache.set(opId, await fetchJson(res));
 }
 
 export function notesPanel(opId, ctx, { compact = false } = {}) {

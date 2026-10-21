@@ -5,8 +5,7 @@ import { icon } from "./icons.js";
 
 export { el };
 
-
-export const STATE_WORDS = {
+const STATE_WORDS = {
   ready: "Ready", blocked: "Blocked", decision: "Decision", planning: "Planning",
   running: "Running", verify: "Verify", review: "Review", hold: "Hold", complete: "Complete",
   conflict: "Conflict", landed: "Landed", offline: "Offline", waiting: "Waiting",
@@ -22,12 +21,69 @@ export async function fetchJson(res) {
   return data;
 }
 
+/**
+ * Store errors name the file and array index ("Invalid operation at /x/op.json: contacts[2].ticket …");
+ * the operator only needs the reason.
+ */
 export function storeErrorText(error) {
-  return error ? errorText(error).replace(/^Invalid \w+ at [^:]+: /, "") : "";
+  return error ? errorText(error).replace(/^Invalid \w+ at [^:]+: (?:\w+\[\d+\]\.)?/, "") : "";
 }
 
 export function titleCase(s) {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+/** "1 needs you", "3 need you": one wording for every attention count. */
+export function needsYou(n) {
+  return `${n} need${n === 1 ? "s" : ""} you`;
+}
+
+/** Progress bar; `fraction` is 0..1. */
+export function meter(fraction, className = "meter") {
+  const box = el("div", className);
+  const fill = el("span", "");
+  fill.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
+  box.append(fill);
+  return box;
+}
+
+/** A button that copies `text`; it reads "Copied" for a moment, and a failure toasts. */
+export function copyButton(label, text, { className = "btn small", toast } = {}) {
+  const b = el("button", className, label);
+  b.type = "button";
+  b.addEventListener("click", () => {
+    // No navigator.clipboard off a secure origin (a Tailscale URL over http): that is a failure too.
+    Promise.resolve()
+      .then(() => navigator.clipboard.writeText(text))
+      .then(
+        () => {
+          b.textContent = "Copied";
+          setTimeout(() => {
+            b.textContent = label;
+          }, 1500);
+        },
+        () => toast?.("Failed to copy: select the text and copy it yourself", "error"),
+      );
+  });
+  return b;
+}
+
+const FOCUSABLE = "button, [href], input, select, textarea, [tabindex]";
+
+/**
+ * Keeps Tab and Shift+Tab inside `container` (a dialog, drawer or panel); call it from the
+ * container's keydown handler. Focus outside the container comes back in at the matching end.
+ */
+export function trapTab(container, e) {
+  if (e.key !== "Tab") return;
+  const items = [...container.querySelectorAll(FOCUSABLE)].filter(
+    (n) => !n.disabled && n.tabIndex >= 0 && n.getClientRects().length > 0,
+  );
+  const at = items.indexOf(document.activeElement);
+  const edge = e.shiftKey ? 0 : items.length - 1;
+  if (at !== -1 && at !== edge) return;
+  e.preventDefault();
+  items.at(e.shiftKey ? -1 : 0)?.focus();
 }
 
 export function slug(s) {
@@ -145,10 +201,20 @@ export function fmtMs(ms) {
   return `${(ms / 86_400_000).toFixed(1)}d`;
 }
 
-export function clock(iso) {
+const pad = (n) => String(n).padStart(2, "0");
+
+/** Local time of day, 24-hour: "19:01", or "19:01:08" with seconds. The one clock every view uses. */
+export function clock(iso, { seconds = false } = {}) {
   const t = new Date(iso);
   if (Number.isNaN(t.getTime())) return "";
-  return `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+  return `${pad(t.getHours())}:${pad(t.getMinutes())}${seconds ? `:${pad(t.getSeconds())}` : ""}`;
+}
+
+/** Local date and time: "Oct 21, 2026 19:01". */
+export function dateTime(iso) {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return "";
+  return `${t.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })} ${clock(t)}`;
 }
 
 // Action ids the server handles via POST /api/actions. plan-save/plan-refine are wired but
@@ -259,9 +325,6 @@ function modeSelect(contact, action, ctx, key) {
 export function isWired(action) {
   return WIRED.has(action.id);
 }
-
-/** Lifecycle order for phase names; unknown phases sort after these in arrival order. */
-export const PHASE_ORDER = ["isolate", "plan", "execute", "verify", "review", "deliver", "complete"];
 
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 export const KEY_DIR = {
