@@ -175,6 +175,16 @@ test("a terminal the frontend stops listing is offline and leaves the load count
   expect(watcher.extras("lab").load).toEqual({ live: 1, open: 1 });
 });
 
+test("a terminal the frontend stops listing disables Focus as terminal closed", async () => {
+  const { watcher, fake, home } = await setup();
+  fake.world.terminals = [{ handle: "t1", incarnationId: "t1-inc", worktree: "/wt/a", connected: true }];
+  await watcher.pass();
+  const projection = await loadProjection(home, "lab", DEFAULT_SETTINGS, Date.parse("2026-01-01T00:10:00Z"), watcher.extras("lab"));
+  const focus = (ticket: string) => projection.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === "focus");
+  expect(focus("CHR-3")).toMatchObject({ enabled: false, reason: "terminal closed" });
+  expect(focus("CHR-1")?.enabled).toBe(true);
+});
+
 test("a live mission remains owned when its recorded terminal incarnation is stale", async () => {
   const { watcher, fake } = await setup();
   fake.world.terminals = [{ handle: "t1", incarnationId: "replacement-inc", worktree: "/wt/a", connected: true }];

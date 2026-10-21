@@ -19,7 +19,6 @@ export interface ProjectionExtras {
   gone?: ReadonlySet<string>;
   /** Tickets of decision contacts that currently have an open agent pane. */
   decisionPanes?: ReadonlySet<string>;
-  /** File existence checks (because we don't parse the JSON here). */
 }
 
 export async function loadProjection(
@@ -43,6 +42,7 @@ export async function loadProjection(
     load: extras.load ?? { live: own, open: own },
     cap: settings.cap,
     decisionPanes: extras.decisionPanes,
+    vanished: extras.vanished,
     integrationDirty: extras.integrationDirty ?? null,
     recoveryWaits,
     now,
