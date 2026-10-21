@@ -81,18 +81,6 @@ interface RouteContext {
 /** Returns the JSON body of a 200 answer, unless it already answered `res` itself. */
 type Route = (ctx: RouteContext) => unknown;
 
-/** On these routes a failure that is not an HttpError is the caller's input being rejected: 400, not 500. */
-function asBadRequest(route: Route): Route {
-  return async (ctx) => {
-    try {
-      return await route(ctx);
-    } catch (error) {
-      if (error instanceof HttpError) throw error;
-      throw new HttpError(400, messageOf(error));
-    }
-  };
-}
-
 const assetCache = new Map<string, { mtimeMs: number; body: string }>();
 /** A web/ file's text, re-read only when its mtime moves so edits show without a restart; null when missing. */
 async function readAsset(name: string): Promise<string | null> {
@@ -302,7 +290,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         throw new HttpError(400, "Provide exactly one op or archive");
       return service.intel(op ? { op } : { archive: archive! });
     },
-    "POST /api/operations": asBadRequest(async ({ req }) => {
+    "POST /api/operations": async ({ req }) => {
       if (!service.createOperation) throw new HttpError(404, "Operation creation is unavailable");
       const body = await readBody(req);
       const project = typeof body.project === "string" && body.project.length ? body.project : undefined;
@@ -341,11 +329,11 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       };
       const created = await service.createOperation(spec);
       return { id: created.id };
-    }),
+    },
     "GET /api/repos": () => service.repos(),
-    "POST /api/projects/detect": asBadRequest(async ({ req }) => service.detect(requireString(await readBody(req), "repo"))),
+    "POST /api/projects/detect": async ({ req }) => service.detect(requireString(await readBody(req), "repo")),
     "GET /api/projects": () => service.projects(),
-    "POST /api/projects": asBadRequest(async ({ req }) => {
+    "POST /api/projects": async ({ req }) => {
       const body = await readBody(req);
       const repo = requireString(body, "repo");
       for (const key of ["id", "name", "base", "integration", "tracker", "fleet", "frontend", "delivery", "worktreeRoot"])
@@ -365,16 +353,16 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         ...(typeof body.worktreeRoot === "string" ? { worktreeRoot: body.worktreeRoot } : {}),
       };
       return service.createProject(spec);
-    }),
+    },
     "GET /api/project-config": ({ url }) => service.projectConfig(requireParam(url, "project")),
-    "POST /api/project-config": asBadRequest(async ({ req }) => {
+    "POST /api/project-config": async ({ req }) => {
       const body = await readBody(req);
       return service.setProjectField(requireString(body, "project"), requireString(body, "field"), requireString(body, "value"));
-    }),
-    "POST /api/projects/remove": asBadRequest(async ({ req }) => {
+    },
+    "POST /api/projects/remove": async ({ req }) => {
       await service.deleteProject(requireString(await readBody(req), "id"));
       return { ok: true };
-    }),
+    },
     "POST /api/project-graph": async ({ req }) => {
       const body = await readBody(req);
       const project = requireString(body, "project");
@@ -383,7 +371,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       return op === "install" ? service.installGraphService(project) : service.restartGraphService(project);
     },
     "GET /api/notes": ({ url }) => service.notes(requireParam(url, "op")),
-    "PUT /api/notes": asBadRequest(async ({ req }) => {
+    "PUT /api/notes": async ({ req }) => {
       const body = await readBody(req);
       const op = requireString(body, "op");
       // Empty notes are allowed: clearing the pad is a normal edit.
@@ -391,12 +379,12 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       const text = body.text;
       const base = body.base !== undefined ? requireString(body, "base") : "";
       return service.setNotes(op, text, base);
-    }),
+    },
     "GET /api/drafts": ({ url }) => {
       const id = url.searchParams.get("id");
       return id ? service.draft(id) : service.listDrafts();
     },
-    "POST /api/drafts": asBadRequest(async ({ req }) => {
+    "POST /api/drafts": async ({ req }) => {
       if (!service.createDraft) throw new HttpError(404, "Drafts are unavailable");
       const body = await readBody(req);
       const text = requireString(body, "text");
@@ -409,11 +397,11 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         ...(typeof body.repo === "string" ? { repo: body.repo } : {}),
         ...(body.model !== undefined ? { model: body.model as string | null } : {}),
       });
-    }),
-    "POST /api/drafts/close": asBadRequest(async ({ req }) => {
+    },
+    "POST /api/drafts/close": async ({ req }) => {
       await service.closeDraft(requireString(await readBody(req), "id"));
       return { ok: true };
-    }),
+    },
     "GET /api/plan": async ({ url }) => {
       const op = url.searchParams.get("op");
       const contact = url.searchParams.get("contact");
@@ -444,7 +432,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       const body = await readBody(req);
       return { id: await service.addZone(requireString(body, "op"), requireString(body, "label").trim()) };
     },
-    "POST /api/contacts": asBadRequest(async ({ req }) => {
+    "POST /api/contacts": async ({ req }) => {
       const body = await readBody(req);
       const blockedBy = body.blockedBy;
       if (blockedBy !== undefined && (!Array.isArray(blockedBy) || blockedBy.some((t) => typeof t !== "string")))
@@ -471,7 +459,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         ...(recommended !== undefined ? { recommended: recommended as string } : {}),
       });
       return { ticket: added.ticket };
-    }),
+    },
     "GET /api/projection": ({ url }) => service.projection(requireParam(url, "op")),
     "GET /api/usage": ({ url }) => {
       if (!service.usage) throw new HttpError(404, "Usage sampling is unavailable");

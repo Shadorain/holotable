@@ -332,7 +332,10 @@ export interface BoardHooks {
   now?: () => number;
 }
 
-/** Validation failures from settings and operation edits are the operator's input, not a server fault. */
+/**
+ * The one place a failure that is not an HttpError becomes a 400: around the operator's edits and
+ * creations, whose store validation rejects their input. Anything outside it reaches the server as a 500.
+ */
 async function asBadRequest<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
@@ -623,16 +626,9 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       }));
     },
     projectConfig,
-    async createProject(input) {
+    createProject: (input) => asBadRequest(async () => {
       const { defaults } = await readSettings(home);
-      const run = hooks.run ?? createRun();
-      let detected: DetectionResult;
-      try {
-        detected = await detectRepo(input.repo, run);
-      } catch (error) {
-        throw new HttpError(400, messageOf(error));
-      }
-
+      const detected = await detectRepo(input.repo, hooks.run ?? createRun());
       const topRepo = detected.fields.integration;
 
       // One repo is one project: re-creating for a repo that already has a project reuses it.
@@ -653,27 +649,25 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       const pause = input.pause ?? defaults.pause;
       const worktreeRoot = input.worktreeRoot ?? detected.fields.worktreeRoot;
 
-      const project = await asBadRequest(async () =>
-        validateProject({
-          v: 1,
-          id,
-          name: input.name?.trim() || from || id,
-          repo: topRepo,
-          base,
-          integration,
-          pause,
-          tracker,
-          fleet,
-          frontend,
-          delivery,
-          createdAt: new Date(now()).toISOString(),
-          ...(worktreeRoot ? { worktreeRoot } : {}),
-        }),
-      );
-      await asBadRequest(() => createProject(home, project));
+      const project = validateProject({
+        v: 1,
+        id,
+        name: input.name?.trim() || from || id,
+        repo: topRepo,
+        base,
+        integration,
+        pause,
+        tracker,
+        fleet,
+        frontend,
+        delivery,
+        createdAt: new Date(now()).toISOString(),
+        ...(worktreeRoot ? { worktreeRoot } : {}),
+      });
+      await createProject(home, project);
       reposCache = null;
       return { id };
-    },
+    }),
     async setProjectField(id, field, value) {
       if (!(PROJECT_FIELDS as readonly string[]).includes(field)) throw new HttpError(400, `Unknown field "${field}"`);
       // Project paths are absolute on the wire; resolve("/") is a pass-through for them.
@@ -717,7 +711,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       });
       const using = await operationsUsingProject(home, id);
       if (using.length) throw new HttpError(409, `Project ${id} has open operations (${using.join(", ")})`);
-      await removeProjectDir(home, id);
+      await asBadRequest(() => removeProjectDir(home, id));
       reposCache = null;
     },
     async notes(opId) {
@@ -733,7 +727,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         throw new HttpError(400, messageOf(error));
       }
     },
-    async createDraft(input) {
+    createDraft: (input) => asBadRequest(async () => {
       const ports = hooks.drafts;
       if (!ports) throw new HttpError(404, "Drafts are unavailable without a frontend runtime");
       const text = input.text;
@@ -787,13 +781,13 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         throw error;
       }
       return { id };
-    },
+    }),
     async draft(id) {
       const entry = await draftEntry(home, id);
       if (!entry) return { id, state: "missing", createdAt: "" };
       return entry;
     },
-    async closeDraft(id) {
+    closeDraft: (id) => asBadRequest(async () => {
       const doc = await readDraftDoc(home, id);
       if (doc?.terminal && hooks.drafts) {
         const frontend = await hooks.drafts.frontend(doc.frontend, doc.worktreeRoot).catch(() => null);
@@ -801,7 +795,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       }
       await recordDraftUsage(home, id, new Date(now()).toISOString());
       await removeDraft(home, id);
-    },
+    }),
     async listDrafts() {
       return listDrafts(home);
     },
@@ -821,22 +815,17 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       reposCache = { timestamp: n, result: rows };
       return rows;
     },
-    async detect(repo: string) {
-      const run = hooks.run ?? createRun();
-      try {
-        const detected = await detectRepo(repo, run);
-        const { defaults } = await readSettings(home);
-        return {
-          fields: { ...detected.fields, pause: defaults.pause },
-          reasons: {
-            ...detected.reasons,
-            pause: defaults.pause ? "Settings mission mode: pause" : "Settings mission mode: auto",
-          },
-        };
-      } catch (error) {
-        throw new HttpError(400, messageOf(error));
-      }
-    },
+    detect: (repo) => asBadRequest(async () => {
+      const detected = await detectRepo(repo, hooks.run ?? createRun());
+      const { defaults } = await readSettings(home);
+      return {
+        fields: { ...detected.fields, pause: defaults.pause },
+        reasons: {
+          ...detected.reasons,
+          pause: defaults.pause ? "Settings mission mode: pause" : "Settings mission mode: auto",
+        },
+      };
+    }),
     ...(hooks.usage
       ? {
           usage: async (opId: string | null) => {
