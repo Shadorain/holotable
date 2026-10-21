@@ -259,20 +259,35 @@ describe("recovery: relaunch", () => {
     expect(t.fake.count("frontend.openTerminal")).toBe(0);
   });
 
-  test("automatic relaunch ignores the frontend's leftover setup tab, but not a second session beside it", async () => {
+  test("automatic relaunch ignores the frontend's leftover setup tab and idle shell, but not a session beside them", async () => {
     const t = await setup();
-    const setupTab = { handle: "setup-tab", incarnationId: "s1", worktree: "/wt/a", connected: true, setup: true };
-    t.fake.world.terminals = [setupTab];
+    const setupTab = { handle: "setup-tab", incarnationId: "s1", worktree: "/wt/a", connected: true, session: false };
+    const shell = { handle: "shell", incarnationId: "sh1", worktree: "/wt/a", connected: true, session: false };
+    t.fake.world.terminals = [setupTab, shell];
     t.dead("a");
     t.vanished.add("a");
     await t.act({ op: "lab", contact: "a", action: "relaunch", args: {}, by: "recover" });
     expect(t.fake.count("frontend.openTerminal")).toBe(1);
 
-    const busy = await setup();
-    busy.fake.world.terminals = [setupTab, { handle: "resumed", incarnationId: "r1", worktree: "/wt/a", connected: true }];
-    busy.dead("a");
-    busy.vanished.add("a");
-    await expect(busy.act({ op: "lab", contact: "a", action: "relaunch", args: {}, by: "recover" })).rejects.toThrow("empty workspace");
+    for (const other of [
+      { handle: "resumed", incarnationId: "r1", worktree: "/wt/a", connected: true, session: true },
+      { handle: "unknown", incarnationId: "u1", worktree: "/wt/a", connected: true },
+    ]) {
+      const busy = await setup();
+      busy.fake.world.terminals = [setupTab, shell, other];
+      busy.dead("a");
+      busy.vanished.add("a");
+      await expect(busy.act({ op: "lab", contact: "a", action: "relaunch", args: {}, by: "recover" })).rejects.toThrow("empty workspace");
+      expect(busy.fake.count("frontend.openTerminal")).toBe(0);
+    }
+  });
+
+  test("the recorded pane blocks automatic relaunch even when the frontend calls it an idle shell", async () => {
+    const t = await setup();
+    t.fake.world.terminals = [{ handle: "t1", incarnationId: "t1-inc", worktree: "/wt/a", connected: true, session: false }];
+    t.dead("a");
+    t.vanished.add("a");
+    await expect(t.act({ op: "lab", contact: "a", action: "relaunch", args: {}, by: "recover" })).rejects.toThrow("empty workspace");
   });
 
   test("disabling Recovery prevents stale automatic actions from touching panes or missions", async () => {

@@ -235,8 +235,8 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
       throw new ActionError(409, "refused", "Automatic relaunch requires terminal inventory; inspect the existing pane");
     const worktree = await realpath(lane.worktree).catch(() => resolve(lane.worktree));
     for (const row of listed) {
-      // The frontend's setup-hook tab stays open after setup; it is not a second session.
-      if (row.setup && row.handle !== terminal.handle) continue;
+      // The frontend's leftover setup tab or idle shell is not a second session.
+      if (row.session === false && row.handle !== terminal.handle) continue;
       const path = await realpath(row.worktree).catch(() => resolve(row.worktree));
       if (path === worktree || row.handle === terminal.handle)
         throw new ActionError(409, "refused", "Automatic relaunch requires an empty workspace; use the existing pane or inspect it before manual Relaunch");

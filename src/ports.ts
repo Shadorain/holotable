@@ -49,8 +49,11 @@ export interface TrackerPort {
 }
 
 
-/** `setup`: the frontend's own tab running the worktree's setup hook, never an agent session. */
-export type ListedTerminal = TerminalRef & { worktree: string; connected: boolean; agent?: string | null; setup?: boolean };
+/**
+ * `session: false`: the frontend knows the row is not an agent session (its setup-hook tab, an idle shell).
+ * Absent or true: it is, or may be, one.
+ */
+export type ListedTerminal = TerminalRef & { worktree: string; connected: boolean; session?: boolean };
 
 export interface WorkspaceInput {
   repo: string;

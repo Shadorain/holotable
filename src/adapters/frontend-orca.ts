@@ -11,7 +11,22 @@ interface OrcaTerminalRow {
   incarnationId: string;
   worktreePath: string;
   connected: boolean;
-  setup: boolean;
+  session: boolean;
+}
+
+const SHELLS: Record<string, true> = { sh: true, bash: true, zsh: true, fish: true, dash: true, ksh: true, mksh: true, tcsh: true, csh: true, nu: true, pwsh: true, xonsh: true, elvish: true };
+
+/**
+ * Orca leaves an idle default shell (untitled, or titled after the shell) and the "Setup" tab that ran
+ * the worktree's setup hook (worktree create, local and remote) in a worktree. Omp titles its pane
+ * "π …"; any other title may be a session still starting, so it counts as one.
+ */
+function isSession(title: unknown): boolean {
+  if (title === null || title === undefined) return false;
+  if (typeof title !== "string") return true;
+  const name = title.trim();
+  if (name === "" || name === "Setup") return false;
+  return SHELLS[name.split("/").at(-1) as string] !== true;
 }
 
 function parseTerminalList(payload: Record<string, unknown>): OrcaTerminalRow[] {
@@ -31,8 +46,7 @@ function parseTerminalList(payload: Record<string, unknown>): OrcaTerminalRow[] 
       incarnationId: value.incarnationId,
       worktreePath: value.worktreePath,
       connected: value.connected === true,
-      // Orca names the tab that runs a worktree's setup hook "Setup" (worktree create, local and remote).
-      setup: value.title === "Setup",
+      session: isSession(value.title),
     });
   }
   return rows;
@@ -153,7 +167,7 @@ export function orcaFrontend(run: Run): FrontendPort {
         incarnationId: row.incarnationId,
         worktree: row.worktreePath,
         connected: row.connected,
-        setup: row.setup,
+        session: row.session,
       }));
     },
 

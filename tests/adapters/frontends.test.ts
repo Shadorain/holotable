@@ -198,6 +198,14 @@ describe("orca frontend", () => {
     expect(calls.at(-1)?.args).toEqual(["worktree", "rm", "--worktree", "path:/wt", "--json"]);
   });
 
+  test("listTerminals marks idle shells and the Setup tab as non-sessions; omp and unknown titles count", async () => {
+    const titles = [null, "", "Setup", "zsh", "/bin/bash", "π - CHR-154-CONFLICT-2 Resolve - conflict-2", "CHR-154 Release", "idle"];
+    const terminals = titles.map((title, i) => ({ handle: `h${i}`, incarnationId: `i${i}`, worktreePath: "/wt", connected: true, title }));
+    const { run } = fakeRun(() => jsonReply({ id: "t", ok: true, result: { terminals }, _meta: { runtimeId: "t" } }));
+    const rows = await orcaFrontend(run).listTerminals();
+    expect(rows?.map((row) => row.session)).toEqual([false, false, false, false, false, true, true, true]);
+  });
+
   test("envelope failures throw PortError", async () => {
     const bad = fakeRun(() => jsonReply({ ok: false, error: { code: "boom", message: "broke" } }));
     await expect(orcaFrontend(bad.run).listTerminals()).rejects.toBeInstanceOf(PortError);
