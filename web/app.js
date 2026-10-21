@@ -169,6 +169,9 @@ const opPick = dropdown({
     // Archive and project pages are not about one operation; choosing one means "go look at it".
     if (state.view === "archive" || state.view === "project" || state.view === "projects") setView("board");
     poll();
+    // The picker refocuses itself on close, and a focused picker takes 1/2/3 as type-ahead. A pick means
+    // "go look at it", so hand the keys back to the board.
+    setTimeout(() => opPick.btn.blur());
   },
 });
 $("op").append(opPick.root);
