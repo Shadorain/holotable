@@ -578,7 +578,8 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan) {
   }
   const bar = progress(contact);
   if (bar) body.append(bar);
-  if (contact.state !== "blocked") {
+  // Waiting on other tickets is shown by "Waits for" below; a contact blocked by a setting needs its reason here.
+  if (contact.state !== "blocked" || contact.blockedBy.every((b) => b.landed)) {
     const problem = contact.problem;
     const next = el("div", `next s-${problem ? "hold" : contact.state}`);
     const message = problem?.retryAt
