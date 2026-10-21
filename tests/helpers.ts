@@ -200,7 +200,6 @@ export function fakePorts() {
       listTerminals: async () => call("frontend", "listTerminals", null, () => world.terminals),
       focus: async (t, w, purpose) => call("frontend", "focus", { t, w, purpose }, () => undefined),
       close: async (t, w) => call("frontend", "close", { t, w }, () => undefined),
-      type: async (t, w, chunks) => call("frontend", "type", { t, w, chunks }, () => undefined),
       removeWorkspace: async (i) => call("frontend", "removeWorkspace", i, () => undefined),
     },
     delivery: {

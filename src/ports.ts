@@ -87,11 +87,6 @@ export interface FrontendPort {
   /** Bring the terminal forward. `purpose` is advisory (e.g. "plan-approval"); frontends may ignore it. */
   focus(t: TerminalRef, worktree: string, purpose?: string): Promise<void>;
   close(t: TerminalRef, worktree: string): Promise<void>;
-  /**
-   * Write raw input into the terminal: each chunk is sent as-is (escape sequences included, no Enter appended),
-   * a short pause apart so the program handles one before the next. Absent: the frontend cannot type into panes.
-   */
-  type?(t: TerminalRef, worktree: string, chunks: string[]): Promise<void>;
   removeWorkspace(i: { repo: string; worktree: string }): Promise<void>;
 }
 

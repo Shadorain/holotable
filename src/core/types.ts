@@ -45,7 +45,7 @@ export type Actor = "operator" | "model" | "mission" | "board";
 export const HOLDS = ["none", "plan-approval", "resume", "gate", "blocked", "quota", "question"] as const;
 
 /** Socket ops beyond the UI-exposed operator set: plan reading (no operator flag) is `FleetPort.readPlan`. */
-export const CONTROL_OPS = [...OPERATOR_OPS, "plan-edit", "plan-refine"] as const;
+export const CONTROL_OPS = [...OPERATOR_OPS, "plan-edit", "plan-refine", "answer"] as const;
 
 export type Tracker = (typeof TRACKERS)[number];
 export type Fleet = (typeof FLEETS)[number];
@@ -434,7 +434,7 @@ export interface ContactStatus {
 export interface AskQuestion { question: string; options: string[]; recommended: number | null; multi: boolean }
 export interface MissionAsk { id: string; questions: AskQuestion[] }
 /** The operator's answer to one question: an option's index, or free text typed into "Other". */
-export type AskAnswer = { option: number } | { text: string };
+export type AskAnswer = { option: number } | { options: number[] } | { text: string };
 
 // ---- delivery (C6) ----
 

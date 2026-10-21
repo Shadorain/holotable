@@ -1,22 +1,23 @@
 import { expect, test } from "bun:test";
-import { askKeys } from "../../src/core/ask.ts";
+import { askAnswers } from "../../src/core/ask.ts";
 
-const UP = "\x1b[A", DOWN = "\x1b[B", ENTER = "\r";
-const q = (options: string[], recommended: number | null = 0, multi = false) => ({ question: "Q?", options, recommended, multi });
+const ask = {
+  id: "c",
+  questions: [
+    { question: "One?", options: ["a", "b"], recommended: 0, multi: false },
+    { question: "Many?", options: ["x", "y", "z"], recommended: null, multi: true },
+  ],
+};
 
-test("an option is reached from the top row whatever the cursor; one question submits on its Enter", () => {
-  expect(askKeys({ id: "c", questions: [q(["a", "b", "c"], 2)] }, [{ option: 0 }])).toEqual([UP.repeat(4), ENTER]);
-  expect(askKeys({ id: "c", questions: [q(["a", "b", "c"])] }, [{ option: 2 }])).toEqual([UP.repeat(4) + DOWN.repeat(2), ENTER]);
+test("answers are an option per single-select question, options per multi-select, or trimmed free text", () => {
+  expect(askAnswers(ask, [{ option: 1 }, { options: [2, 0] }])).toEqual([{ option: 1 }, { options: [2, 0] }]);
+  expect(askAnswers(ask, [{ text: "  neither  " }, { text: "all" }])).toEqual([{ text: "neither" }, { text: "all" }]);
 });
 
-test("free text goes through Other as one line; several questions end on the Review tab's Enter", () => {
-  const keys = askKeys({ id: "c", questions: [q(["a", "b"]), q(["x"])] }, [{ text: " use\nthe   outbox " }, { option: 0 }]);
-  expect(keys).toEqual([UP.repeat(3) + DOWN.repeat(2), ENTER, "use the outbox", ENTER, UP.repeat(2), ENTER, ENTER]);
-});
-
-test("answers the dialog cannot take are refused before anything is typed", () => {
-  expect(() => askKeys({ id: "c", questions: [q(["a"])] }, [])).toThrow(/Answer all 1 question/);
-  expect(() => askKeys({ id: "c", questions: [q(["a"])] }, [{ option: 1 }])).toThrow(/no option 1/);
-  expect(() => askKeys({ id: "c", questions: [q(["a"])] }, [{ text: "  " }])).toThrow(/needs an option or some text/);
-  expect(() => askKeys({ id: "c", questions: [q(["a", "b"], 0, true)] }, [{ option: 0 }])).toThrow(/Multi-select/);
+test("answers the dialog cannot take are refused before anything is sent", () => {
+  expect(askAnswers(ask, [{ option: 0 }])).toBe("Answer all 2 questions");
+  expect(askAnswers(ask, [{ option: 2 }, { options: [0] }])).toBe("Question 1 has no option 2");
+  expect(askAnswers(ask, [{ options: [0] }, { options: [0] }])).toBe("Question 1 has no option undefined");
+  expect(askAnswers(ask, [{ option: 0 }, { options: [] }])).toBe("Question 2 needs one or more of its options");
+  expect(askAnswers(ask, [{ text: " " }, { options: [0] }])).toBe("Question 1 needs an option or some text");
 });

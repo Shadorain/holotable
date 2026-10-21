@@ -203,7 +203,7 @@ loadTheme();
 const PAST = {
   launch: "launched", land: "landed", "land-anyway": "landed past failing checks", approve: "approved", continue: "continued", review: "sent to review",
   dispatch: "dispatched", check: "PR check started", done: "marked done", reap: "terminal closed", focus: "focused", mode: "mode changed",
-  "plan-save": "plan saved", "plan-refine": "refinement sent to the mission", answer: "answer typed into the mission",
+  "plan-save": "plan saved", "plan-refine": "refinement sent to the mission", answer: "question answered",
   relaunch: "reopened", redecide: "decision changed", "decide-agent": "agent asked to decide",
   resend: "worker retry requested", release: "blocker release requested", "retry-model": "switched model and retrying",
 };

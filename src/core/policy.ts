@@ -10,9 +10,6 @@ import type {
   PolicyInput,
 } from "./types.ts";
 
-/** Frontends whose port implements `type()`, so the board can answer a mission's question in its pane. */
-const TYPING_FRONTENDS: readonly string[] = ["orca"];
-
 /** Observation is not control authority; an active review can stay quiet until its deadline. */
 export function hasRecentUncontrolledStatus(status: PolicyInput["status"], now: number): boolean {
   if (!status || status.ctl !== null) return false;
@@ -120,18 +117,15 @@ export function actionsFor(i: PolicyInput): ActionView[] {
     return view(
       "focus",
       status?.hold === "question" ? "Answer in mission" : "Focus",
-      status?.hold === "question" && !status.ask,
+      status?.hold === "question" && !status.actions.includes("answer"),
       ok,
       ok ? null : i.terminalMissing ? "terminal closed" : terminal === null ? "no terminal recorded" : "no frontend",
     );
   };
-  /** Answering the mission's open `ask` from the board: typed into its pane, so only frontends that can type. */
+  /** Answering the mission's open `ask` from the board, over the socket; offered only while the pane says it can take it. */
   const answer = (): ActionView[] => {
-    if (status?.hold !== "question" || !status.ask) return [];
-    const reason = terminal === null || i.terminalMissing ? "terminal closed"
-      : !TYPING_FRONTENDS.includes(contact.lane?.frontend ?? "") ? "this frontend cannot type into the pane"
-      : status.ask.questions.some((q) => q.multi) ? "multi-select questions are answered in the pane"
-      : null;
+    if (status?.hold !== "question" || !status.ask || !status.actions.includes("answer")) return [];
+    const reason = status.ctl === null ? "no control socket" : owner !== "live" ? "owner-offline" : null;
     return [view("answer", "Answer", true, reason === null, reason)];
   };
   const reap = (): ActionView => {
