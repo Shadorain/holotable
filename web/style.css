@@ -232,15 +232,11 @@ body[data-view="table"] .list, body[data-view="plan"] .list, body[data-view="pla
   body[data-view="plan"] main { grid-template-columns: 1fr; grid-template-rows: auto; grid-template-areas: "tabs" "map" "history"; }
   .stage { aspect-ratio: 1; max-height: 80vh; overflow: hidden; }
   .plan-map { overflow: auto; max-height: 75vh; }
+  .op-pick .cmp-dd-btn { min-width: 180px; }
 }
-@media (max-width: 760px) {
-  body { overflow-x: hidden; }
-  .top { position: relative; gap: 8px; }
-  .op-pick .cmp-dd { flex: 1; }
-  .op-pick .cmp-dd-btn { min-width: 0; width: 100%; }
-  .op-pick { flex: 1 1 100%; }
-  .toggle button { padding: 6px 10px; }
-  .toggle button > span, .top > .grow { display: none; }
+/* Below this the stats no longer fit beside the picker and toggle: they fold behind More (desktop too). */
+@media (max-width: 1440px) {
+  .top { position: relative; }
   .top > .more-btn { display: inline-flex; margin-left: auto; }
   .more-pop.open {
     position: absolute; z-index: 900; top: calc(100% + 6px); right: 0; min-width: 220px;
@@ -251,6 +247,15 @@ body[data-view="table"] .list, body[data-view="plan"] .list, body[data-view="pla
   .more-pop .stats { order: -1; flex-direction: column; align-items: flex-start; gap: 10px; }
   .more-pop .stats .stat + .stat { margin-left: 0; padding-left: 0; border-left: 0; }
   .more-pop .crumb { padding: 0; height: auto; }
+}
+@media (max-width: 760px) {
+  body { overflow-x: hidden; }
+  .top { position: relative; gap: 8px; }
+  .op-pick .cmp-dd { flex: 1; }
+  .op-pick .cmp-dd-btn { min-width: 0; width: 100%; }
+  .op-pick { flex: 1 1 100%; }
+  .toggle button { padding: 6px 10px; }
+  .toggle button > span, .top > .grow { display: none; }
   /* One Board panel at a time; the tabs stay in reach while the page scrolls. */
   body[data-view="board"] main { grid-template-columns: 1fr; grid-template-areas: "tabs" "pane"; align-content: start; }
   body[data-view="board"] .board-tabs { display: flex; position: sticky; top: 0; z-index: 5; }
