@@ -28,7 +28,7 @@ const OPERATION_PLAYBOOKS = {
     title: `Review churn: ${rule.evidence.numerator} failed rounds`,
     severity: "critical",
     stats: e.quality && (e.quality.completedRounds + e.quality.reviewFailures) > 0
-      ? `${rule.evidence.numerator} failures across ${e.quality.completedRounds + e.quality.reviewFailures} review operations (${Math.round(e.quality.reviewFailures / (e.quality.completedRounds + e.quality.reviewFailures) * 100)}% failure rate)` + (e.fleet.repairLinks ? ` · ${e.fleet.repairLinks} repair links opened` : "")
+      ? `${rule.evidence.numerator} failure${rule.evidence.numerator === 1 ? "" : "s"} across ${e.quality.completedRounds + e.quality.reviewFailures} review operations (${Math.round(e.quality.reviewFailures / (e.quality.completedRounds + e.quality.reviewFailures) * 100)}% failure rate)` + (e.fleet.repairLinks ? ` · ${e.fleet.repairLinks} repair links opened` : "")
       : `${rule.evidence.numerator} review round failures recorded`,
     detail: "Failed review operations are not completed rounds and not proof of defects — but retries at this rate dominate the review phase. Check reviewer model quota and contact scope before accepting the churn as normal.",
     culprits: rule.evidence.contacts,
@@ -217,7 +217,7 @@ export function fleetDocket(rollup, ctx) {
     cases.push({
       id: "fleet-review-fail", severity: "critical",
       title: `${Math.round(reviewFail.rate * 100)}% of review operations failed`,
-      stats: `${reviewFail.value} failures across ${reviewFail.denominator} review operations · ${reviewFail.operations} operation${reviewFail.operations === 1 ? "" : "s"}`,
+      stats: `${reviewFail.value} failure${reviewFail.value === 1 ? "" : "s"} across ${reviewFail.denominator} review operation${reviewFail.denominator === 1 ? "" : "s"} · ${reviewFail.operations} operation${reviewFail.operations === 1 ? "" : "s"}`,
       detail: "Review retries are burning rounds without completing them. Check reviewer model capacity and contact scope before widening review concurrency.",
       fixes: [
         { label: "Check reviewer model quota", text: "Settings → AI & Models → Load subscription quotas.", kind: "note" },
