@@ -14,8 +14,6 @@ function outcomePill(outcome) {
   return el("span", `pill s-${OUTCOME_STATE[outcome] ?? "blocked"}`, OUTCOME[outcome] ?? outcome);
 }
 
-
-
 function listView(root, archive, ctx) {
   const box = el("section", "opdoc-sec");
   const head = el("div", "opdoc-head");
