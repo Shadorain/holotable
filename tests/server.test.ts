@@ -227,9 +227,8 @@ test("history returns every entry newest first, with who acted", async () => {
 
 test("settings: valid changes persist, invalid ones are a 400 with the reason, cross-origin writes are refused", async () => {
   const { api } = await boot();
-  const initial = (await (await api("/api/settings")).json()) as { settings: { theme: string; worktrees: { root: string } }; restartFields: string[]; themes: string[] };
+  const initial = (await (await api("/api/settings")).json()) as { settings: { theme: string; worktrees: { root: string } }; themes: string[] };
   expect(initial.settings.theme).toBe("holo");
-  expect(initial.restartFields).toEqual([]);
   const put = await api("/api/settings", { method: "PUT", body: { key: "theme", value: "omp" } });
   expect(put.status).toBe(200);
   expect(((await (await api("/api/settings")).json()) as { settings: { theme: string } }).settings.theme).toBe("omp");

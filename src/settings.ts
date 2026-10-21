@@ -67,9 +67,6 @@ export const SETTING_KEYS = [
   "ai.mission",
 ] as const;
 
-/** Keys the running service only picks up after a restart. */
-export const RESTART_KEYS: readonly string[] = [] as const;
-
 function integerIn(value: unknown, min: number, max: number): value is number {
   return (
     typeof value === "number" &&

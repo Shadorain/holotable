@@ -52,7 +52,7 @@ import type { FrontendPort, Run, TrackerHit, TrackerPort } from "./ports.ts";
 import { listArchive, readArchive, readArchiveReport } from "./store/archive.ts";
 import { readBrief, writeBrief } from "./store/brief.ts";
 import { readEvents } from "./store/events.ts";
-import { displaySettingsPath, RESTART_KEYS, setSettingKey } from "./settings.ts";
+import { displaySettingsPath, setSettingKey } from "./settings.ts";
 import { readBoardInfo } from "./store/board.ts";
 import { mutateSettings, readSettings } from "./store/settings.ts";
 import { readNotes, StaleRevisionError, writeNotes } from "./store/notes.ts";
@@ -89,7 +89,6 @@ export interface SettingsView {
   settings: Settings;
   /** Where the file lives, for the operator; `~/` when under home. */
   path: string;
-  restartFields: string[];
   themes: string[];
   /** The Custom frontend section matters only when something actually uses it. */
   customInUse: boolean;
@@ -130,12 +129,6 @@ export interface ActionRequest {
   by?: "auto" | "recover";
 }
 
-export interface PlanText {
-  text: string;
-  path: string;
-  revision: string;
-}
-
 export interface TrackerSearchResult {
   tracker: Tracker;
   hits: Array<TrackerHit & { taken?: true }>;
@@ -168,7 +161,7 @@ export interface BoardService {
   /** Same fields and validation as `/holotable set`, plus `project` and the `inherit` value; bad values are a 400. */
   setOperationField(opId: string, field: string, value: string): Promise<OperationConfig>;
   /** The pending plan text of a contact awaiting plan-approval; null when none. */
-  plan?(opId: string, ticket: string): Promise<PlanText | null>;
+  plan?(opId: string, ticket: string): Promise<{ text: string; path: string; revision: string } | null>;
   /** Live CPU/memory for the Load tooltip; null `op` answers only `all`+`machine`. */
   usage?(opId: string | null): Promise<UsageReport>;
   brief(opId: string): Promise<{ brief: string | null; seed: { text: string } | null; createdAt: string }>;
@@ -370,7 +363,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       (await Promise.all(rows.map((row) => readOperation(home, row.id)))).some((op) => op.frontend === "custom");
     const memoryGb = Math.round((usableMemoryBytes() / 1024 ** 3) * 10) / 10;
     const urls = hooks.urls?.() ?? (await readBoardInfo(home))?.urls ?? [];
-    return { settings, path: displaySettingsPath(home), restartFields: [...RESTART_KEYS], themes: [...THEMES], customInUse, machine: { memoryGb, ompGb: 0.6 }, urls };
+    return { settings, path: displaySettingsPath(home), themes: [...THEMES], customInUse, machine: { memoryGb, ompGb: 0.6 }, urls };
   }
   async function operationConfig(opId: string): Promise<OperationConfig> {
     await knownOperation(opId);
