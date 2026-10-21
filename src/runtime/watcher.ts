@@ -4,7 +4,7 @@ import { foldEvents } from "../core/fold.ts";
 import { contactOf } from "../core/projection.ts";
 import { unmetBlockers } from "../core/graph.ts";
 import { messageOf } from "../core/errors.ts";
-import { MEASUREMENT_COUNTS } from "../core/evaluation.ts";
+import { validateEvent } from "../core/validate-event.ts";
 import { hasRecentUncontrolledStatus } from "../core/policy.ts";
 import type {
   Contact,
@@ -69,6 +69,22 @@ interface OpState {
   paneSigs: Map<string, string>;
 }
 
+function newOpState(): OpState {
+  return {
+    statuses: {},
+    owners: {},
+    probes: {},
+    lastSampleAt: 0,
+    open: 0,
+    vanished: new Set(),
+    gone: new Set(),
+    decisionPanes: new Set(),
+    integrationDirty: null,
+    fp: "",
+    paneSigs: new Map(),
+  };
+}
+
 const GLOBAL_FRONTENDS: Record<string, true> = { orca: true, herdr: true };
 
 /** Terminal listing is skipped unless at least one non-landed/non-reaped contact has a recorded terminal or decisionPanes is nonempty. */
@@ -109,66 +125,29 @@ function openCount(op: Operation, folded: Derived, state: OpState): number {
 
 const SAMPLE_GROUPS = ["tracker", "delivery", "workers", "omp", "usage", "mission", "measurements", "usageEvidence"] as const;
 
-/** Comparison key for one sample group; an unchanged key emits no new `sample`. */
-function sampleKey(key: keyof SampleFields, fields: SampleFields): string {
-  if (fields[key] === null) return "null";
-  switch (key) {
-    case "mission": {
-      const m = fields.mission!;
-      return JSON.stringify([m.id, m.hold, m.verify, m.complete]);
-    }
-    case "measurements": {
-      const m = fields.measurements!;
-      const c = m.config;
-      const s = m.severity;
-      return JSON.stringify([
-        m.v,
-        m.since,
-        ...MEASUREMENT_COUNTS.map((k) => m[k]),
-        s.critical,
-        s.high,
-        s.medium,
-        s.low,
-        c.graph,
-        c.frontend,
-        c.maxWorkers,
-        c.reviewConcurrency,
-        c.mode,
-      ]);
-    }
-    case "usageEvidence": {
-      const e = fields.usageEvidence!;
-      const sources = [...e.sources]
-        .sort((a, b) => (a.role < b.role ? -1 : a.role > b.role ? 1 : 0))
-        .map((s) => [
-          s.role,
-          s.id,
-          s.tokens.input,
-          s.tokens.output,
-          s.tokens.cacheRead,
-          s.tokens.cacheWrite,
-          s.costUsd,
-          s.sessions,
-          s.pricedMessages,
-          s.unpricedMessages,
-        ]);
-      return JSON.stringify([e.v, sources, e.missing, e.unsupportedWorkers, e.malformedLines, e.resets, e.backlogBytes, e.partial]);
-    }
-    case "usage": {
-      const u = fields.usage!;
-      return JSON.stringify([u.tokens.input, u.tokens.output, u.tokens.cacheRead, u.tokens.cacheWrite, u.costUsd]);
-    }
-    case "tracker": {
-      const t = fields.tracker!;
-      return JSON.stringify([t.state, t.url]);
-    }
-    case "delivery": {
-      const d = fields.delivery!;
-      return JSON.stringify([d.url, d.state, d.mergeable, d.checks]);
-    }
-    default:
-      return JSON.stringify(fields[key]);
+/** JSON with object keys sorted, so property order never reads as a change. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
+}
+
+/**
+ * Comparison key for one sample group; an unchanged key emits no new `sample`. Every field of the group
+ * counts, so a field a producer adds is watched without listing it here. The exceptions are
+ * usageEvidence.measuredAt, which moves on every read, and the order of usageEvidence.sources.
+ * `fields` must be the recorded (validated) form: seeds come from the event log, so a live field the
+ * log drops would otherwise read as a change on every pass.
+ */
+export function sampleKey(key: keyof SampleFields, fields: SampleFields): string {
+  const evidence = fields.usageEvidence;
+  if (key === "usageEvidence" && evidence) {
+    const { measuredAt: _, sources, ...rest } = evidence;
+    return canonical({ ...rest, sources: sources.map(canonical).sort() });
   }
+  return canonical(fields[key]);
 }
 
 /** What the events already say per contact, so repeated passes and restarts emit nothing twice. */
@@ -228,7 +207,9 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     }
   }
 
-  async function sample(op: Operation, ticket: string, seen: Seen, fields: SampleFields): Promise<void> {
+  async function sample(op: Operation, ticket: string, seen: Seen, live: SampleFields): Promise<void> {
+    const at = deps.now().toISOString();
+    const fields = validateEvent({ v: 1, at, kind: "sample", contact: ticket, ...live }) as Extract<Event, { kind: "sample" }>;
     const changes: SampleFields = {};
     const keys: Partial<Record<keyof SampleFields, string>> = {};
     const newRun = !!fields.mission && fields.mission.id !== seen.missionId;
@@ -243,7 +224,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       }
     }
     if (!Object.keys(changes).length) return;
-    await appendEvent(deps.home, op.id, { v: 1, at: deps.now().toISOString(), kind: "sample", contact: ticket, ...changes });
+    await appendEvent(deps.home, op.id, { v: 1, at, kind: "sample", contact: ticket, ...changes });
     if (newRun) {
       delete seen.sample.measurements;
       delete seen.sample.usageEvidence;
@@ -534,7 +515,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         return { op, events };
       });
       if (!read) continue;
-      const state = ops.get(row.id) ?? { statuses: {}, owners: {}, probes: {}, lastSampleAt: 0, open: 0, vanished: new Set<string>(), gone: new Set<string>(), decisionPanes: new Set<string>(), integrationDirty: null, fp: "", paneSigs: new Map<string,string>() };
+      const state = ops.get(row.id) ?? newOpState();
       ops.set(row.id, state);
       const listsPanes = state.decisionPanes.size > 0 || read.op.contacts.some((c) => c.kind === "decision");
       state.decisionPanes = listsPanes

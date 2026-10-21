@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { createWatcher } from "../../src/runtime/watcher.ts";
+import { createWatcher, sampleKey } from "../../src/runtime/watcher.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings.ts";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -104,6 +104,34 @@ test("samples are appended only when a watched field changes", async () => {
   fake.world.tracker.set("CHR-1", { state: "Done", url: "https://l/a" });
   await watcher.pass(null, true);
   expect((await kinds("CHR-1")).filter((k) => k === "sample")).toHaveLength(2);
+});
+
+test("a field added to a sampled group changes its sample key", () => {
+  const m = makeMeasurements(), u = makeUsageEvidence(4);
+  const [source] = u.sources;
+  expect(sampleKey("measurements", { measurements: { ...m, newCount: 1 } as typeof m })).not.toBe(sampleKey("measurements", { measurements: m }));
+  expect(sampleKey("usageEvidence", { usageEvidence: { ...u, sources: [{ ...source!, newTally: 2 } as never] } })).not.toBe(sampleKey("usageEvidence", { usageEvidence: u }));
+  expect(sampleKey("mission", { mission: { id: "r", hold: "none", verify: null, complete: false, round: 2 } as never })).not.toBe(
+    sampleKey("mission", { mission: { id: "r", hold: "none", verify: null, complete: false } }),
+  );
+});
+
+test("an unchanged sample appends nothing: measuredAt, source order and fields the log drops are not changes", async () => {
+  const t = await setup();
+  const m = makeMeasurements(), u = makeUsageEvidence(4);
+  const [coordinator] = u.sources;
+  const review = { ...coordinator!, role: "review" as const, id: "review:1" };
+  t.fake.world.statuses.set("/wt/a", status({ measurements: m, usageEvidence: { ...u, sources: [coordinator!, review] } }));
+  await t.watcher.pass();
+  const before = await readEvents(t.home, "lab");
+  t.fake.world.statuses.set("/wt/a", status({
+    measurements: { ...m, unrecorded: 1 } as typeof m,
+    usageEvidence: { ...u, measuredAt: "2026-01-02T00:00:00Z", sources: [review, coordinator!] },
+  }));
+  await t.watcher.pass(null, true);
+  await t.watcher.pass(null, true);
+  await t.make().pass(null, true);
+  expect(await readEvents(t.home, "lab")).toEqual(before);
 });
 
 test("sampling waits for sampleMs unless forced", async () => {
