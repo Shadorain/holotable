@@ -1,0 +1,1133 @@
+{
+ "open": {
+  "v": 1,
+  "asOf": 1767231000000,
+  "deliveredWork": 4,
+  "throughputPerHour": 2.6666666666666665,
+  "queue": {
+   "n": 6,
+   "medianMs": 449997.5,
+   "p90Ms": 3659995
+  },
+  "queued": {
+   "n": 1,
+   "totalMs": 5400000,
+   "maxMs": 5400000
+  },
+  "delivery": {
+   "n": 4,
+   "medianMs": 2400000,
+   "p90Ms": 2400000
+  },
+  "lead": {
+   "n": 4,
+   "medianMs": 2789998.5,
+   "p90Ms": 2879997
+  },
+  "unfinished": {
+   "n": 2,
+   "totalMs": 6600000,
+   "maxMs": 4860000
+  },
+  "dependencyWaitMs": 8999998,
+  "phaseMs": {
+   "plan": 4799995,
+   "review": 2700000,
+   "complete": 6960000
+  },
+  "gateWaitMs": 4499985,
+  "offlineMs": 600000,
+  "deliveryReadyMs": 3600000,
+  "holdMs": {
+   "gate": 4499990
+  },
+  "connectivity": {
+   "observedMs": 5100000,
+   "connectedContactMs": 11460000,
+   "peak": 5,
+   "mean": 2.2470588235294118
+  },
+  "workers": {
+   "coveredMs": 6299990,
+   "nonclosedWorkerMs": 12599980
+  },
+  "attempts": {
+   "launches": 12,
+   "relaunches": 6,
+   "launchFailures": 6,
+   "landAttempts": 10,
+   "conflicts": 3
+  },
+  "fleet": {
+   "workerAttempts": 10,
+   "workerBeads": 10,
+   "redispatches": 0,
+   "repairRound": 1,
+   "repairLinks": 0,
+   "boardResendRequests": 1
+  },
+  "usage": {
+   "basis": "mixed",
+   "tokens": {
+    "input": 250000300,
+    "output": 1,
+    "cacheRead": 2,
+    "cacheWrite": 0
+   },
+   "knownCostUsd": 2500002.25,
+   "costPerDelivered": 625000.5625,
+   "missingSources": 0,
+   "unsupportedWorkers": 0,
+   "pricedMessages": null,
+   "unpricedMessages": null,
+   "malformedLines": 1,
+   "resets": 0,
+   "backlogBytes": 0,
+   "coordinatorSessionAssociated": false,
+   "partial": true,
+   "byPhase": {
+    "plan": {
+     "tokens": 40000000,
+     "costUsd": 400000
+    },
+    "review": {
+     "tokens": 160000000,
+     "costUsd": 1600000
+    },
+    "unknown": {
+     "tokens": 200,
+     "costUsd": 1
+    },
+    "decision": {
+     "tokens": 20,
+     "costUsd": 0.25
+    }
+   },
+   "pane": {
+    "tokens": 20,
+    "costUsd": 0.25,
+    "sessions": 2
+   }
+  },
+  "quality": {
+   "since": "2026-01-01T00:00:00.000Z",
+   "recordedPassed": 5,
+   "recordedFailed": 15,
+   "repeatedFailedRevision": 10,
+   "mergePreflightFailures": 0,
+   "boundaryFailures": 0,
+   "reviewFailures": 10,
+   "acceptedRepairs": 0,
+   "completedRounds": 0,
+   "invalidatedRounds": 0,
+   "findingOccurrences": 0,
+   "latestActionable": 5,
+   "latestRejected": 0,
+   "severity": {
+    "critical": 0,
+    "high": 5,
+    "medium": 0,
+    "low": 10
+   }
+  },
+  "config": {
+   "value": {
+    "graph": "beads",
+    "frontend": "subagent",
+    "maxWorkers": 2,
+    "reviewConcurrency": 1,
+    "mode": "auto"
+   },
+   "mixed": false
+  },
+  "coverage": {
+   "timed": 7,
+   "launched": 6,
+   "usageReported": 6,
+   "legacyUsage": 1,
+   "producerEvidence": 5,
+   "clockAnomalies": 1,
+   "counterResets": 0
+  },
+  "recommendations": [
+   {
+    "id": "usage-coverage",
+    "ruleVersion": 1,
+    "level": "info",
+    "message": "Inspect accounting coverage before comparing costs.",
+    "evidence": {
+     "numerator": 6,
+     "denominator": 6,
+     "observedMs": null,
+     "contacts": [
+      "a",
+      "f"
+     ],
+     "eventIndexes": [
+      114,
+      109
+     ]
+    },
+    "caveat": "0 missing, 0 unsupported; unknown unpriced messages; 1 malformed lines; 0 reset observations; 0 backlog bytes. Historical gaps and associated sessions prevent exclusive mission billing."
+   },
+   {
+    "id": "repeat-verification",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect repeated verification evidence and repair scope.",
+    "evidence": {
+     "numerator": 4,
+     "denominator": 3,
+     "observedMs": null,
+     "contacts": [
+      "e"
+     ],
+     "eventIndexes": [
+      32
+     ]
+    },
+    "caveat": "Consecutive failed records share a fingerprint, not necessarily a root cause."
+   },
+   {
+    "id": "review-retries",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect reviewer failure evidence, provider capacity and revision churn.",
+    "evidence": {
+     "numerator": 4,
+     "denominator": null,
+     "observedMs": null,
+     "contacts": [
+      "e"
+     ],
+     "eventIndexes": [
+      32
+     ]
+    },
+    "caveat": "Failed review operations are not completed rounds or proof of defects."
+   },
+   {
+    "id": "integration-conflicts",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect shared paths and delivery ordering before increasing parallelism.",
+    "evidence": {
+     "numerator": 3,
+     "denominator": 10,
+     "observedMs": null,
+     "contacts": [
+      "a",
+      "b",
+      "c"
+     ],
+     "eventIndexes": [
+      74,
+      76,
+      78
+     ]
+    },
+    "caveat": "Observed conflicts do not establish concurrency as their cause."
+   },
+   {
+    "id": "relaunch-churn",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect relaunch causes before assuming restarts are routine.",
+    "evidence": {
+     "numerator": 6,
+     "denominator": 12,
+     "observedMs": null,
+     "contacts": [
+      "e"
+     ],
+     "eventIndexes": [
+      104,
+      98,
+      101
+     ]
+    },
+    "caveat": "Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution."
+   },
+   {
+    "id": "delivery-wait",
+    "ruleVersion": 1,
+    "level": "info",
+    "message": "Ready work is waiting on an operator Land click; enable auto.land or inspect delivery checks.",
+    "evidence": {
+     "numerator": 4,
+     "denominator": 4,
+     "observedMs": 900000,
+     "contacts": [
+      "a",
+      "b",
+      "c"
+     ],
+     "eventIndexes": [
+      84,
+      85,
+      86
+     ]
+    },
+    "caveat": "Observed ready-to-land delay does not establish which delivery dependency caused it."
+   }
+  ]
+ },
+ "evidence": {
+  "runs": [
+   {
+    "contact": "a",
+    "missionId": "m-a",
+    "measurements": {
+     "v": 1,
+     "since": "2026-01-01T00:00:00.000Z",
+     "recordedPassed": 1,
+     "recordedFailed": 3,
+     "repeatedFailedRevision": 0,
+     "mergePreflightFailures": 0,
+     "boundaryFailures": 0,
+     "reviewFailures": 0,
+     "acceptedRepairs": 0,
+     "completedRounds": 0,
+     "invalidatedRounds": 0,
+     "findingOccurrences": 0,
+     "latestActionable": 1,
+     "latestRejected": 0,
+     "severity": {
+      "critical": 0,
+      "high": 1,
+      "medium": 0,
+      "low": 2
+     },
+     "workerAttempts": 2,
+     "workerBeads": 2,
+     "repairRound": 1,
+     "repairLinks": 0,
+     "config": {
+      "graph": "beads",
+      "frontend": "subagent",
+      "maxWorkers": 2,
+      "reviewConcurrency": 1,
+      "mode": "auto"
+     }
+    },
+    "eventIndexes": [
+     12
+    ]
+   },
+   {
+    "contact": "b",
+    "missionId": "m-b",
+    "measurements": {
+     "v": 1,
+     "since": "2026-01-01T00:00:00.000Z",
+     "recordedPassed": 1,
+     "recordedFailed": 3,
+     "repeatedFailedRevision": 1,
+     "mergePreflightFailures": 0,
+     "boundaryFailures": 0,
+     "reviewFailures": 1,
+     "acceptedRepairs": 0,
+     "completedRounds": 0,
+     "invalidatedRounds": 0,
+     "findingOccurrences": 0,
+     "latestActionable": 1,
+     "latestRejected": 0,
+     "severity": {
+      "critical": 0,
+      "high": 1,
+      "medium": 0,
+      "low": 2
+     },
+     "workerAttempts": 2,
+     "workerBeads": 2,
+     "repairRound": 1,
+     "repairLinks": 0,
+     "config": {
+      "graph": "beads",
+      "frontend": "subagent",
+      "maxWorkers": 2,
+      "reviewConcurrency": 1,
+      "mode": "auto"
+     }
+    },
+    "eventIndexes": [
+     17
+    ]
+   },
+   {
+    "contact": "c",
+    "missionId": "m-c",
+    "measurements": {
+     "v": 1,
+     "since": "2026-01-01T00:00:00.000Z",
+     "recordedPassed": 1,
+     "recordedFailed": 3,
+     "repeatedFailedRevision": 2,
+     "mergePreflightFailures": 0,
+     "boundaryFailures": 0,
+     "reviewFailures": 2,
+     "acceptedRepairs": 0,
+     "completedRounds": 0,
+     "invalidatedRounds": 0,
+     "findingOccurrences": 0,
+     "latestActionable": 1,
+     "latestRejected": 0,
+     "severity": {
+      "critical": 0,
+      "high": 1,
+      "medium": 0,
+      "low": 2
+     },
+     "workerAttempts": 2,
+     "workerBeads": 2,
+     "repairRound": 1,
+     "repairLinks": 0,
+     "config": {
+      "graph": "beads",
+      "frontend": "subagent",
+      "maxWorkers": 2,
+      "reviewConcurrency": 1,
+      "mode": "auto"
+     }
+    },
+    "eventIndexes": [
+     22
+    ]
+   },
+   {
+    "contact": "d",
+    "missionId": "m-d",
+    "measurements": {
+     "v": 1,
+     "since": "2026-01-01T00:00:00.000Z",
+     "recordedPassed": 1,
+     "recordedFailed": 3,
+     "repeatedFailedRevision": 3,
+     "mergePreflightFailures": 0,
+     "boundaryFailures": 0,
+     "reviewFailures": 3,
+     "acceptedRepairs": 0,
+     "completedRounds": 0,
+     "invalidatedRounds": 0,
+     "findingOccurrences": 0,
+     "latestActionable": 1,
+     "latestRejected": 0,
+     "severity": {
+      "critical": 0,
+      "high": 1,
+      "medium": 0,
+      "low": 2
+     },
+     "workerAttempts": 2,
+     "workerBeads": 2,
+     "repairRound": 1,
+     "repairLinks": 0,
+     "config": {
+      "graph": "beads",
+      "frontend": "subagent",
+      "maxWorkers": 2,
+      "reviewConcurrency": 1,
+      "mode": "auto"
+     }
+    },
+    "eventIndexes": [
+     27
+    ]
+   },
+   {
+    "contact": "e",
+    "missionId": "m-e",
+    "measurements": {
+     "v": 1,
+     "since": "2026-01-01T00:00:00.000Z",
+     "recordedPassed": 1,
+     "recordedFailed": 3,
+     "repeatedFailedRevision": 4,
+     "mergePreflightFailures": 0,
+     "boundaryFailures": 0,
+     "reviewFailures": 4,
+     "acceptedRepairs": 0,
+     "completedRounds": 0,
+     "invalidatedRounds": 0,
+     "findingOccurrences": 0,
+     "latestActionable": 1,
+     "latestRejected": 0,
+     "severity": {
+      "critical": 0,
+      "high": 1,
+      "medium": 0,
+      "low": 2
+     },
+     "workerAttempts": 2,
+     "workerBeads": 2,
+     "repairRound": 1,
+     "repairLinks": 0,
+     "config": {
+      "graph": "beads",
+      "frontend": "subagent",
+      "maxWorkers": 2,
+      "reviewConcurrency": 1,
+      "mode": "auto"
+     }
+    },
+    "eventIndexes": [
+     32
+    ]
+   }
+  ],
+  "contacts": [
+   {
+    "ticket": "a",
+    "launches": 1,
+    "lifetimeMs": 2400000,
+    "gateHoldMs": 899998,
+    "blockedMs": null,
+    "finalReadyMs": 900000,
+    "gateEventIndexes": [
+     12,
+     35
+    ],
+    "blockedEventIndexes": [],
+    "deliveryEventIndexes": [
+     60,
+     84
+    ],
+    "launchEventIndexes": [
+     9
+    ]
+   },
+   {
+    "ticket": "b",
+    "launches": 1,
+    "lifetimeMs": 2400000,
+    "gateHoldMs": 899998,
+    "blockedMs": null,
+    "finalReadyMs": 900000,
+    "gateEventIndexes": [
+     17,
+     38
+    ],
+    "blockedEventIndexes": [],
+    "deliveryEventIndexes": [
+     64,
+     85
+    ],
+    "launchEventIndexes": [
+     14
+    ]
+   },
+   {
+    "ticket": "c",
+    "launches": 1,
+    "lifetimeMs": 2400000,
+    "gateHoldMs": 899998,
+    "blockedMs": null,
+    "finalReadyMs": 900000,
+    "gateEventIndexes": [
+     22,
+     41
+    ],
+    "blockedEventIndexes": [],
+    "deliveryEventIndexes": [
+     67,
+     86
+    ],
+    "launchEventIndexes": [
+     19
+    ]
+   },
+   {
+    "ticket": "d",
+    "launches": 1,
+    "lifetimeMs": 2400000,
+    "gateHoldMs": 899998,
+    "blockedMs": null,
+    "finalReadyMs": 900000,
+    "gateEventIndexes": [
+     27,
+     44
+    ],
+    "blockedEventIndexes": [],
+    "deliveryEventIndexes": [
+     70,
+     87
+    ],
+    "launchEventIndexes": [
+     24
+    ]
+   },
+   {
+    "ticket": "e",
+    "launches": 7,
+    "lifetimeMs": 4860000,
+    "gateHoldMs": 899998,
+    "blockedMs": null,
+    "finalReadyMs": null,
+    "gateEventIndexes": [
+     32,
+     47
+    ],
+    "blockedEventIndexes": [],
+    "deliveryEventIndexes": [
+     72
+    ],
+    "launchEventIndexes": [
+     98,
+     101,
+     104
+    ]
+   },
+   {
+    "ticket": "f",
+    "launches": 1,
+    "lifetimeMs": 1740000,
+    "gateHoldMs": null,
+    "blockedMs": 3599999,
+    "finalReadyMs": null,
+    "gateEventIndexes": [],
+    "blockedEventIndexes": [
+     4
+    ],
+    "deliveryEventIndexes": [],
+    "launchEventIndexes": [
+     107
+    ]
+   },
+   {
+    "ticket": "g",
+    "launches": 0,
+    "lifetimeMs": null,
+    "gateHoldMs": null,
+    "blockedMs": 5399999,
+    "finalReadyMs": null,
+    "gateEventIndexes": [],
+    "blockedEventIndexes": [
+     3
+    ],
+    "deliveryEventIndexes": [],
+    "launchEventIndexes": []
+   },
+   {
+    "ticket": "decide",
+    "launches": 0,
+    "lifetimeMs": null,
+    "gateHoldMs": null,
+    "blockedMs": null,
+    "finalReadyMs": null,
+    "gateEventIndexes": [],
+    "blockedEventIndexes": [],
+    "deliveryEventIndexes": [],
+    "launchEventIndexes": []
+   },
+   {
+    "ticket": "fix",
+    "launches": 0,
+    "lifetimeMs": null,
+    "gateHoldMs": null,
+    "blockedMs": null,
+    "finalReadyMs": null,
+    "gateEventIndexes": [],
+    "blockedEventIndexes": [],
+    "deliveryEventIndexes": [],
+    "launchEventIndexes": []
+   }
+  ],
+  "conflictEvents": [
+   {
+    "contact": "a",
+    "index": 74
+   },
+   {
+    "contact": "b",
+    "index": 76
+   },
+   {
+    "contact": "c",
+    "index": 78
+   }
+  ],
+  "usageEvents": [
+   {
+    "contact": "a",
+    "index": 114
+   },
+   {
+    "contact": "f",
+    "index": 109
+   }
+  ]
+ },
+ "closed": {
+  "v": 1,
+  "asOf": 1767230400000,
+  "deliveredWork": 4,
+  "throughputPerHour": 3,
+  "queue": {
+   "n": 6,
+   "medianMs": 449997.5,
+   "p90Ms": 3659995
+  },
+  "queued": {
+   "n": 1,
+   "totalMs": 4800000,
+   "maxMs": 4800000
+  },
+  "delivery": {
+   "n": 4,
+   "medianMs": 2400000,
+   "p90Ms": 2400000
+  },
+  "lead": {
+   "n": 4,
+   "medianMs": 2789998.5,
+   "p90Ms": 2879997
+  },
+  "unfinished": {
+   "n": 2,
+   "totalMs": 5400000,
+   "maxMs": 4260000
+  },
+  "dependencyWaitMs": 8399998,
+  "phaseMs": {
+   "plan": 4799995,
+   "review": 2700000,
+   "complete": 6360000
+  },
+  "gateWaitMs": 4499985,
+  "offlineMs": 600000,
+  "deliveryReadyMs": 3600000,
+  "holdMs": {
+   "gate": 4499990
+  },
+  "connectivity": {
+   "observedMs": 4500000,
+   "connectedContactMs": 11460000,
+   "peak": 5,
+   "mean": 2.546666666666667
+  },
+  "workers": {
+   "coveredMs": 6299990,
+   "nonclosedWorkerMs": 12599980
+  },
+  "attempts": {
+   "launches": 12,
+   "relaunches": 6,
+   "launchFailures": 6,
+   "landAttempts": 10,
+   "conflicts": 3
+  },
+  "fleet": {
+   "workerAttempts": 10,
+   "workerBeads": 10,
+   "redispatches": 0,
+   "repairRound": 1,
+   "repairLinks": 0,
+   "boardResendRequests": 1
+  },
+  "usage": {
+   "basis": "mixed",
+   "tokens": {
+    "input": 250000300,
+    "output": 1,
+    "cacheRead": 2,
+    "cacheWrite": 0
+   },
+   "knownCostUsd": 2500002.25,
+   "costPerDelivered": 625000.5625,
+   "missingSources": 0,
+   "unsupportedWorkers": 0,
+   "pricedMessages": null,
+   "unpricedMessages": null,
+   "malformedLines": 1,
+   "resets": 0,
+   "backlogBytes": 0,
+   "coordinatorSessionAssociated": false,
+   "partial": true,
+   "byPhase": {
+    "plan": {
+     "tokens": 40000000,
+     "costUsd": 400000
+    },
+    "review": {
+     "tokens": 160000000,
+     "costUsd": 1600000
+    },
+    "unknown": {
+     "tokens": 200,
+     "costUsd": 1
+    },
+    "decision": {
+     "tokens": 20,
+     "costUsd": 0.25
+    }
+   },
+   "pane": {
+    "tokens": 20,
+    "costUsd": 0.25,
+    "sessions": 2
+   }
+  },
+  "quality": {
+   "since": "2026-01-01T00:00:00.000Z",
+   "recordedPassed": 5,
+   "recordedFailed": 15,
+   "repeatedFailedRevision": 10,
+   "mergePreflightFailures": 0,
+   "boundaryFailures": 0,
+   "reviewFailures": 10,
+   "acceptedRepairs": 0,
+   "completedRounds": 0,
+   "invalidatedRounds": 0,
+   "findingOccurrences": 0,
+   "latestActionable": 5,
+   "latestRejected": 0,
+   "severity": {
+    "critical": 0,
+    "high": 5,
+    "medium": 0,
+    "low": 10
+   }
+  },
+  "config": {
+   "value": {
+    "graph": "beads",
+    "frontend": "subagent",
+    "maxWorkers": 2,
+    "reviewConcurrency": 1,
+    "mode": "auto"
+   },
+   "mixed": false
+  },
+  "coverage": {
+   "timed": 7,
+   "launched": 6,
+   "usageReported": 6,
+   "legacyUsage": 1,
+   "producerEvidence": 5,
+   "clockAnomalies": 1,
+   "counterResets": 0
+  },
+  "recommendations": [
+   {
+    "id": "usage-coverage",
+    "ruleVersion": 1,
+    "level": "info",
+    "message": "Inspect accounting coverage before comparing costs.",
+    "evidence": {
+     "numerator": 6,
+     "denominator": 6,
+     "observedMs": null,
+     "contacts": [
+      "a",
+      "f"
+     ],
+     "eventIndexes": [
+      114,
+      109
+     ]
+    },
+    "caveat": "0 missing, 0 unsupported; unknown unpriced messages; 1 malformed lines; 0 reset observations; 0 backlog bytes. Historical gaps and associated sessions prevent exclusive mission billing."
+   },
+   {
+    "id": "repeat-verification",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect repeated verification evidence and repair scope.",
+    "evidence": {
+     "numerator": 4,
+     "denominator": 3,
+     "observedMs": null,
+     "contacts": [
+      "e"
+     ],
+     "eventIndexes": [
+      32
+     ]
+    },
+    "caveat": "Consecutive failed records share a fingerprint, not necessarily a root cause."
+   },
+   {
+    "id": "review-retries",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect reviewer failure evidence, provider capacity and revision churn.",
+    "evidence": {
+     "numerator": 4,
+     "denominator": null,
+     "observedMs": null,
+     "contacts": [
+      "e"
+     ],
+     "eventIndexes": [
+      32
+     ]
+    },
+    "caveat": "Failed review operations are not completed rounds or proof of defects."
+   },
+   {
+    "id": "integration-conflicts",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect shared paths and delivery ordering before increasing parallelism.",
+    "evidence": {
+     "numerator": 3,
+     "denominator": 10,
+     "observedMs": null,
+     "contacts": [
+      "a",
+      "b",
+      "c"
+     ],
+     "eventIndexes": [
+      74,
+      76,
+      78
+     ]
+    },
+    "caveat": "Observed conflicts do not establish concurrency as their cause."
+   },
+   {
+    "id": "relaunch-churn",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect relaunch causes before assuming restarts are routine.",
+    "evidence": {
+     "numerator": 6,
+     "denominator": 12,
+     "observedMs": null,
+     "contacts": [
+      "e"
+     ],
+     "eventIndexes": [
+      104,
+      98,
+      101
+     ]
+    },
+    "caveat": "Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution."
+   },
+   {
+    "id": "delivery-wait",
+    "ruleVersion": 1,
+    "level": "info",
+    "message": "Ready work is waiting on an operator Land click; enable auto.land or inspect delivery checks.",
+    "evidence": {
+     "numerator": 4,
+     "denominator": 4,
+     "observedMs": 900000,
+     "contacts": [
+      "a",
+      "b",
+      "c"
+     ],
+     "eventIndexes": [
+      84,
+      85,
+      86
+     ]
+    },
+    "caveat": "Observed ready-to-land delay does not establish which delivery dependency caused it."
+   }
+  ]
+ },
+ "quiet": {
+  "v": 1,
+  "asOf": 1767231000000,
+  "deliveredWork": 4,
+  "throughputPerHour": 2.6666666666666665,
+  "queue": {
+   "n": 5,
+   "medianMs": 419998,
+   "p90Ms": 539996
+  },
+  "queued": {
+   "n": 2,
+   "totalMs": 10799995,
+   "maxMs": 5400000
+  },
+  "delivery": {
+   "n": 4,
+   "medianMs": 2400000,
+   "p90Ms": 2400000
+  },
+  "lead": {
+   "n": 4,
+   "medianMs": 2789998.5,
+   "p90Ms": 2879997
+  },
+  "unfinished": {
+   "n": 1,
+   "totalMs": 4860000,
+   "maxMs": 4860000
+  },
+  "dependencyWaitMs": 8999998,
+  "phaseMs": {
+   "plan": 4799995,
+   "review": 2700000,
+   "complete": 6960000
+  },
+  "gateWaitMs": 4499985,
+  "offlineMs": 600000,
+  "deliveryReadyMs": 3600000,
+  "holdMs": {
+   "gate": 4499990
+  },
+  "connectivity": {
+   "observedMs": 5100000,
+   "connectedContactMs": 13860000,
+   "peak": 5,
+   "mean": 2.7176470588235295
+  },
+  "workers": {
+   "coveredMs": 6299990,
+   "nonclosedWorkerMs": 12599980
+  },
+  "attempts": {
+   "launches": 5,
+   "relaunches": 0,
+   "launchFailures": 0,
+   "landAttempts": 0,
+   "conflicts": 0
+  },
+  "fleet": {
+   "workerAttempts": null,
+   "workerBeads": null,
+   "redispatches": null,
+   "repairRound": null,
+   "repairLinks": null,
+   "boardResendRequests": 1
+  },
+  "usage": {
+   "basis": "scoped",
+   "tokens": {
+    "input": 250000000,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "knownCostUsd": 2500000,
+   "costPerDelivered": 625000,
+   "missingSources": 0,
+   "unsupportedWorkers": 0,
+   "pricedMessages": 2,
+   "unpricedMessages": 0,
+   "malformedLines": 0,
+   "resets": 0,
+   "backlogBytes": 0,
+   "coordinatorSessionAssociated": false,
+   "partial": false,
+   "byPhase": {
+    "plan": {
+     "tokens": 40000000,
+     "costUsd": 400000
+    },
+    "review": {
+     "tokens": 160000000,
+     "costUsd": 1600000
+    }
+   }
+  },
+  "quality": null,
+  "config": {
+   "value": null,
+   "mixed": false
+  },
+  "coverage": {
+   "timed": 7,
+   "launched": 5,
+   "usageReported": 5,
+   "legacyUsage": 0,
+   "producerEvidence": 0,
+   "clockAnomalies": 0,
+   "counterResets": 0
+  },
+  "recommendations": [
+   {
+    "id": "approval-wait",
+    "ruleVersion": 1,
+    "level": "info",
+    "message": "Review approval availability and batching without bypassing gates.",
+    "evidence": {
+     "numerator": 5,
+     "denominator": 5,
+     "observedMs": 4499990,
+     "contacts": [
+      "a",
+      "b",
+      "c"
+     ],
+     "eventIndexes": [
+      35,
+      38,
+      41
+     ]
+    },
+    "caveat": "Observed hold time overlaps phase time and is not exclusive human response time."
+   },
+   {
+    "id": "delivery-wait",
+    "ruleVersion": 1,
+    "level": "info",
+    "message": "Ready work is waiting on an operator Land click; enable auto.land or inspect delivery checks.",
+    "evidence": {
+     "numerator": 4,
+     "denominator": 4,
+     "observedMs": 900000,
+     "contacts": [
+      "a",
+      "b",
+      "c"
+     ],
+     "eventIndexes": [
+      74,
+      75,
+      76
+     ]
+    },
+    "caveat": "Observed ready-to-land delay does not establish which delivery dependency caused it."
+   },
+   {
+    "id": "dependency-wait",
+    "ruleVersion": 1,
+    "level": "info",
+    "message": "Inspect the blocking chain and launch order before widening the fleet.",
+    "evidence": {
+     "numerator": 8999998,
+     "denominator": 14460000,
+     "observedMs": 8999998,
+     "contacts": [
+      "g",
+      "f"
+     ],
+     "eventIndexes": [
+      3,
+      4
+     ]
+    },
+    "caveat": "Blocked time before launch can exceed launched lifetime and overlaps queue wait; it does not identify which predecessor should have run first."
+   },
+   {
+    "id": "phase-cost",
+    "ruleVersion": 1,
+    "level": "info",
+    "message": "Inspect review-phase token share; narrow review scope or model tier if review dominates attributed spend.",
+    "evidence": {
+     "numerator": 160000000,
+     "denominator": 200000000,
+     "observedMs": null,
+     "contacts": [
+      "a",
+      "b",
+      "c"
+     ],
+     "eventIndexes": [
+      61,
+      65,
+      68
+     ]
+    },
+    "caveat": "Review-phase tokens include coordinator-session spend during review and are not exclusively reviewer cost."
+   }
+  ]
+ }
+}
