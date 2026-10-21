@@ -4,7 +4,7 @@ import { orderedTickets, renderList } from "./list.js";
 import { drawLinks, renderHistory, renderMap } from "./plan.js";
 import { createRadar } from "./radar.js";
 import { createSettingsDrawer } from "./settings.js";
-import { el, KEY_DIR, nearestInDirection, openTicket } from "./ui.js";
+import { el, errorText, fetchJson, KEY_DIR, nearestInDirection, needsYou, openTicket } from "./ui.js";
 import { dropdown, popoverOpenWithin } from "./components.js";
 import { renderNewOperation } from "./newop.js";
 import { opUiKey, renderOperation } from "./operation.js";
@@ -76,6 +76,18 @@ const api = (path, options = {}) => {
   if (options.body) headers.set("Content-Type", "application/json");
   return fetch(path, { ...options, headers, credentials: "same-origin", cache: "no-store" });
 };
+/** GET as JSON; a failure comes back as `{ error }` for the page to show. */
+async function getJson(path) {
+  try {
+    return (await fetchJson(await api(path))) ?? { error: "Empty response" };
+  } catch (error) {
+    return { error: errorText(error) };
+  }
+}
+/** POST a JSON body; throws the server's message on failure. */
+async function postJson(path, body) {
+  return fetchJson(await api(path, { method: "POST", body: JSON.stringify(body) }));
+}
 installLoadTip($("load").closest(".stat"), {
   api,
   opId: () => state.opId,
@@ -139,13 +151,15 @@ function storePlanView(view) {
   localStorage.setItem("holotable.planView", view);
 }
 
-/** Point the page at another operation; everything loaded for the old one is dropped. */
+/** Point the page at another operation; everything loaded or pending for the old one is dropped. */
 function switchOp(id) {
   state.opId = id;
   localStorage.setItem("holotable.op", id);
   state.opDoc = null;
   state.projection = null;
   state.history = null;
+  state.historyFilter.contact = null;
+  state.confirming = null;
 }
 
 // Table view centre: one radar instance for the session; update() replaces its data, never its canvas.
@@ -171,11 +185,10 @@ const opPick = dropdown({
         setView("plan");
       },
     },
-    { label: "Archive", icon: "archive", className: "dd-link", onPick: () => setView("archive") },
+    { label: "Archive", icon: "archive", onPick: () => setView("archive") },
   ],
   onChange: (id) => {
     switchOp(id);
-    state.historyFilter.contact = null;
     if (state.planView === "new") storePlanView("map");
     // Archive and project pages are not about one operation; choosing one means "go look at it".
     if (state.view === "archive" || state.view === "project" || state.view === "projects") setView("board");
@@ -192,11 +205,20 @@ function applyTheme(theme) {
   localStorage.setItem("holotable.theme", theme);
 }
 let tourOffered = false; // the first-visit tour starts at most once per page load
+
+/** Board-wide settings, and the defaults the new-operation and new-project forms start from. */
+function applySettings(settings) {
+  state.settings = settings;
+  if (settings.defaults) state.defaults = { ...state.defaults, ...settings.defaults, ai: settings.ai };
+}
 const settingsDrawer = createSettingsDrawer({
   api,
   applyTheme,
   toast,
-  settingsChanged: (settings) => { state.settings = settings; render(); },
+  settingsChanged: (settings) => {
+    applySettings(settings);
+    render();
+  },
   openHelp: () => $("help").showModal(),
   openGuide: () => {
     showOnboarding();
@@ -209,16 +231,10 @@ const settingsDrawer = createSettingsDrawer({
 
 /** Live theme while the page is up (drawer preview + settings file). */
 async function loadTheme() {
-  try {
-    const res = await api("/api/settings");
-    if (res.ok) {
-      const data = await res.json();
-      applyTheme(data.settings.theme);
-      state.settings = data.settings;
-      if (data.settings.defaults) state.defaults = { ...state.defaults, ...data.settings.defaults, ai: data.settings.ai };
-    }
-  } catch {
-  }
+  const data = await getJson("/api/settings");
+  if (data.error) return;
+  applyTheme(data.settings.theme);
+  applySettings(data.settings);
 }
 loadTheme();
 
@@ -256,7 +272,7 @@ function renderHeader() {
   const current = state.operations.find((o) => o.id === state.opId);
   let shown = current?.project;
   if (state.view === "project" && state.projectId) shown = { id: state.projectId, name: state.projectCfg?.fields?.name ?? state.projectId };
-  else if (state.view === "projects") shown = null;
+  else if (state.view === "projects" || state.view === "archive") shown = null;
   const needs = p ? p.contacts.filter((c) => c.attention).length : 0;
   const sig = JSON.stringify([
     state.operations.map((o) => [o.id, o.name, o.attention, o.project?.id, o.project?.name]),
@@ -286,7 +302,7 @@ function renderHeader() {
     const g = groups.get(key);
     if (grouped) options.push({ value: `group:${key}`, label: g.name, group: true, disabled: true });
     for (const o of g.ops)
-      options.push({ value: o.id, label: `${o.name}${o.attention ? ` · ${o.attention} need you` : ""}`, indent: grouped });
+      options.push({ value: o.id, label: `${o.name}${o.attention ? ` · ${needsYou(o.attention)}` : ""}`, indent: grouped });
   }
   const crumb = $("projectCrumb");
   crumb.hidden = !shown;
@@ -299,7 +315,9 @@ function renderHeader() {
   if (state.view === "project") crumb.setAttribute("aria-current", "page");
   $("projectsCrumb").toggleAttribute("aria-current", state.view === "projects");
   if (state.view === "projects") $("projectsCrumb").setAttribute("aria-current", "page");
-  opPick.setOptions(options, state.opId, state.operations.length ? "Select operation" : "No operations");
+  // In the Archive no open operation is in view: the picker says where you are instead.
+  if (state.view === "archive") opPick.setOptions(options, null, "Archive");
+  else opPick.setOptions(options, state.opId, state.operations.length ? "Select operation" : "No operations");
   opPick.setDisabled(!state.operations.length);
   document.querySelectorAll("#toggle button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === state.view)));
   $("base").textContent = p ? p.operation.base : "—";
@@ -311,7 +329,7 @@ function renderHeader() {
   $("tasksStat").hidden = !p?.notes?.total;
   if (p?.notes?.total) $("flows").textContent = `${p.notes.done} / ${p.notes.total}`;
   $("needs").hidden = needs === 0;
-  $("needsText").textContent = `${needs} need${needs === 1 ? "s" : ""} you`;
+  $("needsText").textContent = needsYou(needs);
   $("conn").className = `conn c-${state.conn}`;
   $("connText").textContent = { live: "live", connecting: "connecting", lost: "reconnecting", denied: "token rejected" }[state.conn];
   const auto = p?.operation?.auto;
@@ -345,6 +363,18 @@ const PAGES = {
   project: renderProjectPage,
   archive: renderArchivePage,
 };
+
+/** A dialog, drawer, popover or tour is up, or a field has focus: the board must not move the selection. */
+function operatorBusy() {
+  if (document.activeElement?.matches("input, textarea, select, [contenteditable]")) return true;
+  return Boolean(document.querySelector(".modal-back, .settings:not([hidden]), [data-popover], .tour-card, dialog[open]"));
+}
+
+/** The history log is on screen: the plan map's side panel, or a card's History tab. */
+function historyShown() {
+  if (state.view === "plan") return state.planView === "map";
+  return state.cardTab === "history" && (state.view === "board" || state.view === "table");
+}
 
 function render() {
   syncRadar();
@@ -382,7 +412,7 @@ function render() {
     state.selected[state.opId] = orderedTickets(p)[0] ?? p.selection;
     selected = selectedTicket();
     contact = p.contacts.find((c) => c.ticket === selected) ?? null;
-  } else if (contact.state === "landed" && Date.now() - lastInteractionTime > 10000 && !document.querySelector(".modal-scrim:not([hidden]), .plan-edit, .settings-scrim:not([hidden]), [data-popover]")) {
+  } else if (contact.state === "landed" && Date.now() - lastInteractionTime > 10000 && !operatorBusy()) {
     const first = p.contacts.find((c) => c.attention);
     if (first && first.ticket !== selected) {
       state.selected[state.opId] = first.ticket;
@@ -475,7 +505,8 @@ function renderProjectsPage() {
 /** Plan view: map | op | new. */
 function renderPlanView(p, selected, ctx, busy) {
   $("planTabs").hidden = false;
-  document.querySelectorAll("#planTabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.planview === state.planView)));
+  $("planTabs").querySelector("[data-planview='new']").hidden = state.planView !== "new";
+  markTabs($("planTabs"), (b) => b.dataset.planview === state.planView);
   $("planMap").hidden = state.planView !== "map";
   $("opPage").hidden = state.planView !== "op";
   $("newOp").hidden = state.planView !== "new";
@@ -514,20 +545,19 @@ function renderOpPage(p, ctx, busy) {
 }
 
 /** Fetch the project list once; rendering repeats when it arrives. */
+let projectsLoading = false;
 function ensureProjects() {
   if (state.projects !== null) return;
   state.projects = [];
-  loadProjects().then(render);
+  projectsLoading = true;
+  loadProjects().then(() => {
+    projectsLoading = false;
+    render();
+  });
 }
 
 async function loadArchive() {
-  try {
-    const res = await api("/api/archive");
-    const data = await res.json().catch(() => null);
-    state.archive = res.ok && Array.isArray(data) ? data : { error: data?.error ?? `HTTP ${res.status}` };
-  } catch (error) {
-    state.archive = { error: error instanceof Error ? error.message : String(error) };
-  }
+  state.archive = await getJson("/api/archive");
   render();
 }
 
@@ -536,38 +566,20 @@ async function openArchive(key) {
   if (key && !state.archiveReports.get(key)?.report) {
     state.archiveReports.set(key, { loading: true });
     render();
-    try {
-      const res = await api(`/api/archive/report?key=${encodeURIComponent(key)}`);
-      const data = await res.json().catch(() => null);
-      state.archiveReports.set(key, res.ok && data ? data : { error: data?.error ?? `HTTP ${res.status}` });
-    } catch (error) {
-      state.archiveReports.set(key, { error: error instanceof Error ? error.message : String(error) });
-    }
+    state.archiveReports.set(key, await getJson(`/api/archive/report?key=${encodeURIComponent(key)}`));
   }
   render();
 }
 
 async function loadProjects() {
   state.setup = undefined;
-  try {
-    const res = await api("/api/projects");
-    const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
-    state.projects = Array.isArray(data) ? data : [];
-  } catch (e) {
-    state.projects = { error: e instanceof Error ? e.message : String(e) };
-  }
+  const data = await getJson("/api/projects");
+  state.projects = Array.isArray(data) || data.error ? data : [];
 }
 
 async function loadProjectCfg() {
   if (!state.projectId) return;
-  try {
-    const res = await api(`/api/project-config?project=${encodeURIComponent(state.projectId)}`);
-    const data = await res.json().catch(() => null);
-    state.projectCfg = res.ok && data ? data : { error: data?.error ?? `HTTP ${res.status}` };
-  } catch (error) {
-    state.projectCfg = { error: error instanceof Error ? error.message : String(error) };
-  }
+  state.projectCfg = await getJson(`/api/project-config?project=${encodeURIComponent(state.projectId)}`);
 }
 
 function openProject(id) {
@@ -584,10 +596,7 @@ function renderProjectPage() {
       projectId: state.projectId,
       save: async (field, value, done) => {
         try {
-          const res = await api("/api/project-config", { method: "POST", body: JSON.stringify({ project: state.projectId, field, value: String(value) }) });
-          const data = await res.json().catch(() => null);
-          if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
-          state.projectCfg = data;
+          state.projectCfg = await postJson("/api/project-config", { project: state.projectId, field, value: String(value) });
           done?.(null);
           poll();
         } catch (error) {
@@ -596,15 +605,12 @@ function renderProjectPage() {
       },
       graph: async (op, done) => {
         try {
-          const res = await api("/api/project-graph", { method: "POST", body: JSON.stringify({ project: state.projectId, op }) });
-          const data = await res.json().catch(() => null);
-          if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
-          state.projectCfg = data;
+          state.projectCfg = await postJson("/api/project-graph", { project: state.projectId, op });
           toast(op === "install" ? "Graph server installed" : "Graph server restarted", "ok");
           done?.(null);
           render();
         } catch (error) {
-          toast(error instanceof Error ? error.message : String(error), "error");
+          toast(errorText(error), "error");
           done?.(error);
         }
       },
@@ -617,14 +623,12 @@ function renderProjectPage() {
       },
       remove: async () => {
         try {
-          const res = await api("/api/projects/remove", { method: "POST", body: JSON.stringify({ project: state.projectId }) });
-          const data = await res.json().catch(() => null);
-          if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+          await postJson("/api/projects/remove", { project: state.projectId });
           toast("Project removed", "ok");
           state.projectId = null;
           setView("board");
         } catch (error) {
-          toast(error instanceof Error ? error.message : String(error), "error");
+          toast(errorText(error), "error");
         }
       },
     }));
@@ -635,16 +639,9 @@ async function loadSetup() {
   if (setupLoading) return;
   setupLoading = true;
   state.setup = null;
-  try {
-    const res = await api("/api/setup");
-    const data = await res.json().catch(() => null);
-    state.setup = res.ok && data ? data : { error: data?.error ?? `HTTP ${res.status}` };
-  } catch (error) {
-    state.setup = { error: error instanceof Error ? error.message : String(error) };
-  } finally {
-    setupLoading = false;
-    render();
-  }
+  state.setup = await getJson("/api/setup");
+  setupLoading = false;
+  render();
 }
 
 let archiveLoading = false;
@@ -662,6 +659,8 @@ function renderArchivePage() {
 
 function renderNewOp() {
   ensureProjects();
+  // The form focuses its first field, and a focused region never rebuilds: build it once, with the real projects.
+  if (projectsLoading) return;
   region($("newOp"), { defaults: state.defaults, projects: state.projects, project: state.newOpProject ?? null }, (root) => {
     renderNewOperation(root, {
       defaults: state.defaults,
@@ -678,8 +677,7 @@ function renderNewOp() {
         state.newOpProject = null;
         state.projects = null;
         storePlanView("map");
-        state.opId = id;
-        localStorage.setItem("holotable.op", id);
+        switchOp(id);
         poll();
       },
     });
@@ -696,16 +694,11 @@ function planFor(opId, contact) {
   if (hit?.error || hit?.revision === contact.plan.revision) return hit;
   if (!planLoading.has(key)) {
     planLoading.add(key);
-    api(`/api/plan?op=${encodeURIComponent(opId)}&contact=${encodeURIComponent(contact.ticket)}`)
-      .then(async (res) => {
-        const data = await res.json().catch(() => null);
-        planCache.set(key, res.ok && data ? data : { error: data?.error ?? `HTTP ${res.status}` });
-      })
-      .catch((error) => planCache.set(key, { error: error instanceof Error ? error.message : String(error) }))
-      .finally(() => {
-        planLoading.delete(key);
-        render();
-      });
+    getJson(`/api/plan?op=${encodeURIComponent(opId)}&contact=${encodeURIComponent(contact.ticket)}`).then((plan) => {
+      planCache.set(key, plan);
+      planLoading.delete(key);
+      render();
+    });
   }
   return null;
 }
@@ -750,13 +743,7 @@ async function loadOpDoc() {
   const id = state.opId;
   if (opDocPending?.id === id) return opDocPending.promise;
   const promise = (async () => {
-    let doc;
-    try {
-      const res = await api(`/api/operation?op=${encodeURIComponent(id)}`);
-      doc = res.ok ? await res.json() : { error: `HTTP ${res.status}` };
-    } catch (e) {
-      doc = { error: e instanceof Error ? e.message : String(e) };
-    }
+    const doc = await getJson(`/api/operation?op=${encodeURIComponent(id)}`);
     if (state.opId === id) state.opDoc = doc;
   })();
   opDocPending = { id, promise };
@@ -767,19 +754,13 @@ async function loadOpDoc() {
 async function saveOpField(field, value, done) {
   if (!state.opId) return;
   try {
-    const res = await api("/api/operation-config", {
-      method: "POST",
-      body: JSON.stringify({ op: state.opId, field, value: String(value) }),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+    await postJson("/api/operation-config", { op: state.opId, field, value: String(value) });
     await loadOpDoc();
     await poll();
     done?.(null);
-  } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e));
-    if (done) done(err);
-    else toast(err.message, "error");
+  } catch (error) {
+    if (done) done(error instanceof Error ? error : new Error(String(error)));
+    else toast(errorText(error), "error");
   }
 }
 
@@ -845,8 +826,8 @@ async function poll() {
       if (state.opId !== pollOpId) return;
       if (state.projection && projection.contacts?.length !== state.projection.contacts?.length) state.setup = undefined;
       state.projection = projection;
-      // Full history only while someone is looking at it.
-      if (state.view === "plan" || state.cardTab === "history") {
+      // Full history only while someone is looking at it: the plan map's panel or a card's History tab.
+      if (historyShown()) {
         const hres = await api(`/api/history?op=${encodeURIComponent(pollOpId)}`);
         if (document.visibilityState !== "visible") return;
         if (hres.ok) {
@@ -892,19 +873,45 @@ $("toggle").addEventListener("click", (event) => {
   if (btn) setView(btn.dataset.view);
 });
 
+/** Tablist state: the selected tab is the only Tab stop (the first one when none is selected). */
+function markTabs(list, isOn) {
+  const tabs = [...list.querySelectorAll("[role=tab]")];
+  for (const b of tabs) {
+    b.setAttribute("aria-selected", String(isOn(b)));
+    b.tabIndex = isOn(b) ? 0 : -1;
+  }
+  if (!tabs.some(isOn) && tabs.length) tabs[0].tabIndex = 0;
+}
+/** Left/Right and Home/End move to a neighbouring tab and open it. */
+function tabKeys(list, open) {
+  list.addEventListener("keydown", (e) => {
+    const tabs = [...list.querySelectorAll("[role=tab]:not([hidden])")];
+    const at = tabs.indexOf(document.activeElement);
+    const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (at === -1 || to === undefined) return;
+    // Arrows would otherwise also move the board's selection.
+    e.preventDefault();
+    e.stopPropagation();
+    const tab = tabs[(to + tabs.length) % tabs.length];
+    open(tab);
+    tab.focus();
+  });
+}
+
 // Narrow screens show one Board panel at a time; the list keeps its scroll for the way back.
 let listScroll = 0;
 function showBoardTab(tab) {
   const narrow = $("boardTabs").getClientRects().length > 0;
   if (narrow && document.body.dataset.boardtab === "list") listScroll = scrollY;
   document.body.dataset.boardtab = tab;
-  for (const b of $("boardTabs").children) b.setAttribute("aria-selected", String(b.dataset.boardtab === tab));
+  markTabs($("boardTabs"), (b) => b.dataset.boardtab === tab);
   if (narrow) scrollTo(0, tab === "list" ? listScroll : 0);
 }
 $("boardTabs").addEventListener("click", (event) => {
   const b = event.target.closest("[data-boardtab]");
   if (b) showBoardTab(b.dataset.boardtab);
 });
+tabKeys($("boardTabs"), (b) => showBoardTab(b.dataset.boardtab));
 
 function setMore(open) {
   $("morePop").classList.toggle("open", open);
@@ -918,13 +925,18 @@ document.addEventListener("pointerdown", (event) => {
 $("morePop").addEventListener("click", (event) => {
   if (event.target.closest("a, button")) setMore(false);
 });
+/** Plan → Map or Operation; the map's history panel needs a fetch the Operation page skipped. */
+function showPlanView(view) {
+  storePlanView(view);
+  if (view === "op" && !state.opDoc) loadOpDoc().then(render);
+  if (historyShown() && !state.history) poll();
+  render();
+}
 $("planTabs").addEventListener("click", (event) => {
   const b = event.target.closest("[data-planview]");
-  if (!b) return;
-  storePlanView(b.dataset.planview);
-  if (state.planView === "op" && !state.opDoc) loadOpDoc().then(render);
-  render();
+  if (b) showPlanView(b.dataset.planview);
 });
+tabKeys($("planTabs"), (b) => showPlanView(b.dataset.planview));
 
 function setView(view) {
   if (view === "archive") state.archive = null; // fresh list each visit
@@ -1125,10 +1137,7 @@ document.addEventListener("keydown", (event) => {
   if (VIEW_KEYS[event.key]) return setView(VIEW_KEYS[event.key]);
   if (event.key.toUpperCase() === "P" && event.shiftKey && state.view === "plan") {
     event.preventDefault();
-    const next = state.planView === "map" ? "op" : "map";
-    storePlanView(next);
-    if (next === "op" && !state.opDoc) loadOpDoc().then(render);
-    else render();
+    showPlanView(state.planView === "map" ? "op" : "map");
     return;
   }
   const dir = KEY_DIR[event.key];
