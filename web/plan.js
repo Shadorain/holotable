@@ -79,7 +79,7 @@ function node(c, selected, chain) {
       box.append(el("div", "node-cue", cue));
     } else if (c.conflictOf) {
       box.append(el("div", "node-cue", `conflict of ${c.conflictOf}`));
-    } else if (c.phase) {
+    } else if (c.phase && c.state !== "conflict") {
       box.append(el("div", "node-cue", c.phase));
     }
   }

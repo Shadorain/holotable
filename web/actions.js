@@ -38,7 +38,10 @@ export function createActions({ state, api, toast, render, pollFresh }) {
         toast(`${ticket ? `${ticket}: ` : ""}${action} failed. ${outcome.error}`, "error");
       } else {
         outcome = { ok: true, error: null };
-        toast(`${ticket} ${PAST[action] ?? action}`, "ok");
+        // Done reads "Mark decided", "Mark merged" or "Mark done" by contact; the toast echoes the button.
+        const label = state.projection?.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === action)?.label;
+        const past = action === "done" && /^Mark /.test(label ?? "") ? `marked ${label.slice(5)}` : PAST[action];
+        toast(`${ticket} ${past ?? action}`, "ok");
       }
     } catch (error) {
       outcome = { ok: false, error: errorText(error) };
