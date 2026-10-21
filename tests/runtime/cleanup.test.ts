@@ -9,6 +9,8 @@ import { DEFAULT_SETTINGS } from "../../src/settings.ts";
 import { readEvents } from "../../src/store/events.ts";
 import { readOperation } from "../../src/store/operations.ts";
 import { contact, fakePorts, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
+import { contactOf } from "../../src/core/projection.ts";
+import { loadProjection } from "../../src/snapshot.ts";
 
 const dirs: string[] = [];
 afterEach(() => removeAll(dirs));
@@ -19,6 +21,8 @@ interface SetupOpts {
   worktreeStatus?: string;
   /** Make frontend.close throw PortError("terminal-missing"). */
   terminalMissing?: boolean;
+  /** Tickets whose mission is still working (not complete). */
+  unfinished?: string[];
 }
 
 async function setup(opts: SetupOpts, contacts: Contact[] = [contact("a", { lane: lane("/wt/a", "t1", "b/a") })]) {
@@ -28,8 +32,9 @@ async function setup(opts: SetupOpts, contacts: Contact[] = [contact("a", { lane
   const statuses = new Map<string, ContactStatus>();
   for (const c of contacts) {
     if (!c.lane) continue;
-    fake.world.statuses.set(c.lane.worktree, status({ worktree: c.lane.worktree, complete: true, phase: "complete", ctl: null }));
-    statuses.set(c.ticket, status({ worktree: c.lane.worktree, complete: true, phase: "complete", ctl: null }));
+    const s = status({ worktree: c.lane.worktree, ...(opts.unfinished?.includes(c.ticket) ? { complete: false, phase: "execute" } : { complete: true, phase: "complete" }), ctl: null });
+    fake.world.statuses.set(c.lane.worktree, s);
+    statuses.set(c.ticket, s);
   }
   if (opts.terminalMissing)
     fake.ports.frontend = {
@@ -62,7 +67,9 @@ async function setup(opts: SetupOpts, contacts: Contact[] = [contact("a", { lane
   const events = async () => readEvents(home, "lab");
   const kinds = async () => (await events()).map((e) => e.kind);
   const op = () => readOperation(home, "lab");
-  return { home, fake, act, events, kinds, op };
+  const view = async (ticket: string) =>
+    contactOf(await loadProjection(home, "lab", { ...DEFAULT_SETTINGS, cleanup: opts.cleanup }, Date.parse("2026-01-01T03:00:00Z"), { statuses: Object.fromEntries(statuses), owners: {}, probes: {} }), ticket);
+  return { home, fake, act, events, kinds, op, view };
 }
 
 describe("cleanup after land", () => {
@@ -135,6 +142,40 @@ describe("cleanup after land", () => {
     expect((await t.events()).filter((e) => e.kind === "removed")).toHaveLength(2);
     expect(t.fake.count("frontend.close")).toBe(2);
     expect(t.fake.count("frontend.removeWorkspace")).toBe(2);
+  });
+});
+
+describe("reap cleanup", () => {
+  const conflict = (ticket: string) => [
+    contact("a", { lane: lane("/wt/a", "t1", "b/a") }),
+    contact(ticket, { kind: "conflict", conflictOf: "a", lane: lane(`/wt/${ticket}`, "t2", `b/${ticket}`) }),
+  ];
+
+  test("reaping an unfinished conflict mission removes its worktree, even mid-merge, and offers no Relaunch", async () => {
+    const t = await setup({ cleanup: true, unfinished: ["a-conflict-1"], worktreeStatus: "UU src/x.ts\n" }, conflict("a-conflict-1"));
+    await t.act({ op: "lab", contact: "a-conflict-1", action: "reap", args: {} });
+    expect(t.fake.calls.filter((c) => c.method === "removeWorkspace").map((c) => c.args)).toEqual([{ repo: (await t.op()).repo, worktree: "/wt/a-conflict-1" }]);
+    expect((await t.events()).filter((e) => e.kind === "reaped" || e.kind === "removed").map((e) => `${e.kind} ${e.contact}`))
+      .toEqual(["reaped a-conflict-1", "removed a-conflict-1"]);
+    expect((await t.view("a-conflict-1"))?.actions.some((a) => a.id === "relaunch")).toBe(false);
+  });
+
+  test("cleanup off keeps an abandoned conflict worktree", async () => {
+    const t = await setup({ cleanup: false, unfinished: ["a-conflict-1"] }, conflict("a-conflict-1"));
+    await t.act({ op: "lab", contact: "a-conflict-1", action: "reap", args: {} });
+    expect(t.fake.count("frontend.removeWorkspace")).toBe(0);
+  });
+
+  test("reaping a completed conflict mission or an implement contact keeps the worktree", async () => {
+    const done = await setup({ cleanup: true }, conflict("a-conflict-1"));
+    await done.act({ op: "lab", contact: "a-conflict-1", action: "reap", args: {} });
+    const working = await setup({ cleanup: true, unfinished: ["a"] });
+    await working.act({ op: "lab", contact: "a", action: "reap", args: {} });
+    for (const t of [done, working]) {
+      expect(t.fake.count("frontend.close")).toBe(1);
+      expect(t.fake.count("frontend.removeWorkspace")).toBe(0);
+      expect(await t.kinds()).not.toContain("removed");
+    }
   });
 });
 

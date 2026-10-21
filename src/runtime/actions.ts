@@ -10,7 +10,8 @@ import { readBrief } from "../store/brief.ts";
 import { decisionPrompt, decisionSessionsDir, readDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
 import { readNotes } from "../store/notes.ts";
 import { readOperation } from "../store/operations.ts";
-import { cleanupAfterLand } from "./cleanup.ts";
+import { loadProjection } from "../snapshot.ts";
+import { cleanupAbandonedConflict, cleanupAfterLand } from "./cleanup.ts";
 import { ActionError } from "./errors.ts";
 import { landContact, type LanderDeps } from "./lander.ts";
 import { launchContact, relaunchContact } from "./launcher.ts";
@@ -145,6 +146,12 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     const derived = foldEvents(await readEvents(deps.home, opId));
     if (derived.contacts[ticket]?.reaped) throw new ActionError(409, "refused", "already reaped");
     const settings = await deps.settings();
+    // A completed conflict mission's branch is the target's pending resolution; only an unfinished one is abandoned.
+    let abandoning = false;
+    if (contact?.kind === "conflict") {
+      const state = contactOf(await loadProjection(deps.home, opId, settings, deps.now().getTime(), deps.extras(opId)), ticket)?.state;
+      abandoning = state !== "complete" && state !== "landed";
+    }
     await deps.captureMetrics?.(operation,contact!);
     try {
       await deps.portsFor(operation, settings).frontend.close(lane.terminal, lane.worktree);
@@ -153,6 +160,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       if (!(error instanceof PortError && error.code === "terminal-missing")) throw error;
     }
     await appendEvent(deps.home, opId, { v: 1, at: deps.now().toISOString(), kind: "reaped", contact: ticket });
+    if (abandoning) await cleanupAbandonedConflict(deps, opId, ticket);
   }
 
   /** Mutations go through the owning session's socket with a freshly read status; this process never attaches. */

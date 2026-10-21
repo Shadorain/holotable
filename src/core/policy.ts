@@ -216,8 +216,9 @@ export function actionsFor(i: PolicyInput): ActionView[] {
     case "waiting":
       if (owner === "live" && state === "waiting") return [focus(), ...fleetButtons(), reap()];
     case "offline": {
+      // A removed worktree (an abandoned conflict mission) has nothing left to reopen.
       const relaunchable =
-        terminal !== null && operation.frontend !== "none" && contact.lane?.frontend !== "external";
+        terminal !== null && !d.removed && operation.frontend !== "none" && contact.lane?.frontend !== "external";
       // A lane without a terminal is a launch that stopped early: Launch resumes it.
       if (contact.lane !== null && terminal === null && contact.lane.frontend !== "external")
         return [view("launch", "Launch", true, refusal === null, refusal), focus(), reap()];
