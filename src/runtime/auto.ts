@@ -1,6 +1,7 @@
 import { actionOf, canDo, contactOf } from "../core/projection.ts";
 import type { ActionRequest } from "../board.ts";
 import type { ContactView, Event, Operation, Settings } from "../core/types.ts";
+import { messageOf } from "../core/errors.ts";
 import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { listOperations, mutateOperation, readOperation } from "../store/operations.ts";
@@ -101,7 +102,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
       await mutateOperation(deps.home, opId, (op) => (op.auto ? { ...op, auto: { ...op.auto, enabled: false } } : op));
       await appendEvent(deps.home, opId, { v: 1, at: deps.now().toISOString(), kind: "auto", enabled: false, reason, by: "board" });
     } catch (error) {
-      deps.warn(`auto pause ${opId}: ${error instanceof Error ? error.message : String(error)}`);
+      deps.warn(`auto pause ${opId}: ${messageOf(error)}`);
     }
   }
 
@@ -127,7 +128,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
         if (req.action === "launch" || req.action === "decide-agent") await deps.settle?.(opId);
         return true;
       } catch (error) {
-        deps.warn(`auto ${opId} ${req.action} ${req.contact}: ${error instanceof Error ? error.message : String(error)}`);
+        deps.warn(`auto ${opId} ${req.action} ${req.contact}: ${messageOf(error)}`);
         return false;
       }
     };
@@ -210,14 +211,14 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
             const code = error instanceof PortError || error instanceof ActionError ? error.code : null;
             if (code === "integration-dirty" || code === "integration-wrong-branch") {
               // Readiness can change between preflight and merge. Never retry a blocked merge each poll.
-              landingWaits.set(opId, { reason: `${target.ticket}: ${error instanceof Error ? error.message : String(error)}`, retryAt: deps.now().getTime() + 30_000 });
+              landingWaits.set(opId, { reason: `${target.ticket}: ${messageOf(error)}`, retryAt: deps.now().getTime() + 30_000 });
             } else if (code === "not-merged") {
               unmerged.set(`${opId}/${target.ticket}`, deps.now().getTime() + 10 * 60_000);
             } else if (code === "branch-updated" || code === "pr-opened") {
               // GitHub needs a moment to register the new head's checks, or the probe to see the new PR.
               unmerged.set(`${opId}/${target.ticket}`, deps.now().getTime() + 3 * 60_000);
             } else if (code !== "conflict-opened") {
-              const reason = `${target.ticket}: ${error instanceof Error ? error.message : String(error)}`;
+              const reason = `${target.ticket}: ${messageOf(error)}`;
               deps.warn(`auto ${opId} land ${reason}`);
               // A preflight failure never reached the runner, so it leaves no event to back off on.
               if (!(error instanceof ActionError)) landingWaits.set(opId, { reason, retryAt: deps.now().getTime() + BACKOFF_MS[0]! });
@@ -243,7 +244,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
             });
             await appendEvent(deps.home, opId, { v: 1, at, kind: "landed", contact: target.ticket, via: "manual" });
           } catch (error) {
-            await pause(opId, error instanceof Error ? error.message : String(error));
+            await pause(opId, messageOf(error));
             return;
           }
         } else if (!auto.capacityWait && live + reserved < auto.maxLive && open + reserved < projection.header.cap && allowed(target.ticket, "decide-agent")) {
@@ -285,7 +286,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
         try {
           await runOp(row.id);
         } catch (error) {
-          deps.warn(`auto ${row.id}: ${error instanceof Error ? error.message : String(error)}`);
+          deps.warn(`auto ${row.id}: ${messageOf(error)}`);
         } finally {
           busy.delete(row.id);
         }

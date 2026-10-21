@@ -19,6 +19,7 @@ import {
   type Tracker,
 } from "./core/types.ts";
 import { workflowToMarkdown } from "./core/notes.ts";
+import { messageOf } from "./core/errors.ts";
 import { parseSeed } from "./core/seed.ts";
 import { validateProject } from "./core/validate-project.ts";
 import { addContact, queueEvents } from "./contacts.ts";
@@ -315,7 +316,7 @@ async function cmdNew(tokens: string[], env: CommandEnv): Promise<CommandOutcome
   const from = flag(parsed, "from");
   const briefFilePath = flag(parsed, "brief");
   const brief = briefFilePath ? await readFile(resolve(env.cwd, briefFilePath), "utf8").catch((error: unknown) => {
-    throw new Error(`Cannot read --brief ${briefFilePath}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Cannot read --brief ${briefFilePath}: ${messageOf(error)}`);
   }) : undefined;
   const created = await createFromSpec(env.home, env.now, {
     id,
@@ -334,7 +335,7 @@ async function cmdNew(tokens: string[], env: CommandEnv): Promise<CommandOutcome
     ...(flag(parsed, "frontend") ? { frontend: oneOf(FRONTENDS, flag(parsed, "frontend")!, "--frontend") } : {}),
     ...(flag(parsed, "delivery") ? { delivery: oneOf(DELIVERIES, flag(parsed, "delivery")!, "--delivery") } : {}),
     ...(from ? { seed: await readFile(resolve(env.cwd, from), "utf8").catch((error: unknown) => {
-      throw new Error(`Cannot read --from ${from}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Cannot read --from ${from}: ${messageOf(error)}`);
     }) } : {}),
     ...(brief !== undefined ? { brief } : {}),
   });

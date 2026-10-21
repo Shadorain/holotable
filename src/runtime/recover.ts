@@ -3,6 +3,7 @@ import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
 import { foldEvents } from "../core/fold.ts";
 import { canDo, contactOf } from "../core/projection.ts";
 import type { ContactStatus, ContactView, Event, Projection, RecoveryWait, Settings } from "../core/types.ts";
+import { messageOf } from "../core/errors.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { listOperations } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
@@ -141,7 +142,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
       if (!canDo(contact, "relaunch")) return;
       await act(opId, ticket, "relaunch");
       if (deps.extras(opId).owners[ticket] === "live") delete deferred.get(opId)?.[ticket];
-    }).catch(error => deps.warn(`recover ${opId}: ${error instanceof Error ? error.message : String(error)}`))
+    }).catch(error => deps.warn(`recover ${opId}: ${messageOf(error)}`))
       .finally(() => queued.delete(key));
   }
 
@@ -169,7 +170,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
       else if (error instanceof ActionError && error.code === "refused" && error.message.startsWith("cap "))
         defer(opId, ticket, { kind: "capacity", detail: `Waiting for a session slot · ${error.message}` });
       if (!(error instanceof ActionError))
-        deps.warn(`recover ${opId}: ${error instanceof Error ? error.message : String(error)}`);
+        deps.warn(`recover ${opId}: ${messageOf(error)}`);
     } finally {
       busy.delete(key);
     }
@@ -253,7 +254,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
         try {
           await runOp(row.id);
         } catch (error) {
-          deps.warn(`recover ${row.id}: ${error instanceof Error ? error.message : String(error)}`);
+          deps.warn(`recover ${row.id}: ${messageOf(error)}`);
         }
       }
     },

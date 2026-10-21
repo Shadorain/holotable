@@ -1,4 +1,5 @@
 import type { Run } from "./ports.ts";
+import { messageOf } from "./core/errors.ts";
 
 /** Longest first: worktree creation can fetch and install; everything else should answer fast. */
 function timeoutFor(command: string, args: string[]): number {
@@ -19,7 +20,7 @@ export function createRun(): Run {
       proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe", timeout: timeoutFor(command, args) });
     } catch (error) {
       // A missing binary is a command result (127), not a thrown spawn error.
-      return { stdout: "", stderr: error instanceof Error ? error.message : String(error), code: 127 };
+      return { stdout: "", stderr: messageOf(error), code: 127 };
     }
     const [stdout, stderr, code] = await Promise.all([
       new Response(proc.stdout).text(),

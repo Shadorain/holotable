@@ -5,6 +5,7 @@ import { resolvePorts } from "./adapters/registry.ts";
 import { assertIntegrationReady } from "./adapters/git-merge.ts";
 import { createBoardService } from "./board.ts";
 import type { Access, Operation, Settings } from "./core/types.ts";
+import { messageOf } from "./core/errors.ts";
 import { agentDir } from "./paths.ts";
 import { PortError, type Ports, type Run } from "./ports.ts";
 import { readOperation } from "./store/operations.ts";
@@ -124,7 +125,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
   };
   const watcher = createWatcher({ home, now: () => new Date(), settings: settingsFn, portsFor, warn, run });
   const captureMetrics:Watcher["capture"]=async(...args)=>{
-    try{await watcher.capture(...args);}catch(error){warn(`evaluation capture ${args[0].id}/${args[1].ticket}: ${error instanceof Error?error.message:String(error)}`);}
+    try{await watcher.capture(...args);}catch(error){warn(`evaluation capture ${args[0].id}/${args[1].ticket}: ${messageOf(error)}`);}
   };
   const inFlight = new Map<string, string>();
   const action = createActionRunner({
@@ -241,19 +242,19 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
       // failures reach the log rather than being swallowed.
       autoInFlight ??= auto
         .pass()
-        .catch((error) => warn(`auto pass: ${error instanceof Error ? error.message : String(error)}`))
+        .catch((error) => warn(`auto pass: ${messageOf(error)}`))
         .finally(() => {
           autoInFlight = undefined;
         });
       recoverInFlight ??= recover
         .pass()
-        .catch((error) => warn(`recover pass: ${error instanceof Error ? error.message : String(error)}`))
+        .catch((error) => warn(`recover pass: ${messageOf(error)}`))
         .finally(() => {
           recoverInFlight = undefined;
         });
       delay = (await settingsFn()).pollMs;
     } catch (error) {
-      warn(`watcher pass: ${error instanceof Error ? error.message : String(error)}`);
+      warn(`watcher pass: ${messageOf(error)}`);
     }
   };
   function poll(): void {

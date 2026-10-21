@@ -1,5 +1,6 @@
 import type { Contact, ContactStatus, Operation, Projection } from "../core/types.ts";
 import { contactOf } from "../core/projection.ts";
+import { messageOf } from "../core/errors.ts";
 import { normalizeTicket } from "../core/validate-operation.ts";
 import { PortError, type Run } from "../ports.ts";
 import { appendEvent } from "../store/events.ts";
@@ -106,7 +107,6 @@ export async function landContact(deps: LanderDeps, opId: string, ticket: string
     await launchContact(deps, opId, created.ticket, { conflictPaths: result.paths });
   } catch (error) {
     // The conflict is real and recorded; only the launch of its mission failed, and Launch on its card retries.
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new ActionError(409, "conflict-opened", `Land hit conflicts in ${result.paths.length} file(s). Conflict mission ${created.ticket} is open but not launched: ${reason}`);
+    throw new ActionError(409, "conflict-opened", `Land hit conflicts in ${result.paths.length} file(s). Conflict mission ${created.ticket} is open but not launched: ${messageOf(error)}`);
   }
 }

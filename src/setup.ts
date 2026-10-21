@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
+import { messageOf } from "./core/errors.ts";
 import { agentDir } from "./paths.ts";
 import { listOperations } from "./store/operations.ts";
 import { listProjects } from "./store/projects.ts";
@@ -39,7 +40,7 @@ async function runWithTimeout(
   try {
     return await withTimeout(run(command, args, cwd), RUN_TIMEOUT, "Timeout");
   } catch (error) {
-    return { code: -1, stdout: "", stderr: "", detail: error instanceof Error ? error.message : String(error) };
+    return { code: -1, stdout: "", stderr: "", detail: messageOf(error) };
   }
 }
 
@@ -53,7 +54,7 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
       id: "operations-store",
       label: "Operations Store",
       ok: false,
-      detail: `Failed to list operations: ${error instanceof Error ? error.message : String(error)}`,
+      detail: `Failed to list operations: ${messageOf(error)}`,
       fix: `Inspect the operation documents under ${join(home, "operations")} and fix or remove the invalid one`,
     }));
     return null;
@@ -64,7 +65,7 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
       id: "projects-store",
       label: "Projects Store",
       ok: false,
-      detail: `Failed to list projects: ${error instanceof Error ? error.message : String(error)}`,
+      detail: `Failed to list projects: ${messageOf(error)}`,
       fix: `Inspect the project.json files under ${join(home, "projects")} and fix or remove the invalid one`,
     }));
     return null;
@@ -107,7 +108,7 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
         id: `operation-${row.id}`,
         label: `Operation ${row.id}`,
         ok: false,
-        detail: `Failed to load operation "${row.id}": ${error instanceof Error ? error.message : String(error)}`,
+        detail: `Failed to load operation "${row.id}": ${messageOf(error)}`,
         fix: `Fix or remove the invalid operation document in ${join(home, "operations", row.id)}`,
       }));
     }
@@ -123,7 +124,7 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
         id,
         label,
         ok: false,
-        detail: err instanceof Error ? err.message : String(err),
+        detail: messageOf(err),
       }))
     );
   };

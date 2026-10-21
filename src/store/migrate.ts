@@ -1,6 +1,7 @@
 import { access, mkdir, readFile, readdir, realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { lock } from "proper-lockfile";
+import { messageOf } from "../core/errors.ts";
 import type { Project, StoredOperation } from "../core/types.ts";
 import { OVERRIDABLE_FIELDS } from "../core/types.ts";
 import { validateOperationDoc } from "../core/validate-operation.ts";
@@ -177,7 +178,7 @@ async function assignOperation(home: string, id: string, project: Project): Prom
 function isSkippableDocError(error: unknown): boolean {
   if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return true;
   if (error instanceof SyntaxError) return true;
-  const message = error instanceof Error ? error.message : String(error);
+  const message = messageOf(error);
   return message.startsWith("Invalid ") || message.includes("ENOENT");
 }
 

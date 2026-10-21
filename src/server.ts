@@ -8,6 +8,7 @@ import { isAllowedRemoteAddress, isTailscaleAddress, resolveBoardUrls } from "./
 import { HttpError, type BoardService, type ProjectSpec } from "./board.ts";
 import { CLOSE_OUTCOMES, type NewOperationSpec } from "./commands.ts";
 import type { Access, ClosedOutcome, Delivery, Fleet, Frontend, Kind, Settings, Tracker } from "./core/types.ts";
+import { messageOf } from "./core/errors.ts";
 import { notifyChanged, onChanged } from "./core/notify.ts";
 import type { Run } from "./ports.ts";
 import { ActionError } from "./runtime/errors.ts";
@@ -87,7 +88,7 @@ function asBadRequest(route: Route): Route {
       return await route(ctx);
     } catch (error) {
       if (error instanceof HttpError) throw error;
-      throw new HttpError(400, error instanceof Error ? error.message : String(error));
+      throw new HttpError(400, messageOf(error));
     }
   };
 }
@@ -604,8 +605,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       if (res.headersSent) return res.end();
       if (error instanceof HttpError) return fail(res, error.status, error.message);
       if (error instanceof ActionError) return fail(res, error.status, `${error.code}: ${error.message}`);
-      const message = error instanceof Error ? error.message : String(error);
-      return fail(res, 500, message);
+      return fail(res, 500, messageOf(error));
     }
   };
   function trackRequest(req: IncomingMessage, res: ServerResponse): void {

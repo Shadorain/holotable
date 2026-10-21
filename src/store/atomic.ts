@@ -1,6 +1,7 @@
 import { open, mkdir, rename, rm, link } from "fs/promises";
 import { randomBytes } from "crypto";
 import { join } from "path";
+import { messageOf } from "../core/errors.ts";
 
 /** Write file atomically using tmp and rename. Includes fsync. */
 export async function writeFileAtomic(target: string, text: string, mode = 0o600): Promise<void> {
@@ -36,8 +37,7 @@ export async function createFileAtomic(target: string, text: string, mode = 0o60
     if (error && typeof error === "object" && "code" in error && error.code === "EEXIST") {
       throw error;
     }
-    const msg = error instanceof Error ? error.message : String(error);
-    throw new Error(`Cannot create file at ${target}: ${msg}`);
+    throw new Error(`Cannot create file at ${target}: ${messageOf(error)}`);
   } finally {
     if (handle) await handle.close().catch(() => undefined);
     await rm(tmp, { force: true }).catch(() => undefined);

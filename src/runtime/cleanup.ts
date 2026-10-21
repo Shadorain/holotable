@@ -1,4 +1,5 @@
 import { foldEvents } from "../core/fold.ts";
+import { messageOf } from "../core/errors.ts";
 import { contactOf } from "../core/projection.ts";
 import type { Operation, Settings } from "../core/types.ts";
 import { PortError, type Ports, type Run } from "../ports.ts";
@@ -21,7 +22,7 @@ function cleanupFailed(deps: CleanupDeps, opId: string, contact: string, error: 
     contact,
     op: "cleanup",
     ok: false,
-    error: error instanceof Error ? error.message : String(error),
+    error: messageOf(error),
   });
 }
 

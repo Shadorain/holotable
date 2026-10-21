@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { appendFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
+import { messageOf } from "../core/errors.ts";
 import { parseSeed, type SeedShape } from "../core/seed.ts";
 import { FRONTENDS, type Frontend, type TerminalRef } from "../core/types.ts";
 import { assertDraftId, draftDir, draftsDir, isDraftId } from "../paths.ts";
@@ -110,7 +111,7 @@ export async function draftEntry(home: string, id: string): Promise<DraftEntry |
   try {
     return { id, state: "ready", createdAt, seed: parseSeed(text, "seed.json") };
   } catch (error) {
-    return { id, state: "invalid", createdAt, error: error instanceof Error ? error.message : String(error) };
+    return { id, state: "invalid", createdAt, error: messageOf(error) };
   }
 }
 

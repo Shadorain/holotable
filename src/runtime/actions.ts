@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import type { ActionRequest } from "../board.ts";
 import type { Contact, ControlOp, OperatorOp } from "../core/types.ts";
 import { askAnswers } from "../core/ask.ts";
+import { messageOf } from "../core/errors.ts";
 import { PortError } from "../ports.ts";
 import { foldEvents } from "../core/fold.ts";
 import { contactOf } from "../core/projection.ts";
@@ -24,7 +25,7 @@ const CONFLICT_CODES = ["owner-offline", "stale", "busy", "rejected", "no-sessio
 function asActionError(error: unknown): ActionError {
   if (error instanceof ActionError) return error;
   if (error instanceof PortError) return new ActionError(CONFLICT_CODES.includes(error.code) ? 409 : 502, error.code, error.message);
-  return new ActionError(500, "internal", error instanceof Error ? error.message : String(error));
+  return new ActionError(500, "internal", messageOf(error));
 }
 
 /** An optional `model` override: a string, null for the default, or absent. */
@@ -85,7 +86,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     try {
       return validateDecision({ choice, rationale: args.rationale }, contact);
     } catch (error) {
-      throw new ActionError(400, "bad-request", error instanceof Error ? error.message : String(error));
+      throw new ActionError(400, "bad-request", messageOf(error));
     }
   }
 

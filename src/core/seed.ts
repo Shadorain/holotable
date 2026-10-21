@@ -1,3 +1,5 @@
+import { messageOf } from "./errors.ts";
+
 /** Everything `new` accepts as structured data: what `--from` carries and the API posts. */
 export interface SeedShape {
   name?: string;
@@ -14,7 +16,7 @@ export function parseSeed(text: string, where: string): SeedShape {
   try {
     raw = JSON.parse(text);
   } catch (error) {
-    throw new Error(`Cannot read ${where}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Cannot read ${where}: ${messageOf(error)}`);
   }
   if (typeof raw !== "object" || raw === null || Array.isArray(raw))
     throw new Error(`${where}: expected a JSON object with zones, contacts, notes`);

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { foldEvents } from "../core/fold.ts";
 import { contactOf } from "../core/projection.ts";
 import { unmetBlockers } from "../core/graph.ts";
+import { messageOf } from "../core/errors.ts";
 import { MEASUREMENT_COUNTS } from "../core/evaluation.ts";
 import { hasRecentUncontrolledStatus } from "../core/policy.ts";
 import type {
@@ -218,7 +219,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     try {
       return await fn();
     } catch (error) {
-      const message = `${label}: ${error instanceof Error ? error.message : String(error)}`;
+      const message = `${label}: ${messageOf(error)}`;
       if (!warned.has(message)) {
         warned.add(message);
         deps.warn(message);
@@ -445,7 +446,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
           await removeDecisionPane(deps.home, op.id, ticket).catch(() => undefined);
           state.decisionPanes.delete(ticket);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = messageOf(error);
           if (pane.error === undefined) {
             await appendEvent(deps.home, op.id, {
               v: 1, at: at(), kind: "operator", contact: ticket, op: "decide-agent", ok: false,

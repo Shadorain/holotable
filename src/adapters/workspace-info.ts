@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import type { Operation, Settings } from "../core/types.ts";
+import { messageOf } from "../core/errors.ts";
 import { isRecord } from "../core/validate.ts";
 import { expandWorktreeRoot } from "../core/worktrees.ts";
 import type { Run } from "../ports.ts";
@@ -26,7 +27,7 @@ export async function workspaceInfo(op: Operation, settings: Settings, run: Run 
         return { path: base, source: "orca-project", note: "Set in Orca's project settings." };
       return { path: null, source: "none", note: "Orca has no worktree folder for this project. Launch will fail until one is set in Orca's project settings." };
     } catch (error) {
-      return { path: null, source: "none", note: `Cannot read Orca's project settings: ${error instanceof Error ? error.message : String(error)}` };
+      return { path: null, source: "none", note: `Cannot read Orca's project settings: ${messageOf(error)}` };
     }
   }
   const template = op.worktreeRoot ?? settings.worktrees.root;

@@ -1,6 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Contact, LaunchStep, Operation, Settings, TerminalRef } from "../core/types.ts";
+import { messageOf } from "../core/errors.ts";
 import { PortError, type FleetPort, type Ports } from "../ports.ts";
 import type { ProjectionExtras } from "../snapshot.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
@@ -41,14 +42,10 @@ async function recordedConflictPaths(deps: LauncherDeps, opId: string, original:
   return [];
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** A step that stopped a launch or relaunch: record why, then fail the action. */
 async function failLaunch(deps: LauncherDeps, opId: string, ticket: string, step: LaunchStep, error: unknown): Promise<never> {
-  await appendEvent(deps.home, opId, { v: 1, at: deps.now().toISOString(), kind: "launch-failed", contact: ticket, step, error: message(error) });
-  throw new ActionError(502, "launch-failed", `${step}: ${message(error)}`);
+  await appendEvent(deps.home, opId, { v: 1, at: deps.now().toISOString(), kind: "launch-failed", contact: ticket, step, error: messageOf(error) });
+  throw new ActionError(502, "launch-failed", `${step}: ${messageOf(error)}`);
 }
 
 /** Poll the child's status file until its control socket pings; `socket` failure after the budget. */

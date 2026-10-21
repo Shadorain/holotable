@@ -1,5 +1,6 @@
 import { foldEvents } from "../core/fold.ts";
 import type { Contact, ContactStatus, Operation, Settings } from "../core/types.ts";
+import { messageOf } from "../core/errors.ts";
 import { PortError, type Ports, type Run } from "../ports.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { readOperation } from "../store/operations.ts";
@@ -35,7 +36,7 @@ export async function windDown(deps: WinddownDeps, opId: string, op: "abort" | "
       contact: ticket,
       op,
       ok: false,
-      error: `${ticket}: ${error instanceof Error ? error.message : String(error)}`,
+      error: `${ticket}: ${messageOf(error)}`,
     });
 
   // Ports resolve on first use only: closing an all-none operation must not build adapters.

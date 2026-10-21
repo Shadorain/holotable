@@ -1,6 +1,7 @@
 import type { ModelsResult, ModelEntry } from "./core/types.ts";
 import type { CommandResult, Run } from "./ports.ts";
 import { subscriptionCapacity } from "./core/subscription-capacity.ts";
+import { messageOf } from "./core/errors.ts";
 import { withTimeout } from "./timeout.ts";
 
 export interface ModelCatalogOptions {
@@ -52,7 +53,7 @@ export function createModelCatalog(run: Run, options: ModelCatalogOptions = {}):
     } catch (error) {
       return {
         models: [],
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       };
     }
 
@@ -67,7 +68,7 @@ export function createModelCatalog(run: Run, options: ModelCatalogOptions = {}):
     } catch (error) {
       return {
         models: [],
-        error: `Invalid JSON from models catalog: ${error instanceof Error ? error.message : String(error)}`,
+        error: `Invalid JSON from models catalog: ${messageOf(error)}`,
       };
     }
 

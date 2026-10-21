@@ -1,4 +1,5 @@
 import { isRecord } from "../core/validate.ts";
+import { messageOf } from "../core/errors.ts";
 import { PortError } from "../ports.ts";
 
 // Orca CLI JSON envelope helpers, copied from omp-mission/src/workers.ts:53-79
@@ -44,6 +45,6 @@ export function decode(result: { stdout: string; stderr: string; code: number })
     return unwrap(JSON.parse(result.stdout));
   } catch (error) {
     if (error instanceof PortError) throw error;
-    throw new PortError("orca", `invalid Orca JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw new PortError("orca", `invalid Orca JSON: ${messageOf(error)}`);
   }
 }

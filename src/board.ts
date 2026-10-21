@@ -2,6 +2,7 @@ import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { usableMemoryBytes } from "./machine.ts";
+import { messageOf } from "./core/errors.ts";
 import { zoneIdFor } from "./core/zones.ts";
 import { workspaceInfo, type WorkspaceInfo } from "./adapters/workspace-info.ts";
 import { doltState, installDolt, restartDolt, type DoltState } from "./adapters/beads-dolt.ts";
@@ -337,7 +338,7 @@ async function asBadRequest<T>(fn: () => Promise<T>): Promise<T> {
     return await fn();
   } catch (error) {
     if (error instanceof HttpError) throw error;
-    throw new HttpError(400, error instanceof Error ? error.message : String(error));
+    throw new HttpError(400, messageOf(error));
   }
 }
 
@@ -629,7 +630,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       try {
         detected = await detectRepo(input.repo, run);
       } catch (error) {
-        throw new HttpError(400, error instanceof Error ? error.message : String(error));
+        throw new HttpError(400, messageOf(error));
       }
 
       const topRepo = detected.fields.integration;
@@ -729,7 +730,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         return await writeNotes(home, opId, text, base);
       } catch (error) {
         if (error instanceof StaleRevisionError) throw new HttpError(409, "stale: the notes changed since you loaded them");
-        throw new HttpError(400, error instanceof Error ? error.message : String(error));
+        throw new HttpError(400, messageOf(error));
       }
     },
     async createDraft(input) {
@@ -833,7 +834,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
           },
         };
       } catch (error) {
-        throw new HttpError(400, error instanceof Error ? error.message : String(error));
+        throw new HttpError(400, messageOf(error));
       }
     },
     ...(hooks.usage
