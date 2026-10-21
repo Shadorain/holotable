@@ -134,7 +134,7 @@ button { cursor: pointer; }
 button:has(> svg.icon), .btn:has(> svg.icon) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 
 /* ---- shell ---- */
-.app { height: 100vh; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 10px; padding: 10px; }
+.app { height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 10px; padding: 10px; }
 .top {
   display: flex; align-items: center; gap: 18px; padding: 8px 14px; flex-wrap: wrap;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
@@ -409,6 +409,8 @@ details.group > summary .count { margin-left: auto; }
 .set-restart { color: var(--warn); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
 .set-control { margin-top: 6px; display: flex; align-items: center; }
 .set-note { color: var(--dim); font-size: 11.5px; margin-top: 4px; }
+:is(.project-page, .op-page) .set-control > .cmp-dd { flex: 1; }
+:is(.project-page, .op-page) .set-control > .cmp-dd .cmp-dd-btn { width: 100%; }
 .set-err { color: var(--bad); font-size: 12px; margin-top: 4px; }
 .set-err.big { padding: 12px 0; }
 .set-workspace { margin-top: 10px; padding: 8px 10px; border: 1px dashed var(--line-2); border-radius: var(--radius-s); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
@@ -491,6 +493,12 @@ details.group > summary .count { margin-left: auto; }
 .map-summary .warn { color: var(--warn); }
 .map-legend { margin-left: auto; font-size: 11.5px; color: var(--dim); }
 .map-canvas { position: relative; flex: 1; min-height: 0; overflow: auto; margin-top: 10px; }
+/* Columns past the right edge: fade that edge until the canvas is scrolled to its end. */
+@property --map-fade { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes map-fade { from { --map-fade: 64px; } to { --map-fade: 0px; } }
+@supports (animation-timeline: scroll()) {
+  .map-canvas { mask-image: linear-gradient(to left, rgba(0, 0, 0, 0.15), #000 var(--map-fade)); animation: map-fade linear both; animation-timeline: scroll(self inline); }
+}
 .map-cols { position: relative; z-index: 1; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(210px, 1fr); gap: 36px; align-items: start; padding: 4px 4px 20px; }
 .links { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; overflow: visible; }
 .link { fill: none; stroke: var(--line-2); stroke-width: 1.4; }
@@ -509,8 +517,8 @@ details.group > summary .count { margin-left: auto; }
 .node.on { border-color: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
 .node.dim { opacity: 0.35; }
 .node.done { background: transparent; }
-.node-top { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
-.node-top .mono { white-space: nowrap; }
+.node-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 11.5px; color: var(--muted); }
+.node-top .mono { min-width: 0; overflow-wrap: anywhere; }
 .node-title { font-weight: 600; margin-top: 4px; }
 .node-cue { color: var(--muted); font-size: 11px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .history-panel { grid-area: history; flex-direction: column; padding: 12px 14px; overflow: hidden; }
@@ -794,9 +802,15 @@ textarea.plan-edit.seed-edit { width: 100%; background: var(--well); border: 1px
 .ob-check.ok > .icon { color: var(--ok); }
 .ob-check.bad > .icon { color: var(--warn); }
 .ob-check-label { font-weight: 600; }
-.ob-fix { grid-column: 2 / -1; font-size: 11.5px; padding: 3px 7px; border-radius: 4px; background: var(--panel); border: 1px solid var(--line); cursor: copy; white-space: pre-wrap; word-break: break-all; }
+.ob-fix { grid-column: 2 / -1; justify-self: start; max-width: 100%; text-align: left; color: var(--muted); font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 11.5px; padding: 3px 7px; border-radius: 4px; background: var(--well); border: 1px dashed var(--line-2); cursor: copy; white-space: pre-wrap; word-break: break-all; }
+.ob-fix:hover { color: var(--text); border-color: var(--accent); }
+@media (max-width: 560px) {
+  .ob-check { grid-template-columns: 16px minmax(0, 1fr); }
+  .ob-check > .set-note { grid-column: 2; }
+}
 .ob-step { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--radius-s); border: 1px solid var(--line); }
-.ob-step.done { opacity: 0.6; }
+.ob-step.done { border-color: var(--hairline); background: transparent; }
+.ob-step.done .ob-title { color: var(--muted); }
 .ob-step .ob-text { flex: 1; min-width: 0; }
 .ob-mark { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line-2); display: grid; place-items: center; flex: none; }
 .ob-step.done .ob-mark { background: var(--ok); border-color: var(--ok); color: var(--bg, #000); }
@@ -930,6 +944,9 @@ textarea.plan-edit.seed-edit { width: 100%; background: var(--well); border: 1px
 /* ---- operation zone filter and contact kind ---- */
 button.zone-chip {
   font: inherit;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: inherit;
   cursor: pointer;
 }
@@ -941,7 +958,7 @@ button.zone-chip[aria-pressed="true"] {
 .kind-pill { --s: var(--muted); }
 .kind-pill.k-implement { --s: var(--accent); }
 .kind-pill.k-audit { --s: var(--info); }
-.kind-pill.k-decision { --s: var(--warn); }
+.kind-pill.k-decision { --s: var(--decide); }
 .kind-pill.k-conflict { --s: var(--bad); }
 
 .recovery-missions { display: grid; gap: 8px; margin-bottom: 14px; }
