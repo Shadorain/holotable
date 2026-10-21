@@ -1,9 +1,9 @@
 import { mkdir } from "node:fs/promises";
 import type { ActionRequest } from "../board.ts";
-import type { Contact, ControlOp, OperatorOp } from "../core/types.ts";
+import type { Contact, ContactStatus, ControlOp, Operation } from "../core/types.ts";
 import { askAnswers } from "../core/ask.ts";
 import { messageOf } from "../core/errors.ts";
-import { PortError } from "../ports.ts";
+import { PortError, type FleetPort } from "../ports.ts";
 import { foldEvents } from "../core/fold.ts";
 import { contactOf } from "../core/projection.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
@@ -139,23 +139,37 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     await writeDecisionPane(deps.home, opId, ticket, { terminal, startedAt: deps.now().toISOString() });
   }
 
-  async function reap(opId: string, ticket: string): Promise<void> {
-    const operation = await readOperation(deps.home, opId);
+  /** The contact's recorded pane: Focus and Reap act on nothing else. */
+  function paneOf(operation: Operation, ticket: string) {
     const contact = contactOf(operation, ticket);
     const lane = contact?.lane;
-    if (!lane?.terminal) throw new ActionError(409, "refused", "no terminal recorded");
+    if (!contact || !lane?.terminal) throw new ActionError(409, "refused", "no terminal recorded");
+    return { contact, lane, terminal: lane.terminal };
+  }
+
+  /** The contact's fleet port and its mission status, read fresh through the lane. */
+  async function missionStatus(operation: Operation, ticket: string): Promise<{ fleet: FleetPort; status: ContactStatus | null }> {
+    const lane = contactOf(operation, ticket)?.lane;
+    if (!lane) throw new ActionError(409, "refused", `${ticket} has no lane`);
+    const fleet = deps.portsFor(operation, await deps.settings()).fleet;
+    return { fleet, status: await fleet.read({ worktree: lane.worktree }) };
+  }
+
+  async function reap(opId: string, ticket: string): Promise<void> {
+    const operation = await readOperation(deps.home, opId);
+    const { contact, lane, terminal } = paneOf(operation, ticket);
     const derived = foldEvents(await readEvents(deps.home, opId));
     if (derived.contacts[ticket]?.reaped) throw new ActionError(409, "refused", "already reaped");
     const settings = await deps.settings();
     // A completed conflict mission's branch is the target's pending resolution; only an unfinished one is abandoned.
     let abandoning = false;
-    if (contact?.kind === "conflict") {
+    if (contact.kind === "conflict") {
       const state = contactOf(await loadProjection(deps.home, opId, settings, deps.now().getTime(), deps.extras(opId)), ticket)?.state;
       abandoning = state !== "complete" && state !== "landed";
     }
-    await deps.captureMetrics?.(operation,contact!);
+    await deps.captureMetrics?.(operation, contact);
     try {
-      await deps.portsFor(operation, settings).frontend.close(lane.terminal, lane.worktree);
+      await deps.portsFor(operation, settings).frontend.close(terminal, lane.worktree);
     } catch (error) {
       // A terminal the frontend already forgot is gone: reaping is still the right record.
       if (!(error instanceof PortError && error.code === "terminal-missing")) throw error;
@@ -183,10 +197,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       if (reviewsRequested(await readEvents(deps.home, opId), ticket))
         throw new ActionError(409, "refused", "Automatic review request already sent; the mission's mode is yours");
     }
-    const lane = contactOf(operation, ticket)?.lane;
-    if (!lane) throw new ActionError(409, "refused", `${ticket} has no lane`);
-    const fleet = deps.portsFor(operation, await deps.settings()).fleet;
-    const status = await fleet.read({ worktree: lane.worktree });
+    const { fleet, status } = await missionStatus(operation, ticket);
     // The pane may be alive while its mission is gone; only a relaunch brings a fresh session back.
     if (!status) throw new ActionError(409, "owner-offline", `No mission status for ${ticket}; relaunch a dead pane instead`);
     if (recovering && (status.complete || status.hold !== "resume" || status.verify === "failed" || !status.actions.includes("continue")))
@@ -219,18 +230,13 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
 
   async function focus(opId: string, ticket: string, purpose?: string): Promise<void> {
     const operation = await readOperation(deps.home, opId);
-    const lane = contactOf(operation, ticket)?.lane;
-    if (!lane?.terminal) throw new ActionError(409, "refused", "no terminal recorded");
-    await deps.portsFor(operation, await deps.settings()).frontend.focus(lane.terminal, lane.worktree, purpose);
+    const { lane, terminal } = paneOf(operation, ticket);
+    await deps.portsFor(operation, await deps.settings()).frontend.focus(terminal, lane.worktree, purpose);
   }
 
   /** Answer the mission's open `ask` through its socket; the mission settles the pane's dialog as if answered there. */
   async function answer(opId: string, ticket: string, id: string, raw: unknown): Promise<void> {
-    const operation = await readOperation(deps.home, opId);
-    const lane = contactOf(operation, ticket)?.lane;
-    if (!lane) throw new ActionError(409, "refused", `${ticket} has no lane`);
-    const fleet = deps.portsFor(operation, await deps.settings()).fleet;
-    const status = await fleet.read({ worktree: lane.worktree });
+    const { fleet, status } = await missionStatus(await readOperation(deps.home, opId), ticket);
     if (status?.hold !== "question" || !status.ask || !status.actions.includes("answer"))
       throw new ActionError(409, "stale", `${ticket} is no longer asking a question it can take from the board`);
     if (status.ask.id !== id) throw new ActionError(409, "stale", `${ticket} is asking a different question now; read it again`);
@@ -241,11 +247,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
 
   /** Answer the pane's open tool-approval prompt through its socket with one of the prompt's own option labels. */
   async function permit(opId: string, ticket: string, id: string, answer: string): Promise<void> {
-    const operation = await readOperation(deps.home, opId);
-    const lane = contactOf(operation, ticket)?.lane;
-    if (!lane) throw new ActionError(409, "refused", `${ticket} has no lane`);
-    const fleet = deps.portsFor(operation, await deps.settings()).fleet;
-    const status = await fleet.read({ worktree: lane.worktree });
+    const { fleet, status } = await missionStatus(await readOperation(deps.home, opId), ticket);
     if (status?.hold !== "question" || !status.approval || !status.actions.includes("permit"))
       throw new ActionError(409, "stale", `${ticket} is no longer waiting on a tool approval it can take from the board`);
     if (status.approval.id !== id) throw new ActionError(409, "stale", `${ticket} is waiting on a different approval now; read it again`);
@@ -255,7 +257,8 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
 
   return async (req) => {
     let run: () => Promise<void>;
-    switch (req.action) {
+    const { action } = req;
+    switch (action) {
       case "focus": {
         const purpose = req.args.purpose;
         if (purpose !== undefined && purpose !== "plan-approval")
@@ -286,7 +289,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       case "approve":
       case "continue":
       case "dispatch":
-        run = () => fleetOp(req.op, req.contact, req.action as OperatorOp, {}, req.by === "recover" && req.action === "continue");
+        run = () => fleetOp(req.op, req.contact, action, {}, req.by === "recover" && action === "continue");
         break;
       case "review":
         if (req.by !== undefined && (req.by !== "auto" || req.args.repairBudgetOnly !== true))
@@ -309,10 +312,10 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         break;
       case "resend":
       case "release":
-        run = () => fleetOp(req.op, req.contact, req.action as OperatorOp, {
+        run = () => fleetOp(req.op, req.contact, action, {
           ...(typeof req.args.beadId === "string" ? { beadId: req.args.beadId } : {}),
           ...(typeof req.args.detail === "string" ? { detail: req.args.detail } : {}),
-          ...(req.action === "resend" && Array.isArray(req.args.files) && req.args.files.every((f) => typeof f === "string") ? { files: req.args.files } : {}),
+          ...(action === "resend" && Array.isArray(req.args.files) && req.args.files.every((f) => typeof f === "string") ? { files: req.args.files } : {}),
         });
         break;
       case "plan-approve":
