@@ -4,10 +4,12 @@ import { missionProblem, retryWaiting } from "./mission-problem.ts";
 import type {
   ActionView,
   Contact,
+  ContactDerived,
   ContactState,
   Derived,
   Operation,
   PolicyInput,
+  TerminalRef,
 } from "./types.ts";
 
 /** Observation is not control authority; an active review can stay quiet until its deadline. */
@@ -92,7 +94,6 @@ export function launchRefusal(i: PolicyInput): string | null {
   return null;
 }
 
-const FLEET_OPS = ["approve", "continue", "review", "dispatch", "resend", "release", "plan-approve", "retry-model", "check"] as const;
 const FLEET_OP_LABELS: Record<string, string> = {
   check: "Check PR",
   "retry-model": "Switch model",
@@ -104,6 +105,7 @@ const FLEET_OP_LABELS: Record<string, string> = {
   resend: "Resend",
   release: "Release",
 };
+const FLEET_OPS = new Set(Object.keys(FLEET_OP_LABELS));
 
 const view = (
   id: string,
@@ -113,209 +115,199 @@ const view = (
   reason: string | null = null,
 ): ActionView => ({ id, label, primary, enabled, reason });
 
-export function actionsFor(i: PolicyInput): ActionView[] {
-  const { operation, contact, derived, state, status, owner, probe } = i;
+/** The buttons several states share, bound to one contact. */
+interface Shared {
+  d: ContactDerived;
+  terminal: TerminalRef | null;
+  relaunch(): ActionView;
+  focus(idlePrimary?: boolean): ActionView;
+  answer(): ActionView[];
+  permit(): ActionView[];
+  reap(): ActionView;
+  fleetButtons(): ActionView[];
+  planButtons(): ActionView[];
+}
+
+function sharedActions(i: PolicyInput): Shared {
+  const { operation, contact, derived, status, owner } = i;
   const d = contactDerived(derived, contact.ticket);
   const terminal = contact.lane?.terminal ?? null;
-  const refusal = launchRefusal(i);
   const capRefusal = derived.closed
     ? "operation closed"
     : i.load.open >= i.cap
       ? `cap ${i.load.open}/${i.cap} omp`
       : i.recoveryWait?.kind === "memory" ? i.recoveryWait.detail : null;
-  /** Getting a dead pane back: close it (when listed) and open a fresh session in the same lane. */
-  const relaunch = (): ActionView =>
-    view("relaunch", "Relaunch", true, capRefusal === null, capRefusal);
-
-  const focus = (idlePrimary = false): ActionView => {
-    const ok = terminal !== null && contact.lane?.frontend !== "external" && !i.terminalMissing;
-    const boardAnswers = status?.actions.includes("answer") === true || status?.actions.includes("permit") === true;
-    return view(
-      "focus",
-      status?.hold === "question" ? "Answer in mission" : "Focus",
-      (status?.hold === "question" && !boardAnswers) || (idlePrimary && !!i.idleSince),
-      ok,
-      ok ? null : i.terminalMissing ? "terminal closed" : terminal === null ? "no terminal recorded" : "no frontend",
-    );
-  };
   const socketRefusal = status?.ctl === null ? "no control socket" : owner !== "live" ? "owner-offline" : null;
-  /** Answering the mission's open `ask` from the board, over the socket; offered only while the pane says it can take it. */
-  const answer = (): ActionView[] => {
-    if (status?.hold !== "question" || !status.ask || !status.actions.includes("answer")) return [];
-    return [view("answer", "Answer", true, socketRefusal === null, socketRefusal)];
-  };
-  /** Answering the pane's open tool-approval prompt from the board; offered only while the pane advertises `permit`. */
-  const permit = (): ActionView[] => {
-    if (status?.hold !== "question" || !status.approval || !status.actions.includes("permit")) return [];
-    return [view("permit", "Answer approval", true, socketRefusal === null, socketRefusal)];
-  };
-  const reap = (): ActionView => {
-    const ok = terminal !== null && !d.reaped;
-    return view(
-      "reap",
-      "Reap",
-      false,
-      ok,
-      ok ? null : d.reaped ? "already reaped" : "no terminal recorded",
-    );
-  };
-  /** Fleet ops rendered from status.actions; never computed locally. */
-  const fleetButtons = (): ActionView[] => {
-    if (status === null || status.hold === "question") return [];
-    const ctlMissing =
-      status.ctl === null ? "no control socket" : null;
-    const buttons: ActionView[] = [];
-    // Recovery handles plain resume holds; quota retries always require an operator.
-    const recoverable = operation.recover === true && status.ctl !== null && status.verify !== "failed";
-    const continueNeeded = status.hold === "quota" || (status.hold === "resume" && !recoverable) || status.verify === "failed";
-    // Continue on an exhausted subscription only fails again; switching the model is the way forward.
-    const quota = status.hold === "quota" || missionProblem(status)?.kind === "quota";
-    const primary = status.actions.includes("approve") ? "approve"
-      : quota && status.actions.includes("retry-model") ? "retry-model"
-      : status.actions.includes("continue") && continueNeeded ? "continue"
-      : status.actions.includes("resend") ? "resend"
-      : status.actions.includes("release") ? "release"
-      : status.phase === "review" && status.actions.includes("review") ? "review" : null;
-    for (const op of status.actions) {
-      if (!(FLEET_OPS as readonly string[]).includes(op)) continue;
-      if (op === "continue" && !continueNeeded) continue;
-      const enabled = ctlMissing === null && owner === "live";
-      buttons.push(
-        view(
-          op,
-          FLEET_OP_LABELS[op] ?? op,
-          op === primary,
-          enabled,
-          enabled ? null : (ctlMissing ?? "owner-offline"),
-        ),
-      );
-    }
-    if (status.actions.includes("mode")) {
-      const enabled = ctlMissing === null && owner === "live";
-      buttons.push(
-        view(
-          "mode",
-          "Mode",
-          false,
-          enabled,
-          enabled ? null : (ctlMissing ?? "owner-offline"),
-        ),
-      );
-    }
-    return buttons;
-  };
-
-  /** Plan review: shown only while a pending plan awaits approval; the text itself is GET /api/plan. */
-  const planButtons = (): ActionView[] => {
-    if (status?.hold !== "plan-approval" || !status.plan) return [];
-    const ctlMissing = status.ctl === null ? "no control socket (not launched by holotable)" : null;
+  /** Fleet buttons need a control socket and a live owner; each says which one is missing. */
+  const controlled = (id: string, label: string, primary: boolean, ctlMissing: string | null): ActionView => {
     const enabled = ctlMissing === null && owner === "live";
-    return [
-      view("plan-save", "Save plan", false, enabled, enabled ? null : (ctlMissing ?? "owner-offline")),
-      view("plan-refine", "Refine plan", false, enabled, enabled ? null : (ctlMissing ?? "owner-offline")),
-    ];
+    return view(id, label, primary, enabled, enabled ? null : (ctlMissing ?? "owner-offline"));
   };
 
-  switch (state) {
-    case "ready":
+  return {
+    d,
+    terminal,
+    /** Getting a dead pane back: close it (when listed) and open a fresh session in the same lane. */
+    relaunch: (): ActionView => view("relaunch", "Relaunch", true, capRefusal === null, capRefusal),
+    focus(idlePrimary = false): ActionView {
+      const ok = terminal !== null && contact.lane?.frontend !== "external" && !i.terminalMissing;
+      const boardAnswers = status?.actions.includes("answer") === true || status?.actions.includes("permit") === true;
+      return view(
+        "focus",
+        status?.hold === "question" ? "Answer in mission" : "Focus",
+        (status?.hold === "question" && !boardAnswers) || (idlePrimary && !!i.idleSince),
+        ok,
+        ok ? null : i.terminalMissing ? "terminal closed" : terminal === null ? "no terminal recorded" : "no frontend",
+      );
+    },
+    /** Answering the mission's open `ask` from the board, over the socket; offered only while the pane says it can take it. */
+    answer(): ActionView[] {
+      if (status?.hold !== "question" || !status.ask || !status.actions.includes("answer")) return [];
+      return [view("answer", "Answer", true, socketRefusal === null, socketRefusal)];
+    },
+    /** Answering the pane's open tool-approval prompt from the board; offered only while the pane advertises `permit`. */
+    permit(): ActionView[] {
+      if (status?.hold !== "question" || !status.approval || !status.actions.includes("permit")) return [];
+      return [view("permit", "Answer approval", true, socketRefusal === null, socketRefusal)];
+    },
+    reap(): ActionView {
+      const ok = terminal !== null && !d.reaped;
+      return view("reap", "Reap", false, ok, ok ? null : d.reaped ? "already reaped" : "no terminal recorded");
+    },
+    /** Fleet ops rendered from status.actions; never computed locally. */
+    fleetButtons(): ActionView[] {
+      if (status === null || status.hold === "question") return [];
+      const ctlMissing = status.ctl === null ? "no control socket" : null;
+      // Recovery handles plain resume holds; quota retries always require an operator.
+      const recoverable = operation.recover === true && status.ctl !== null && status.verify !== "failed";
+      const continueNeeded = status.hold === "quota" || (status.hold === "resume" && !recoverable) || status.verify === "failed";
+      // Continue on an exhausted subscription only fails again; switching the model is the way forward.
+      const quota = status.hold === "quota" || missionProblem(status)?.kind === "quota";
+      const primary = status.actions.includes("approve") ? "approve"
+        : quota && status.actions.includes("retry-model") ? "retry-model"
+        : status.actions.includes("continue") && continueNeeded ? "continue"
+        : status.actions.includes("resend") ? "resend"
+        : status.actions.includes("release") ? "release"
+        : status.phase === "review" && status.actions.includes("review") ? "review" : null;
+      const buttons = status.actions
+        .filter((op) => FLEET_OPS.has(op) && (op !== "continue" || continueNeeded))
+        .map((op) => controlled(op, FLEET_OP_LABELS[op] as string, op === primary, ctlMissing));
+      if (status.actions.includes("mode")) buttons.push(controlled("mode", "Mode", false, ctlMissing));
+      return buttons;
+    },
+    /** Plan review: shown only while a pending plan awaits approval; the text itself is GET /api/plan. */
+    planButtons(): ActionView[] {
+      if (status?.hold !== "plan-approval" || !status.plan) return [];
+      const ctlMissing = status.ctl === null ? "no control socket (not launched by holotable)" : null;
       return [
-        view("launch", "Launch", true, refusal === null, refusal),
+        controlled("plan-save", "Save plan", false, ctlMissing),
+        controlled("plan-refine", "Refine plan", false, ctlMissing),
       ];
+    },
+  };
+}
+
+function decisionActions(i: PolicyInput): ActionView[] {
+  const { operation, derived, contact } = i;
+  let agentReason: string | null = null;
+  if (unmetBlockers(operation, derived, contact.ticket).length > 0) agentReason = "blocked";
+  else if (operation.frontend === "none") agentReason = "no frontend: set one with /holotable set frontend orca";
+  else if (i.load.open >= i.cap) agentReason = `cap ${i.load.open}/${i.cap} omp`;
+  else if (i.decisionPaneOpen) agentReason = "already asking an agent";
+  return [
+    view("done", "Mark decided", true, true),
+    view("decide-agent", "Ask an agent", false, agentReason === null, agentReason),
+  ];
+}
+
+function offlineActions(i: PolicyInput, s: Shared): ActionView[] {
+  const { operation, contact } = i;
+  // A lane without a terminal is a launch that stopped early: Launch resumes it.
+  if (contact.lane !== null && s.terminal === null && contact.lane.frontend !== "external") {
+    const refusal = launchRefusal(i);
+    return [view("launch", "Launch", true, refusal === null, refusal), s.focus(), s.reap()];
+  }
+  // A removed worktree (an abandoned conflict mission) has nothing left to reopen.
+  const relaunchable =
+    s.terminal !== null && !s.d.removed && operation.frontend !== "none" && contact.lane?.frontend !== "external";
+  return [s.focus(), ...(relaunchable ? [s.relaunch()] : []), ...s.fleetButtons(), ...s.planButtons(), s.reap()];
+}
+
+function liveActions(s: Shared): ActionView[] {
+  // An idle coordinator is waiting in its pane, unless the producer offers the next step itself.
+  const fleet = s.fleetButtons();
+  return [...s.answer(), ...s.permit(), s.focus(!fleet.some((b) => b.primary)), ...fleet, ...s.planButtons(), s.reap()];
+}
+
+function completeActions(i: PolicyInput, s: Shared): ActionView[] {
+  const { operation, contact, owner, probe } = i;
+  const actions: ActionView[] = [];
+  // An audit that opened a PR (or committed on a local-merge base) carries code like any implementation.
+  const carriesCode = contact.kind === "implement" || (contact.kind === "audit" && probe !== null);
+  if (carriesCode && probe?.state === "merged") {
+    // Merged outside the board (or by an earlier Land): recording it is the only step left.
+    actions.push(view("done", "Mark merged", true, true));
+  } else if (carriesCode) {
+    let reason: string | null = null;
+    if (operation.delivery === "none") reason = "no delivery configured";
+    else if (i.conflictOpen !== null) reason = `conflict mission ${i.conflictOpen} open`;
+    else if (probe?.state === "closed") reason = "pull request closed";
+    // A PR that conflicts with the base gets no meaningful CI: Land opens the conflict mission instead of merging.
+    const conflicting = probe?.mergeable === "conflict";
+    const failingChecks = reason === null && !conflicting && probe?.checks === "fail" && !operation.ignoreChecks;
+    if (failingChecks)
+      reason = probe.failing?.length ? `failing check: ${probe.failing.join(", ")}` : "a required check failed";
+    // A rerun turns red checks pending; landing then would merge before CI has said anything.
+    else if (reason === null && !conflicting && probe?.checks === "pending" && !operation.ignoreChecks) reason = "checks still running";
+    actions.push(view("land", "Land", true, reason === null, reason));
+    // The operator can still land past red CI for this one PR; auto mode only looks at `land`.
+    if (failingChecks) actions.push(view("land-anyway", "Land anyway", false, true));
+    // Without a delivery the operator merges by hand; Mark done then verifies the merge actually happened.
+    if (operation.delivery === "none") actions.push(view("done", "Mark done", false, true));
+  } else {
+    // Audits with nothing to merge and conflict missions never land: done is the exit.
+    // A finished conflict mission is not the operator's next step: Land on the original is.
+    actions.push(view("done", "Mark done", contact.kind !== "conflict", true));
+  }
+  // A finished pane that died still owns its PR: relaunching it is the only way back to Check PR.
+  const relaunchable = s.terminal !== null && operation.frontend !== "none" && contact.lane?.frontend !== "external";
+  if (owner === "offline" && carriesCode && probe?.state !== "merged" && relaunchable) actions.push(s.relaunch());
+  actions.push(...s.fleetButtons().filter((b) => b.id === "check"), s.focus(), s.reap());
+  return actions;
+}
+
+export function actionsFor(i: PolicyInput): ActionView[] {
+  const s = sharedActions(i);
+  switch (i.state) {
+    case "ready": {
+      const refusal = launchRefusal(i);
+      return [view("launch", "Launch", true, refusal === null, refusal)];
+    }
     case "blocked":
       return [
-        view("launch", "Launch", true, false, refusal ?? "blocked"),
-        ...(contact.kind === "decision" ? [view("decide-agent", "Ask an agent", false, false, "blocked")] : []),
+        view("launch", "Launch", true, false, launchRefusal(i) ?? "blocked"),
+        ...(i.contact.kind === "decision" ? [view("decide-agent", "Ask an agent", false, false, "blocked")] : []),
       ];
-    case "decision": {
-      let agentReason: string | null = null;
-      if (unmetBlockers(i.operation, derived, contact.ticket).length > 0) agentReason = "blocked";
-      else if (operation.frontend === "none") agentReason = "no frontend: set one with /holotable set frontend orca";
-      else if (i.load.open >= i.cap) agentReason = `cap ${i.load.open}/${i.cap} omp`;
-      else if (i.decisionPaneOpen) agentReason = "already asking an agent";
-      return [
-        view("done", "Mark decided", true, true),
-        view("decide-agent", "Ask an agent", false, agentReason === null, agentReason),
-      ];
-    }
+    case "decision":
+      return decisionActions(i);
     case "waiting":
-      if (owner === "live" && state === "waiting") return [focus(), ...fleetButtons(), reap()];
-    case "offline": {
-      // A removed worktree (an abandoned conflict mission) has nothing left to reopen.
-      const relaunchable =
-        terminal !== null && !d.removed && operation.frontend !== "none" && contact.lane?.frontend !== "external";
-      // A lane without a terminal is a launch that stopped early: Launch resumes it.
-      if (contact.lane !== null && terminal === null && contact.lane.frontend !== "external")
-        return [view("launch", "Launch", true, refusal === null, refusal), focus(), reap()];
-      return [
-        focus(),
-        ...(relaunchable ? [relaunch()] : []),
-        ...fleetButtons(),
-        ...planButtons(),
-        reap(),
-      ];
-    }
+      if (i.owner === "live") return [s.focus(), ...s.fleetButtons(), s.reap()];
+      return offlineActions(i, s);
+    case "offline":
+      return offlineActions(i, s);
     case "planning":
     case "running":
     case "verify":
     case "review":
-    case "hold": {
-      // An idle coordinator is waiting in its pane, unless the producer offers the next step itself.
-      const fleet = fleetButtons();
-      return [...answer(), ...permit(), focus(!fleet.some((b) => b.primary)), ...fleet, ...planButtons(), reap()];
-    }
-    case "complete": {
-      const actions: ActionView[] = [];
-      // An audit that opened a PR (or committed on a local-merge base) carries code like any implementation.
-      const carriesCode = contact.kind === "implement" || (contact.kind === "audit" && probe !== null);
-      if (carriesCode && probe?.state === "merged") {
-        // Merged outside the board (or by an earlier Land): recording it is the only step left.
-        actions.push(view("done", "Mark merged", true, true));
-      } else if (carriesCode) {
-        let reason: string | null = null;
-        if (operation.delivery === "none") reason = "no delivery configured";
-        else if (i.conflictOpen !== null)
-          reason = `conflict mission ${i.conflictOpen} open`;
-        else if (probe?.state === "closed") reason = "pull request closed";
-        // A PR that conflicts with the base gets no meaningful CI: Land opens the conflict mission instead of merging.
-        const conflicting = probe?.mergeable === "conflict";
-        const failingChecks = reason === null && !conflicting && probe?.checks === "fail" && !operation.ignoreChecks;
-        if (failingChecks)
-          reason = probe.failing?.length ? `failing check: ${probe.failing.join(", ")}` : "a required check failed";
-        // A rerun turns red checks pending; landing then would merge before CI has said anything.
-        else if (reason === null && !conflicting && probe?.checks === "pending" && !operation.ignoreChecks) reason = "checks still running";
-        actions.push(view("land", "Land", true, reason === null, reason));
-        // The operator can still land past red CI for this one PR; auto mode only looks at `land`.
-        if (failingChecks) actions.push(view("land-anyway", "Land anyway", false, true));
-        // Without a delivery the operator merges by hand; Mark done then verifies the merge actually happened.
-        if (operation.delivery === "none")
-          actions.push(view("done", "Mark done", false, true));
-      } else {
-        // Audits with nothing to merge and conflict missions never land: done is the exit.
-        // A finished conflict mission is not the operator's next step: Land on the original is.
-        actions.push(view("done", "Mark done", contact.kind !== "conflict", true));
-      }
-      // A finished pane that died still owns its PR: relaunching it is the only way back to Check PR.
-      const relaunchable = terminal !== null && operation.frontend !== "none" && contact.lane?.frontend !== "external";
-      if (owner === "offline" && carriesCode && probe?.state !== "merged" && relaunchable) actions.push(relaunch());
-      actions.push(...fleetButtons().filter((b) => b.id === "check"), focus(), reap());
-      return actions;
-    }
+    case "hold":
+      return liveActions(s);
+    case "complete":
+      return completeActions(i, s);
     case "conflict":
-      return [
-        view(
-          "land",
-          "Land",
-          true,
-          false,
-          `conflict mission ${i.conflictOpen ?? ""} open`,
-        ),
-        focus(),
-        reap(),
-      ];
+      return [view("land", "Land", true, false, `conflict mission ${i.conflictOpen ?? ""} open`), s.focus(), s.reap()];
     case "landed":
-      if (contact.kind === "decision")
-        return [view("redecide", "Change decision", false, true), reap()];
-      return [reap()];
+      if (i.contact.kind === "decision") return [view("redecide", "Change decision", false, true), s.reap()];
+      return [s.reap()];
   }
 }
 
