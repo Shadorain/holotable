@@ -52,7 +52,7 @@ const OPERATION_PLAYBOOKS = {
   "integration-conflicts": (rule, _e, ctx) => ({
     title: `Merge conflicts on ${Math.round(pct(rule.evidence.numerator, rule.evidence.denominator) * 100)}% of land attempts`,
     severity: "critical",
-    stats: `${rule.evidence.numerator} conflicts across ${rule.evidence.denominator} land attempts`,
+    stats: `${rule.evidence.numerator} conflict${rule.evidence.numerator === 1 ? "" : "s"} across ${rule.evidence.denominator} land attempts`,
     detail: "Observed conflicts do not prove concurrency caused them — contacts may genuinely edit shared paths. But every conflict opens a resolver mission that costs a full extra pass.",
     culprits: rule.evidence.contacts,
     fixes: [
@@ -74,7 +74,8 @@ const OPERATION_PLAYBOOKS = {
   "dependency-wait": (rule, _e, ctx) => ({
     title: "Dependency blocking dominates queue time",
     severity: "warning",
-    stats: `${ctx.duration(rule.evidence.numerator)} blocked before launch · ${Math.round(pct(rule.evidence.numerator, rule.evidence.denominator) * 100)}% of measured lifetime`,
+    // Blocked time is summed per contact before launch, so it can exceed launched lifetime; a percent would read >100%.
+    stats: `${ctx.duration(rule.evidence.numerator)} blocked before launch vs ${ctx.duration(rule.evidence.denominator)} launched mission time`,
     detail: "Contacts sat blocked longer than missions actually ran. Unblocking the chain head unblocks every successor; widening the fleet does not.",
     culprits: rule.evidence.contacts,
     fixes: [
@@ -247,7 +248,7 @@ export function fleetDocket(rollup, ctx) {
     cases.push({
       id: "fleet-conflicts", severity: "warning",
       title: `${Math.round(conflicts.rate * 100)}% of land attempts hit merge conflicts`,
-      stats: `${conflicts.value} conflicts across ${conflicts.denominator} attempts · ${conflicts.operations} operation${conflicts.operations === 1 ? "" : "s"}`,
+      stats: `${conflicts.value} conflict${conflicts.value === 1 ? "" : "s"} across ${conflicts.denominator} land attempts · ${conflicts.operations} operation${conflicts.operations === 1 ? "" : "s"}`,
       detail: "Conflicts spawn resolver missions at full mission cost. Serialize shared-path work rather than resolving collisions after the fact.",
       fixes: [
         { label: "Serialize shared-path contacts with blockedBy", text: "Plan map → contact card → waits for: order contacts that edit the same files.", kind: "note" },

@@ -27,7 +27,7 @@
     <button id="scope-fleet" type="button" class="intel-scope-button">Fleet overview</button>
   </nav>
   <section class="intel-toolbar" aria-label="Snapshot selection">
-    <label id="sourceField" for="source">Operation<select id="source" disabled><option>Loading operations…</option></select></label>
+    <div id="sourceField" class="intel-source"><span id="sourceLabel">Operation</span></div>
     <button id="refresh" class="btn" type="button">Refresh snapshot</button>
     <button id="exportReview" class="btn" type="button" disabled title="Downloads a bounded evidence prompt only; never launches a model" aria-details="reviewHelp">Export review prompt</button>
     <p id="snapshotTime" class="intel-muted" role="status">Loads only when opened or refreshed. No background updates.</p>

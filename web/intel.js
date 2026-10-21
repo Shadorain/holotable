@@ -1,4 +1,5 @@
 import { el, errorText, fetchJson, fmtMs } from "./ui.js";
+import { dropdown } from "./components.js";
 import { buildReviewPrompt } from "./intel-review.js";
 import { operationDocket, fleetDocket } from "./intel-brief.js";
 
@@ -12,14 +13,27 @@ const params = new URLSearchParams(location.search);
 let selected = params.has("archive") ? `archive:${params.get("archive")}` : params.has("op") ? `op:${params.get("op")}` : "";
 let scope = params.get("view") === "fleet" || !selected ? "fleet" : "operation";
 let sourcesLoaded = false;
+let sourceCount = 0;
 let request = null;
 let generation = 0;
 let reviewEvidence = null;
+const sourcePick = dropdown({
+  className: "intel-source-dd",
+  label: "Operation",
+  placeholder: "Loading operations…",
+  options: [],
+  onChange: value => { selected = value; void load(); },
+});
+sourcePick.setDisabled(true);
+$("sourceField").append(sourcePick.root);
 
 const duration = n => n == null ? "Unknown" : n === 0 ? "0s" : fmtMs(n);
 const money = n => n == null ? "Unknown" : n > 0 && n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`;
-const number = n => n == null ? "Unknown" : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-const sample = d => `${duration(d.medianMs)} · ${d.n} measured`;
+// Counts are whole numbers; averages and rates keep at most one decimal; shares are whole percents.
+const number = n => n == null ? "Unknown" : Math.round(n).toLocaleString();
+const decimal = n => n == null ? "Unknown" : n.toLocaleString(undefined, { maximumFractionDigits: 1 });
+const percent = r => `${Math.round(r * 100)}%`;
+const sample = d => d.n ? `${duration(d.medianMs)} median · ${d.n} measured` : "None measured";
 const date = value => new Date(value).toLocaleString();
 const opId = () => selected.startsWith("op:") ? selected.slice(3) : "";
 // Board deep links: write the session keys app.js already reads, then navigate.
@@ -96,7 +110,7 @@ function docketSection(cases, source) {
   head.append(el("h2", "intel-section-title", "Internal affairs"), el("span", "intel-muted", `${cases.length} open finding${cases.length === 1 ? "" : "s"}`));
   section.append(head);
   if (!cases.length) {
-    section.append(el("p", "intel-muted", "No findings above threshold. Small samples and missing evidence limit conclusions; clean is not the same as clean bill of health."));
+    section.append(el("p", "intel-muted", "No findings above threshold. Cases appear here when relaunches, failed checks, reviews, conflicts or waits cross a rule threshold; small samples limit conclusions."));
     return section;
   }
   const list = el("ol", "ia-list");
@@ -120,7 +134,7 @@ function phaseLedger(e) {
     ms: e.phaseMs[phase] ?? 0,
     cost: e.usage.byPhase?.[phase]?.costUsd ?? 0,
     tokens: e.usage.byPhase?.[phase]?.tokens ?? 0,
-  })).sort((a, b) => (b.ms + (b.cost ?? 0) * 0) - (a.ms + (a.cost ?? 0) * 0));
+  })).sort((a, b) => b.ms - a.ms);
   if (!rows.length) return null;
   const table = el("table", "intel-metric-table ia-ledger");
   const head = el("tr");
@@ -138,9 +152,9 @@ function phaseLedger(e) {
     row.append(
       el("td", "", r.phase),
       timeCell,
-      el("td", "", totalMs ? `${Math.round(r.ms / totalMs * 100)}%` : "—"),
+      el("td", "", totalMs ? percent(r.ms / totalMs) : "—"),
       el("td", "", r.cost ? money(r.cost) : "—"),
-      el("td", "", totalCost && r.cost ? `${Math.round(r.cost / totalCost * 100)}%` : "—"),
+      el("td", "", totalCost && r.cost ? percent(r.cost / totalCost) : "—"),
       el("td", "", r.tokens ? number(r.tokens) : "—"),
     );
     body.append(row);
@@ -188,13 +202,13 @@ function tableContainer(table, label) {
 function metricRows(list, render, share = false) {
   const table = el("table", "intel-metric-table");
   const head = el("tr");
-  for (const col of ["Class", "Recorded", share ? "Recorded share" : "Ratio", "Affected ops"]) head.append(el("th", "", col));
+  for (const col of ["Class", "Recorded", share ? "Recorded share" : "Rate", "Affected ops"]) head.append(el("th", "", col));
   const thead = el("thead"); thead.append(head); table.append(thead);
   const body = el("tbody");
   for (const m of list) {
     const row = el("tr");
     const basis = share ? m.unit === "ms" ? duration(m.denominator) : money(m.denominator) : number(m.denominator);
-    row.append(el("td", "", m.label), el("td", "", render(m)), el("td", "", m.rate == null ? "—" : `${number(m.rate * 100)}% of ${basis}`), el("td", "", String(m.operations)));
+    row.append(el("td", "", m.label), el("td", "", render(m)), el("td", "", m.rate == null ? "—" : `${percent(m.rate)} of ${basis}`), el("td", "", String(m.operations)));
     body.append(row);
   }
   table.append(body);
@@ -219,7 +233,7 @@ function rankedSection(title, list, render, share = false) {
   const section = el("section", "intel-ranking");
   section.append(el("h3", "intel-section-title", title));
   if (!list.length) {
-    section.append(el("p", "intel-muted", "No evidence recorded for these classes. Missing data is not a measured zero."));
+    section.append(el("p", "intel-muted", "Nothing recorded yet. Fills in as evaluated operations record these classes; missing data is not a measured zero."));
     return section;
   }
   section.append(metricRows(list.slice(0, 3), render, share));
@@ -239,7 +253,7 @@ function rollupSection(rollup) {
   section.append(el("h2", "intel-section-title", "Fleet overview"));
   section.append(el("p", "intel-muted", `${rollup.sources.evaluated} evaluated sources · ${rollup.sources.open} open · ${rollup.sources.archived} archived · ${rollup.sources.missingEvaluation} without evaluation`));
   if (!rollup.sources.evaluated && !t.panes) {
-    section.append(el("p", "intel-empty intel-muted", "No evaluated operations or pane spend recorded yet. Missing historical evidence is not reconstructed."));
+    section.append(el("p", "intel-empty intel-muted", "No evaluated operations or pane spend recorded yet. Fills in once an operation launches missions or board panes report usage; missing history is not reconstructed."));
     return section;
   }
   if (rollup.sources.evaluated) {
@@ -299,8 +313,8 @@ function evidenceDetails(e) {
       box.append(facts([
         ["Queue → launch", sample(e.queue), "Median finished queue wait."],
         ["Queue → delivery", sample(e.lead), "End-to-end lead for delivered work."],
-        ["Still queued", `${e.queued.n} · oldest ${duration(e.queued.maxMs)}`],
-        ["Launched, not delivered", `${e.unfinished.n} · oldest ${duration(e.unfinished.maxMs)}`],
+        ["Still queued", e.queued.n ? `${e.queued.n} · oldest ${duration(e.queued.maxMs)}` : "None"],
+        ["Launched, not delivered", e.unfinished.n ? `${e.unfinished.n} · oldest ${duration(e.unfinished.maxMs)}` : "None"],
         ["Dependency wait", duration(e.dependencyWaitMs)], ["Gate wait", duration(e.gateWaitMs)],
         ["Offline / unreachable", duration(e.offlineMs)], ["Ready → landed", duration(e.deliveryReadyMs)],
         ["Launches / relaunches", `${e.attempts.launches} / ${e.attempts.relaunches}`],
@@ -312,7 +326,7 @@ function evidenceDetails(e) {
         ["Usage coverage", `${e.coverage.usageReported} / ${e.coverage.launched} launched · basis ${u.basis}`],
         ["Missing / unsupported", `${number(u.missingSources)} / ${number(u.unsupportedWorkers)}`],
         ["Reset observations", number(u.resets + e.coverage.counterResets)],
-        ["Connectivity mean / peak", e.connectivity.mean == null ? "Unknown" : `${number(e.connectivity.mean)} / ${e.connectivity.peak}`],
+        ["Connectivity mean / peak", e.connectivity.mean == null ? "Unknown" : `${decimal(e.connectivity.mean)} / ${e.connectivity.peak} missions`],
         ["Configuration", e.config.value ? `${e.config.value.graph} / ${e.config.value.frontend} / ${e.config.value.maxWorkers} workers / ${e.config.value.mode}` : "Uninstrumented"],
       ]));
     }
@@ -327,6 +341,15 @@ function experiments() {
   box.append(el("p", "intel-muted", "Each manifest declares v: 1, variable: maxWorkers, baseline: A or B, groups: {A: workerLimit, B: workerLimit}, and trials with archive, group, pair, repo, baseCommit, workload, acceptance, environment, externalOutcome (pass / fail / unassessed). Results are descriptive, not causal; Intel never schedules experiments or changes configuration."));
   return box;
 }
+// throughputPerHour extrapolates from operation lifetime; under an hour that reads as an inflated rate,
+// so short operations show the elapsed window instead.
+function throughputNote(e) {
+  if (e.throughputPerHour == null) return "No operation time recorded";
+  if (!e.deliveredWork) return "None delivered yet";
+  const elapsedMs = e.deliveredWork * 3_600_000 / e.throughputPerHour;
+  if (elapsedMs < 3_600_000) return `In ${duration(elapsedMs)} of operation time`;
+  return `${decimal(e.throughputPerHour)}/h over ${duration(elapsedMs)}`;
+}
 function renderSnapshot(snapshot, source) {
   const root = $("dashboard");
   root.replaceChildren();
@@ -335,16 +358,16 @@ function renderSnapshot(snapshot, source) {
   root.append(title);
   const e = snapshot.evaluation;
   if (!e) {
-    root.append(el("p", "intel-empty intel-muted", "Evaluation not recorded for this archive. Stored reports are not silently recalculated; new operation reports preserve their close-time evaluation."), experiments());
+    root.append(el("p", "intel-empty intel-muted", "No evaluation stored for this archive (closed before Intel recorded evidence). Stored reports are not recalculated; operations closed now keep their close-time evaluation."), experiments());
     return;
   }
   const headlines = el("section", "intel-headlines");
   headlines.setAttribute("aria-label", "At a glance");
   headlines.append(
-    headline("Delivered work", number(e.deliveredWork), `${number(e.throughputPerHour)} per operation hour`),
+    headline("Delivered work", number(e.deliveredWork), throughputNote(e)),
     headline("Median delivery", duration(e.delivery.medianMs), `${e.delivery.n} delivered measurements`),
     headline("Recorded check failures", number(e.quality?.recordedFailed), e.quality ? "Producer-reported, not external judgment" : "No quality instrumentation recorded"),
-    headline("Known spend", money(e.usage.knownCostUsd), e.usage.partial ? "Partial coverage" : e.usage.coordinatorSessionAssociated ? "Session-associated estimate" : "Observed estimate"),
+    headline("Known spend", money(e.usage.knownCostUsd), e.usage.knownCostUsd == null ? "No usage cost recorded" : e.usage.partial ? "Partial coverage" : e.usage.coordinatorSessionAssociated ? "Session-associated estimate" : "Observed estimate"),
   );
   root.append(headlines, docketSection(operationDocket(e, { duration, money, number, opId: opId() }), source));
   const ledger = phaseLedger(e);
@@ -376,7 +399,7 @@ async function load(reloadSources = false) {
   root.replaceChildren();
   root.setAttribute("aria-busy", "true");
   $("refresh").disabled = true;
-  $("source").disabled = true;
+  sourcePick.setDisabled(true);
   $("snapshotTime").textContent = "Loading evidence…";
   message("Reading stored evidence…");
   let notice = "";
@@ -386,19 +409,17 @@ async function load(reloadSources = false) {
       try {
         const sources = await api("/api/intel/sources", signal);
         if (current !== generation) return;
-        const select = $("source");
-        select.replaceChildren();
+        const options = [];
         for (const [label, key, rows] of [["Open operations", "op", sources.operations], ["Archived operations", "archive", sources.archives]]) {
-          const group = el("optgroup");
-          group.label = label;
+          if (rows.length) options.push({ group: true, label });
           for (const row of rows) {
-            const option = el("option", "", `${row.name}${key === "archive" ? ` · ${new Date(row.closedAt).toLocaleDateString()}` : ""}`);
-            option.value = `${key}:${key === "archive" ? row.key : row.id}`;
-            group.append(option);
+            options.push(key === "archive"
+              ? { value: `archive:${row.key}`, label: row.name, meta: new Date(row.closedAt).toLocaleDateString() }
+              : { value: `op:${row.id}`, label: row.name });
           }
-          if (rows.length) select.append(group);
         }
-        const values = [...select.options].map(option => option.value);
+        const values = options.filter(o => !o.group).map(o => o.value);
+        sourceCount = values.length;
         if (selected && !values.includes(selected)) {
           notice = "The previous source is no longer available.";
           selected = "";
@@ -407,7 +428,7 @@ async function load(reloadSources = false) {
           const saved = sessionStorage.getItem("holotable.intel.selection") || `op:${localStorage.getItem("holotable.op")}`;
           selected = values.includes(saved) ? saved : values[0] || "";
         }
-        select.value = selected;
+        sourcePick.setOptions(options, selected, values.length ? "Choose an operation" : "No operations");
         sourcesLoaded = true;
       } catch (error) {
         if (signal.aborted) return;
@@ -428,7 +449,7 @@ async function load(reloadSources = false) {
     } else if (selected) {
       await loadSnapshot(signal, current);
     } else {
-      notice = "No operations available. Fleet overview can still show recorded draft spend.";
+      notice = "No operations yet. Create one on the board; its evidence appears here once missions launch. Fleet overview can still show recorded draft spend.";
       $("snapshotTime").textContent = "No operation selected.";
     }
     if (current === generation) message(notice);
@@ -440,14 +461,13 @@ async function load(reloadSources = false) {
   } finally {
     if (current === generation) {
       $("refresh").disabled = false;
-      $("source").disabled = !$("source").options.length;
+      sourcePick.setDisabled(!sourceCount);
       $("exportReview").disabled = !reviewEvidence;
       root.setAttribute("aria-busy", "false");
     }
   }
 }
-$("source").addEventListener("change", () => { selected = $("source").value; void load(); });
-$("refresh").addEventListener("click", () => { selected = $("source").value || selected; void load(true); });
+$("refresh").addEventListener("click", () => { void load(true); });
 $("exportReview").addEventListener("click", () => {
   if (!reviewEvidence) return;
   try {
