@@ -359,7 +359,7 @@ export function handsOff(i: PolicyInput & { actions: ActionView[]; reviewStalled
   return null;
 }
 
-const PANE_MEMORY_BYTES = 600 * 1024 * 1024;
+export const PANE_MEMORY_BYTES = 600 * 1024 * 1024;
 const MEMORY_RESERVE_BYTES = 512 * 1024 * 1024;
 
 export function memoryLaunchRefusal(available: number | null, pending = 0): string | null {

@@ -3,6 +3,7 @@ import { isAbsolute, join } from "node:path";
 import { usableMemoryBytes } from "./machine.ts";
 import { messageOf } from "./core/errors.ts";
 import { zoneIdFor } from "./core/zones.ts";
+import { PANE_MEMORY_BYTES } from "./core/policy.ts";
 import { workspaceInfo, type WorkspaceInfo } from "./adapters/workspace-info.ts";
 import { doltState, installDolt, restartDolt, type DoltState } from "./adapters/beads-dolt.ts";
 import {
@@ -362,8 +363,9 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       settings.defaults.frontend === "custom" ||
       (await Promise.all(rows.map((row) => readOperation(home, row.id)))).some((op) => op.frontend === "custom");
     const memoryGb = Math.round((usableMemoryBytes() / 1024 ** 3) * 10) / 10;
+    const ompGb = Math.round((PANE_MEMORY_BYTES / 1024 ** 3) * 10) / 10;
     const urls = hooks.urls?.() ?? (await readBoardInfo(home))?.urls ?? [];
-    return { settings, path: displaySettingsPath(home), themes: [...THEMES], customInUse, machine: { memoryGb, ompGb: 0.6 }, urls };
+    return { settings, path: displaySettingsPath(home), themes: [...THEMES], customInUse, machine: { memoryGb, ompGb }, urls };
   }
   async function operationConfig(opId: string): Promise<OperationConfig> {
     await knownOperation(opId);
@@ -634,10 +636,11 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       const id = input.id || slug;
       const base = input.base ?? detected.fields.base;
       const integration = input.integration || topRepo;
-      const tracker = (input.tracker ?? detected.fields.tracker ?? defaults.tracker) as Project["tracker"];
-      const fleet = (input.fleet ?? detected.fields.fleet ?? defaults.fleet) as Project["fleet"];
-      const frontend = (input.frontend ?? detected.fields.frontend ?? defaults.frontend) as Project["frontend"];
-      const delivery = (input.delivery ?? detected.fields.delivery ?? defaults.delivery) as Project["delivery"];
+      // Unchecked on purpose: validateProject rejects a value outside its list, a stale settings default included.
+      const tracker = input.tracker ?? detected.fields.tracker ?? defaults.tracker;
+      const fleet = input.fleet ?? detected.fields.fleet ?? defaults.fleet;
+      const frontend = input.frontend ?? detected.fields.frontend ?? defaults.frontend;
+      const delivery = input.delivery ?? detected.fields.delivery ?? defaults.delivery;
       const pause = input.pause ?? defaults.pause;
       const worktreeRoot = input.worktreeRoot ?? detected.fields.worktreeRoot;
 
