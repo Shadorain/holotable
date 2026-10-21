@@ -1,4 +1,5 @@
-import type { Contact, ContactStatus, Operation } from "../core/types.ts";
+import type { Contact, ContactStatus, Operation, Projection } from "../core/types.ts";
+import { contactOf } from "../core/projection.ts";
 import { normalizeTicket } from "../core/validate-operation.ts";
 import { PortError, type Run } from "../ports.ts";
 import { appendEvent } from "../store/events.ts";
@@ -13,10 +14,15 @@ export interface LanderDeps extends LauncherDeps {
   captureMetrics?(operation:Operation,contact:Contact,status?:ContactStatus|null):Promise<void>;
 }
 
-/** Highest `-conflict-<n>` contact opened for `ticket`, if any. */
-export function newestConflict(operation: Operation, ticket: string): Contact | null {
+/**
+ * The conflict contact whose branch lands for `ticket`: the newest one that completed. An abandoned (reaped)
+ * or unfinished conflict mission never supplies the branch; without one, the contact's own branch lands.
+ */
+export function resolutionFor(operation: Operation, projection: Projection, ticket: string): Contact | null {
   const rank = (c: Contact) => Number(c.ticket.match(/-conflict-(\d+)$/i)?.[1] ?? 0);
-  return operation.contacts.filter((c) => c.conflictOf === ticket).sort((a, b) => rank(b) - rank(a))[0] ?? null;
+  return operation.contacts
+    .filter((c) => c.conflictOf === ticket && contactOf(projection, c.ticket)?.state === "complete")
+    .sort((a, b) => rank(b) - rank(a))[0] ?? null;
 }
 
 /**
@@ -30,7 +36,7 @@ export async function landContact(deps: LanderDeps, opId: string, ticket: string
   const { settings, operation } = offer;
   const contact = offer.contact as Contact;
   const ports = deps.portsFor(operation, settings);
-  const resolution = newestConflict(operation, ticket);
+  const resolution = resolutionFor(operation, offer.projection, ticket);
   const sourceBranch = resolution?.lane?.branch ?? contact.lane?.branch;
   if (!sourceBranch) throw new ActionError(409, "refused", `${ticket} has no branch recorded to land`);
   const lane = contact.lane;

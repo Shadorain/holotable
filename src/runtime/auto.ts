@@ -6,7 +6,7 @@ import { appendEvent, readEvents } from "../store/events.ts";
 import { listOperations, mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
 import { PortError } from "../ports.ts";
-import { newestConflict } from "./lander.ts";
+import { resolutionFor } from "./lander.ts";
 import { relaunchesPending } from "./recover.ts";
 
 /** Waits after consecutive failed automatic attempts on one contact; one more failure stops retrying it. */
@@ -198,7 +198,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
           try {
             if (landable) {
               const operation = await readOperation(deps.home, opId);
-              const branch = newestConflict(operation, target.ticket)?.lane?.branch ?? contactOf(operation, target.ticket)?.lane?.branch;
+              const branch = resolutionFor(operation, projection, target.ticket)?.lane?.branch ?? contactOf(operation, target.ticket)?.lane?.branch;
               if (branch) await deps.integrationReady(operation, branch);
             }
             landingWaits.delete(opId);

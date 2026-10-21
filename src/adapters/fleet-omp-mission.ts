@@ -226,7 +226,8 @@ export function ompMissionFleet(options: MissionFleetOptions): FleetPort {
       if (contact.kind === "conflict") {
         const paths = i.conflictPaths ?? [];
         const more = paths.length > MAX_CONFLICT_PATHS ? ` and ${paths.length - MAX_CONFLICT_PATHS} more` : "";
-        message = `/mission${pause} -- Resolve the merge conflicts in ${paths.slice(0, MAX_CONFLICT_PATHS).join(", ")}${more} of ${contact.conflictOf}. Edit only those files. Do not merge, push or open a PR.`;
+        // The worktree holds an unfinished merge: committing it is what makes this branch the resolution Land pushes.
+        message = `/mission${pause} -- Resolve the merge conflicts in ${paths.slice(0, MAX_CONFLICT_PATHS).join(", ")}${more} of ${contact.conflictOf}. Edit only those files, then git add them and conclude the merge with git commit --no-edit. Do not push or open a PR; Holotable lands this branch.`;
       } else if (operation.tracker === "none") {
         const text = (contact.description && contact.description.trim().length > 0)
           ? contact.description

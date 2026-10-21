@@ -66,6 +66,15 @@ test("an open ask is answered from the board only while the pane advertises answ
   expect(after.ask).toBeNull();
 });
 
+test("a reaped conflict mission is abandoned: the contact is landable again instead of waiting forever", () => {
+  const op = makeOp([makeContact("a", { lane: live() }), makeContact("a-conflict-1", { kind: "conflict", conflictOf: "a", lane: live() })], { fleet: "omp-mission", frontend: "orca", delivery: "github-pr" });
+  const over = { statuses: { a: makeStatus({ complete: true, phase: "complete" }), "a-conflict-1": makeStatus({ phase: "deliver" }) }, owners: { a: "live" as const, "a-conflict-1": "live" as const }, probes: { a: { url: "u", state: "open", mergeable: "conflict", checks: "fail" } } } as never;
+  expect(viewOf(op, "a", over).state).toBe("conflict");
+  const reaped = viewOf(op, "a", { ...(over as object), events: [ev(0, "a-conflict-1", "reaped")] } as never);
+  expect(reaped.state).toBe("complete");
+  expect(reaped.actions.find((x) => x.id === "land")).toMatchObject({ enabled: true });
+});
+
 describe("project: state table", () => {
   test("landed beats everything", () => {
     const op = makeOp([makeContact("a", { kind: "decision" })], {

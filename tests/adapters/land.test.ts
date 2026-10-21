@@ -455,36 +455,33 @@ describe("githubPrDelivery.land", () => {
     expect(ghCalls.some((a) => a[1] === "merge")).toBe(false);
   });
 
-  test("resolution branch pushes to headRefName without force", async () => {
+  test("a new resolution is pushed onto the PR head without force, then Land waits for CI on it", async () => {
     const calls: Call[] = [];
+    let headOid = "deadbeef";
     const { run: base0 } = realRun((args) => {
-      if (args[1] === "view") return { stdout: prJson(), stderr: "", code: 0 };
+      if (args[1] === "view") return { stdout: prJson({ headRefOid: headOid }), stderr: "", code: 0 };
       return { stdout: "", stderr: "", code: 0 };
     });
     const run: Run = async (c, a, w) => {
       calls.push({ command: c, args: a, cwd: w });
       return base0(c, a, w);
     };
-    const { repo, remote } = await prSetup(run);
+    const { repo } = await prSetup(run);
     await git(run, repo, "checkout", "-qb", "resolve-1", "feat");
     writeFileSync(join(repo, "f.txt"), "resolved\n");
     await git(run, repo, "commit", "-qam", "resolve");
     await git(run, repo, "checkout", "-q", "main");
     // Remote refs/pull/7/head sees the pushed head like GitHub would.
     await git(run, repo, "push", "-q", "-f", "origin", "resolve-1:refs/pull/7/head");
-    const result = await githubPrDelivery(run).land({
-      operation: makeOperation(repo),
-      contact,
-      sourceBranch: "resolve-1",
-      status,
-    });
-    expect(result).toEqual({ outcome: "landed", via: "pr" });
-    const pushes = calls.filter(
-      (c) => c.command === "git" && c.args[0] === "push" && c.cwd === repo && !c.args.includes("-f"),
-    );
-    const landPush = pushes.find((c) => c.args.includes("resolve-1:feat"));
+    const land = () => githubPrDelivery(run).land({ operation: makeOperation(repo), contact, sourceBranch: "resolve-1", status });
+    await expect(land()).rejects.toMatchObject({ code: "branch-updated" });
+    const landPush = calls.find((c) => c.command === "git" && c.args[0] === "push" && c.cwd === repo && c.args.includes("resolve-1:feat"));
     expect(landPush?.args).toEqual(["push", "origin", "resolve-1:feat"]);
-    expect(landPush?.args).not.toContain("--force");
+    // Once GitHub shows the resolution as the PR head, the next Land merges it like any PR.
+    headOid = (await git(run, repo, "rev-parse", "resolve-1")).stdout.trim();
+    calls.length = 0;
+    expect(await land()).toEqual({ outcome: "landed", via: "pr" });
+    expect(calls.some((c) => c.args[0] === "push" && c.args.includes("resolve-1:feat"))).toBe(false);
   });
 
   test("push rejection surfaces as push-rejected", async () => {

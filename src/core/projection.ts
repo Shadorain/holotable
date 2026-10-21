@@ -21,15 +21,16 @@ import type {
 const MAX_LOG = 50;
 const ATTENTION_STATES: ContactState[] = ["hold", "offline", "decision", "review"];
 
-/** Ticket of the newest unresolved conflict contact targeting `ticket`. */
+/** Ticket of the newest unresolved conflict contact targeting `ticket`; a reaped (abandoned) one is not open. */
 export function conflictOpenFor(
   op: Operation,
   states: ReadonlyMap<string, ContactState>,
   ticket: string,
+  derived: Derived,
 ): string | null {
   let open: string | null = null;
   for (const c of op.contacts) {
-    if (c.conflictOf !== ticket) continue;
+    if (c.conflictOf !== ticket || contactDerived(derived, c.ticket).reaped) continue;
     const s = states.get(c.ticket);
     if (s !== "complete" && s !== "landed") open = c.ticket;
   }
@@ -377,7 +378,7 @@ export function project(input: ProjectionInput): Projection {
       derived,
       c,
       states.get(c.ticket) ?? "ready",
-      conflictOpenFor(op, states, c.ticket),
+      conflictOpenFor(op, states, c.ticket, derived),
       input.decisionPanes?.has(c.ticket) ?? false,
     ),
   );

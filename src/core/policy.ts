@@ -41,11 +41,8 @@ export function contactState(i: {
       return "blocked";
     return "ready";
   }
-  if (
-    conflictContacts.some(
-      (c) => c.state !== "complete" && c.state !== "landed",
-    )
-  )
+  // A reaped conflict mission was abandoned: it no longer holds the contact, and the next Land opens a fresh one.
+  if (conflictContacts.some((c) => c.state !== "complete" && c.state !== "landed" && !contactDerived(derived, c.contact.ticket).reaped))
     return "conflict";
   if (status === null) {
     if (!d.socketEver && contact.lane.terminal !== null && d.launchFailed === null) return "planning";

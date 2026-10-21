@@ -173,17 +173,16 @@ export function githubPrDelivery(run: Run): DeliveryPort {
         );
 
       if (sourceBranch !== pr.headRefName) {
-        // Resolution branch: push it onto the PR head, plain push, no force.
-        const pushed = await run(
-          "git",
-          ["push", "origin", `${sourceBranch}:${pr.headRefName}`],
-          integration,
-        );
-        if (pushed.code !== 0)
-          throw new PortError(
-            "push-rejected",
-            pushed.stderr.trim() || `push of ${sourceBranch} was rejected`,
-          );
+        const local = await run("git", ["rev-parse", sourceBranch], integration);
+        // The resolution is already the PR head: land it like any PR, through the checks gate below.
+        if (local.code !== 0 || local.stdout.trim() !== pr.headRefOid) {
+          // Resolution branch: push it onto the PR head, plain push, no force.
+          const pushed = await run("git", ["push", "origin", `${sourceBranch}:${pr.headRefName}`], integration);
+          if (pushed.code !== 0)
+            throw new PortError("push-rejected", pushed.stderr.trim() || `push of ${sourceBranch} was rejected`);
+          // CI has not seen the resolved code; merging now would land it untested.
+          throw new PortError("branch-updated", `Pushed ${sourceBranch} onto PR #${number}; Land waits for its checks on the resolved code.`);
+        }
       }
 
       const fetched = await run(
