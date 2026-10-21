@@ -1,4 +1,4 @@
-import type { Contact, Hold, Kind, MeasurementConfig, Measurements, SampleFields, Span, UsageSource, UsageTotals } from "../types.ts";
+import type { Contact, Hold, Kind, MeasurementConfig, Measurements, RecoveryDeferral, SampleFields, Span, UsageSource, UsageTotals } from "../types.ts";
 
 /** A declared contact with its fold state accrued up to the evaluation clock. */
 export interface Timeline { contact: Contact; state: ContactEvaluation }
@@ -103,11 +103,22 @@ export interface ContactReport {
 export interface SeriesBucket { at: number; launches: number; deliveries: number; landAttempts: number; conflicts: number; reviewFailures: number }
 /** Dense UTC epoch-aligned buckets from operation creation to the clock; `truncated` drops the oldest beyond 168. */
 export interface SeriesEvaluation { bucketMs: number; truncated: boolean; buckets: SeriesBucket[] }
+/** Mission stall classes: the recorded `problem` kind, or the quota hold when a sample carries no problem. */
+export type StallKind = "quota" | "rateLimit" | "otherProblem";
+export interface StallTotals { ms: number; episodes: number }
 export interface StallEvaluation {
-  /** Mission hold `quota` (the producer folds quota and rate limits into this hold). */
-  quota: { ms: number; episodes: number };
+  /** Problem kind `quota`, or mission hold `quota` while samples carry no problem (older logs fold rate limits in). */
+  quota: StallTotals;
+  /** Problem kind `rate-limit`. The optional fields below are absent on evaluations archived before they existed. */
+  rateLimit?: StallTotals;
+  /** Problem kinds `timeout` and `error`. */
+  otherProblem?: StallTotals;
   /** Socket-down intervals. */
-  offline: { ms: number; episodes: number };
+  offline: StallTotals;
+  /** Auto mode waiting for provider capacity (`capacity-wait` events). */
+  capacityWait?: StallTotals;
+  /** Recovery deferring a relaunch (`recovery-wait` events); `byKind` splits `ms` by reason. */
+  recoveryDeferral?: StallTotals & { byKind: Record<RecoveryDeferral, number> };
   /** Failed launch/relaunch actions by recorded error class (counts; their wait time is not recorded). */
   launchRefusals: { memory: number; sessionCap: number; refused: number; gaveUp: number };
   /** Producer review failures (null without measurements); may include provider-capacity failures. */
@@ -185,7 +196,10 @@ export interface ContactEvaluation {
   endedBy: "reaped" | "removed" | "closed" | null;
   relaunchBy: { operator: number; recovery: number; auto: number };
   refusals: LaunchRefusals;
-  conflictPaths: string[]; quotaEpisodes: number; offlineEpisodes: number;
+  conflictPaths: string[]; offlineEpisodes: number;
+  /** The current stall class and Recovery deferral, with time and entries per class. */
+  stall: StallKind | null; stallMs: Record<StallKind, number>; stallEpisodes: Record<StallKind, number>;
+  deferral: RecoveryDeferral | null; deferralMs: Record<RecoveryDeferral, number>; deferralEpisodes: number;
   /** The open wait, when it began and its accrued ms; settled totals per kind. */
   wait: FoldWaitKind | null; waitFrom: number; waitMs: number; waits: Partial<Record<FoldWaitKind, WaitAccount>>;
   /** A closed wait whose resolving action is recorded just after it (land, launch); settles to the operator otherwise. */
@@ -218,6 +232,8 @@ export interface FoldEvaluation {
   /** Hour index (epoch ms / 3.6e6) → counts; review failures are producer counter increases at sample time. */
   series: Map<number, { launches: number; landAttempts: number; conflicts: number; reviewFailures: number }>;
   conflictPaths: Map<string, { conflicts: number; contacts: string[] }>; unpathedConflicts: number; droppedPaths: number;
+  /** Auto mode's capacity wait: open since `from` (null when not waiting), closed time and entries. */
+  capacity: { from: number | null; ms: number; episodes: number };
   /** `role:id` source → the ticket that first observed it (owns its spend). */
   sourceOwners: Map<string, string>;
 }

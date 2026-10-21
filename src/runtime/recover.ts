@@ -2,7 +2,7 @@ import type { ActionRequest } from "../board.ts";
 import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
 import { foldEvents } from "../core/fold.ts";
 import { canDo, contactOf } from "../core/projection.ts";
-import type { ContactStatus, ContactView, Event, Projection, RecoveryWait, Settings } from "../core/types.ts";
+import type { ContactStatus, ContactView, Event, Projection, RecoveryDeferral, RecoveryWait, Settings } from "../core/types.ts";
 import { messageOf } from "../core/errors.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { listOperations } from "../store/operations.ts";
@@ -118,6 +118,28 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
     if (!waits) deferred.set(opId, waits = {});
     waits[ticket] = wait;
   }
+  // The deferral history last recorded per contact, seeded once per operation so a restart records no transition twice.
+  const recorded = new Map<string, Record<string, RecoveryDeferral>>();
+
+  /** Appends `recovery-wait` only when a contact's deferral starts, changes reason or ends; queued restarts are not deferrals. */
+  async function recordDeferrals(opId: string): Promise<void> {
+    let known = recorded.get(opId);
+    if (!known) {
+      known = {};
+      for (const [ticket, contact] of Object.entries(foldEvents(await readEvents(deps.home, opId)).evaluation!.contacts))
+        if (contact.deferral !== null) known[ticket] = contact.deferral;
+      recorded.set(opId, known);
+    }
+    const current = deferred.get(opId) ?? empty;
+    for (const ticket of new Set([...Object.keys(known), ...Object.keys(current)])) {
+      const kind = current[ticket]?.kind;
+      const wait = kind === undefined || kind === "queued" ? null : kind;
+      if ((known[ticket] ?? null) === wait) continue;
+      await appendEvent(deps.home, opId, { v: 1, at: deps.now().toISOString(), kind: "recovery-wait", contact: ticket, wait });
+      if (wait === null) delete known[ticket];
+      else known[ticket] = wait;
+    }
+  }
   let relaunchChain: Promise<void> = Promise.resolve();
   function enqueueRelaunch(opId: string, ticket: string): void {
     const key = `${opId}/${ticket}`;
@@ -214,7 +236,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
           continue;
         }
         if (queued.has(`${opId}/${contact.ticket}`)) {
-          defer(opId, contact.ticket, { kind: "capacity", detail: "Restart queued" });
+          defer(opId, contact.ticket, { kind: "queued", detail: "Restart queued" });
           continue;
         }
         const reserved = projection.header.open + queued.size;
@@ -250,9 +272,11 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
     async pass(): Promise<void> {
       const rows = await listOperations(deps.home);
       for (const id of deferred.keys()) if (!rows.some(row => row.id === id)) deferred.delete(id);
+      for (const id of recorded.keys()) if (!rows.some(row => row.id === id)) recorded.delete(id);
       for (const row of rows) {
         try {
           await runOp(row.id);
+          await recordDeferrals(row.id);
         } catch (error) {
           deps.warn(`recover ${row.id}: ${messageOf(error)}`);
         }

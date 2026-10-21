@@ -104,6 +104,29 @@ describe("validateEvent", () => {
     ).toEqual({ v: 1, at: base.at, kind: "closed", outcome: "abandoned" });
     expect(bad({ ...base, kind: "closed", outcome: "nope" })).toContain("outcome");
   });
+
+  test("mission problems keep only kind, source and retryAt", () => {
+    const mission = { id: "m", hold: "quota" as const, verify: null, complete: false };
+    const problem = { kind: "rate-limit", source: "review", detail: "429 from provider", retryAt: "2026-01-01T00:05:00.000Z", attempt: 2 };
+    expect(validateEvent({ ...contact, kind: "sample", mission: { ...mission, problem } })).toEqual({
+      ...contact, kind: "sample", mission: { ...mission, problem: { kind: "rate-limit", source: "review", retryAt: "2026-01-01T00:05:00.000Z" } },
+    });
+    expect(validateEvent({ ...contact, kind: "sample", mission: { ...mission, problem: null } })).toMatchObject({ mission: { problem: null } });
+    expect(validateEvent({ ...contact, kind: "sample", mission })).toEqual({ ...contact, kind: "sample", mission });
+    expect(bad({ ...contact, kind: "sample", mission: { ...mission, problem: { ...problem, kind: "flaky" } } })).toContain("problem.kind must be one of");
+    expect(bad({ ...contact, kind: "sample", mission: { ...mission, problem: { ...problem, source: "" } } })).toContain("bounded source");
+    expect(bad({ ...contact, kind: "sample", mission: { ...mission, problem: { ...problem, retryAt: "soon" } } })).toContain("retryAt");
+  });
+
+  test("capacity and recovery waits", () => {
+    expect(validateEvent({ ...base, kind: "capacity-wait", waiting: true })).toEqual({ ...base, kind: "capacity-wait", waiting: true });
+    expect(bad({ ...base, kind: "capacity-wait" })).toContain("waiting must be a boolean");
+    expect(bad({ ...contact, kind: "capacity-wait", waiting: false })).toContain("must not carry a contact");
+    expect(validateEvent({ ...contact, kind: "recovery-wait", wait: "memory" })).toEqual({ ...contact, kind: "recovery-wait", wait: "memory" });
+    expect(validateEvent({ ...contact, kind: "recovery-wait", wait: null })).toEqual({ ...contact, kind: "recovery-wait", wait: null });
+    expect(bad({ ...contact, kind: "recovery-wait", wait: "queued" })).toContain("wait must be one of");
+    expect(bad({ ...contact, kind: "recovery-wait" })).toContain("wait must be one of");
+  });
 });
 
 test("queued and edited carry a known source", () => {

@@ -57,10 +57,16 @@ export type ContactState = (typeof CONTACT_STATES)[number];
 export type Hold = (typeof HOLDS)[number];
 
 export interface RecoveryWait {
-  /** `refused`: the last automatic relaunch was refused (e.g. a pane in the way); retried after a pause. */
-  kind: "capacity" | "memory" | "refused";
+  /**
+   * `refused`: the last automatic relaunch was refused (e.g. a pane in the way); retried after a pause.
+   * `queued`: the relaunch is in Recovery's serialized queue or running; not recorded as a deferral.
+   */
+  kind: RecoveryDeferral | "queued";
   detail: string;
 }
+/** Why Recovery holds back a relaunch; recorded on `recovery-wait` events. */
+export const RECOVERY_DEFERRALS = ["capacity", "memory", "refused"] as const;
+export type RecoveryDeferral = (typeof RECOVERY_DEFERRALS)[number];
 
 export interface TerminalRef {
   handle: string;
@@ -205,10 +211,13 @@ export interface SampleFields {
   omp?: number;
   /** Sampled from status.usage when it changes; sessions stays status-side. */
   usage?: { tokens: UsageTotals["tokens"]; costUsd: number | null };
-  mission?: { id: string; hold: Hold; verify: Verify | null; complete: boolean };
+  /** `problem` is absent from samples written before it was recorded, or when the producer omits it. */
+  mission?: { id: string; hold: Hold; verify: Verify | null; complete: boolean; problem?: SampleProblem | null };
   measurements?: Measurements | null;
   usageEvidence?: UsageEvidence | null;
 }
+/** The status `problem` as history keeps it: no free text, so retries of the same failure do not churn the log. */
+export type SampleProblem = Pick<MissionProblem, "kind" | "source" | "retryAt">;
 interface EventBase {
   v: 1;
   at: string;
@@ -238,10 +247,14 @@ export type Event =
   | (ContactEventBase & { kind: "reaped" })
   | (ContactEventBase & ({ kind: "sample" } & SampleFields))
   | (ContactEventBase & { kind: "pane-usage"; pane: string; tokens: UsageTotals["tokens"]; costUsd: number | null; sessions: number; malformedLines?: number; truncated?: boolean })
+  /** Recovery began (`wait` set), changed or stopped (`null`) deferring this contact's relaunch. */
+  | (ContactEventBase & { kind: "recovery-wait"; wait: RecoveryDeferral | null })
   | (ContactEventBase & { kind: "removed"; worktree: string })
   | (EventBase & { kind: "auto"; enabled: boolean; reason?: string; by: "operator" | "board" })
   | (EventBase & { kind: "workflow"; item: string; done: boolean })
   | (EventBase & { kind: "recover"; enabled: boolean; by: "operator" | "board" })
+  /** Auto mode began or stopped waiting for provider capacity (Projection `auto.capacityWait`). */
+  | (EventBase & { kind: "capacity-wait"; waiting: boolean })
   | (EventBase & { kind: "closed"; outcome: ClosedOutcome });
 export type EventKind = Event["kind"];
 export const CONTACT_EVENT_KINDS = [
@@ -265,8 +278,9 @@ export const CONTACT_EVENT_KINDS = [
   "reaped",
   "sample",
   "pane-usage",
+  "recovery-wait",
 ] as const;
-export const OPERATION_EVENT_KINDS = ["workflow", "closed", "auto", "recover"] as const;
+export const OPERATION_EVENT_KINDS = ["workflow", "closed", "auto", "recover", "capacity-wait"] as const;
 
 // ---- settings (C4) ----
 
@@ -352,8 +366,9 @@ export interface Settings {
 export type Verify = "pending" | "active" | "passed" | "failed" | "skipped";
 export const VERIFIES = ["pending", "active", "passed", "failed", "skipped"] as const;
 
+export const PROBLEM_KINDS = ["quota", "rate-limit", "timeout", "error"] as const;
 export interface MissionProblem {
-  kind: "quota" | "rate-limit" | "timeout" | "error";
+  kind: (typeof PROBLEM_KINDS)[number];
   source: string;
   detail: string;
   retryAt: string | null;

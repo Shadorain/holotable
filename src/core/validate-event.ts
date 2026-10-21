@@ -3,8 +3,11 @@ import {
   SOURCES,
   FRONTENDS,
   OPERATION_EVENT_KINDS,
+  PROBLEM_KINDS,
+  RECOVERY_DEFERRALS,
   type Event,
   type SampleFields,
+  type SampleProblem,
 } from "./types.ts";
 import { enumPicker, invalidAt, isRecord } from "./validate.ts";
 import { parseMeasurements, parseUsageEvidence } from "./evaluation.ts";
@@ -63,6 +66,10 @@ export function validateEvent(value: unknown, path = "events.jsonl"): Event {
         by: inList("by", value.by, ["operator", "board"] as const),
       };
     }
+    if (kind === "capacity-wait") {
+      if (typeof value.waiting !== "boolean") return fail("waiting must be a boolean");
+      return { v: 1, at, kind: "capacity-wait", waiting: value.waiting };
+    }
     return {
       v: 1,
       at,
@@ -92,6 +99,8 @@ export function validateEvent(value: unknown, path = "events.jsonl"): Event {
       return { ...base, kind: "socket-down" };
     case "reaped":
       return { ...base, kind: "reaped" };
+    case "recovery-wait":
+      return { ...base, kind: "recovery-wait", wait: value.wait === null ? null : inList("wait", value.wait, RECOVERY_DEFERRALS) };
     case "removed":
       return { ...base, kind: "removed", worktree: str("worktree") };
     case "blocked": {
@@ -221,6 +230,7 @@ export function validateEvent(value: unknown, path = "events.jsonl"): Event {
         if(!isRecord(m)||typeof m.id!=="string"||!m.id||m.id.length>1000||!HOLDS.includes(m.hold as never)||!(m.verify===null||VERIFIES.includes(m.verify as never))||typeof m.complete!=="boolean")
           return fail("sample.mission must carry bounded id, hold, verify and complete");
         sample.mission={id:m.id,hold:m.hold as NonNullable<SampleFields["mission"]>["hold"],verify:m.verify as NonNullable<SampleFields["mission"]>["verify"],complete:m.complete};
+        if (m.problem !== undefined) sample.mission.problem = m.problem === null ? null : sampleProblem(m.problem, fail);
       }
       if(value.measurements!==undefined){
         const parsed=parseMeasurements(value.measurements);
@@ -286,4 +296,13 @@ export function validateEvent(value: unknown, path = "events.jsonl"): Event {
     }
   }
   return fail(`unknown kind "${kind}"`);
+}
+
+/** A sample's mission problem: only the fields history keeps, so a producer's extra text never reaches the log. */
+function sampleProblem(value: unknown, fail: (message: string) => never): SampleProblem {
+  if (!isRecord(value) || typeof value.source !== "string" || !value.source || value.source.length > 200)
+    return fail("sample.mission.problem must carry kind, a bounded source and retryAt");
+  if (value.retryAt !== null && (typeof value.retryAt !== "string" || !Number.isFinite(Date.parse(value.retryAt))))
+    return fail("sample.mission.problem.retryAt must be an ISO timestamp or null");
+  return { kind: enumPicker(fail)("sample.mission.problem.kind", value.kind, PROBLEM_KINDS), source: value.source, retryAt: value.retryAt as string | null };
 }

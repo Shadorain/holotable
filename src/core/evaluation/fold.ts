@@ -1,6 +1,6 @@
 import type { Event, Measurements, UsageEvidence, UsageSource, UsageTotals } from "../types.ts";
 import { DECISION_PHASE, HISTORICAL_COUNTS, isNonnegative, MS_PER_HOUR, sumTokens, TOKEN_KEYS } from "./shared.ts";
-import type { ContactEvaluation, FoldEvaluation, FoldWaitKind, WaitActor } from "./types.ts";
+import type { ContactEvaluation, FoldEvaluation, FoldWaitKind, StallKind, WaitActor } from "./types.ts";
 
 /** Evidence rings keep the most recent event indexes a recommendation can cite. */
 const REF_RING = 3;
@@ -29,7 +29,7 @@ type OperatorEvent = Extract<Event, { kind: "operator" }>;
 export function createFoldEvaluation(): FoldEvaluation {
   return {
     clock: null, closed: null, anomalies: 0, resets: 0, contacts: Object.create(null), runs: new Map(), sources: new Map(), connected: 0, peak: 0, connectedMs: 0, connectivityFrom: null, config: { value: null, mixed: false }, conflicts: [],
-    series: new Map(), conflictPaths: new Map(), unpathedConflicts: 0, droppedPaths: 0, sourceOwners: new Map(),
+    series: new Map(), conflictPaths: new Map(), unpathedConflicts: 0, droppedPaths: 0, capacity: { from: null, ms: 0, episodes: 0 }, sourceOwners: new Map(),
   };
 }
 
@@ -46,7 +46,9 @@ function newContact(at: number): ContactEvaluation {
     paneEmittedCostUsd: 0, paneMalformed: 0, paneTruncated: false, paneEvents: 0,
     liveMs: 0, ownMs: 0, blockedAfterMs: 0, blockedPost: false, blockedBy: [], blockedByMs: Object.create(null), endedBy: null,
     relaunchBy: { operator: 0, recovery: 0, auto: 0 }, refusals: { memory: 0, sessionCap: 0, refused: 0, gaveUp: 0 },
-    conflictPaths: [], quotaEpisodes: 0, offlineEpisodes: 0,
+    conflictPaths: [], offlineEpisodes: 0,
+    stall: null, stallMs: { quota: 0, rateLimit: 0, otherProblem: 0 }, stallEpisodes: { quota: 0, rateLimit: 0, otherProblem: 0 },
+    deferral: null, deferralMs: { capacity: 0, memory: 0, refused: 0 }, deferralEpisodes: 0,
     wait: null, waitFrom: at, waitMs: 0, waits: {}, unsettled: null, resolved: null, rounds: [], busySpans: [],
   };
 }
@@ -74,6 +76,8 @@ export function accrue(contact: ContactEvaluation, at: number): void {
     if (contact.blocked && (contact.launched === null || contact.blockedPost))
       for (const by of contact.blockedBy) contact.blockedByMs[by] = (contact.blockedByMs[by] ?? 0) + elapsed;
     if (contact.hold !== null && contact.hold !== "none") contact.holdMs[contact.hold] = (contact.holdMs[contact.hold] ?? 0) + elapsed;
+    if (contact.stall !== null) contact.stallMs[contact.stall] += elapsed;
+    if (contact.deferral !== null) contact.deferralMs[contact.deferral] += elapsed;
     if (contact.socket && contact.workerValue !== null) {
       contact.coveredMs += elapsed;
       contact.workerMs += elapsed * contact.workerValue;
@@ -153,6 +157,12 @@ function bucketAt(state: FoldEvaluation, at: number) {
   let bucket = state.series.get(hour);
   if (!bucket) state.series.set(hour, bucket = { launches: 0, landAttempts: 0, conflicts: 0, reviewFailures: 0 });
   return bucket;
+}
+
+function closeCapacityWait(state: FoldEvaluation, at: number): void {
+  if (state.capacity.from === null) return;
+  state.capacity.ms += at - state.capacity.from;
+  state.capacity.from = null;
 }
 
 /** Keeps the latest `limit` distinct values, newest last. */
@@ -276,12 +286,20 @@ function foldPaneUsage(contact: ContactEvaluation, event: PaneUsageEvent): void 
   if (event.truncated || malformedLines > 0) contact.partial = true;
 }
 
+/** A recorded problem classifies the stall; without one (older logs and producers) only the quota hold does. */
+function stallOf(mission: NonNullable<SampleEvent["mission"]>): StallKind | null {
+  if (!mission.problem) return mission.hold === "quota" ? "quota" : null;
+  if (mission.problem.kind === "quota") return "quota";
+  return mission.problem.kind === "rate-limit" ? "rateLimit" : "otherProblem";
+}
+
 function foldMissionSample(contact: ContactEvaluation, mission: NonNullable<SampleEvent["mission"]>, at: number, index: number): void {
   if (contact.mission !== mission.id) {
     // A replaced run that was still partial leaves a permanent gap in what we know.
     if (contact.mission !== null && contact.partial) contact.unknown = true;
     contact.partial = contact.scoped;
     contact.hold = null;
+    contact.stall = null;
     contact.latestRun = null;
     contact.completeAt = null;
     contact.readyRefs.length = 0;
@@ -289,7 +307,9 @@ function foldMissionSample(contact: ContactEvaluation, mission: NonNullable<Samp
     contact.legacyCostUsd = null;
   }
   if (contact.hold !== mission.hold && (contact.hold === "gate" || mission.hold === "gate")) pushRef(contact.gateRefs, index);
-  if (mission.hold === "quota" && contact.hold !== "quota") contact.quotaEpisodes++;
+  const stall = stallOf(mission);
+  if (stall !== null && stall !== contact.stall) contact.stallEpisodes[stall]++;
+  contact.stall = stall;
   if (mission.complete && contact.completeAt === null) contact.readyRefs.push(index);
   if (!mission.complete) contact.readyRefs.length = 0;
   contact.mission = mission.id;
@@ -364,6 +384,7 @@ export function foldEvaluation(state: FoldEvaluation, event: Event, index: numbe
   state.clock = at;
   if (event.kind === "closed") {
     state.closed = at;
+    closeCapacityWait(state, at);
     for (const contact of Object.values(state.contacts)) {
       accrue(contact, at);
       contact.active = false;
@@ -373,6 +394,14 @@ export function foldEvaluation(state: FoldEvaluation, event: Event, index: numbe
       updateBusy(contact, at);
     }
     state.connected = 0;
+    return;
+  }
+  if (event.kind === "capacity-wait") {
+    if (!event.waiting) closeCapacityWait(state, at);
+    else if (state.capacity.from === null) {
+      state.capacity.from = at;
+      state.capacity.episodes++;
+    }
     return;
   }
   if (!("contact" in event)) return;
@@ -475,6 +504,10 @@ export function foldEvaluation(state: FoldEvaluation, event: Event, index: numbe
       break;
     case "pane-usage":
       foldPaneUsage(contact, event);
+      break;
+    case "recovery-wait":
+      if (event.wait !== null && contact.deferral === null) contact.deferralEpisodes++;
+      contact.deferral = event.wait;
       break;
     case "sample":
       foldSample(state, contact, event, at, index);

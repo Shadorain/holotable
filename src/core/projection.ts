@@ -119,6 +119,8 @@ function actorOf(e: Event): Actor {
     case "blocked":
     case "unblocked":
     case "removed":
+    case "capacity-wait":
+    case "recovery-wait":
       return "board";
     case "auto":
       return e.by === "board" ? "board" : "operator";
@@ -191,7 +193,9 @@ function historyLine(e: Event): HistoryEntry | null {
     case "sample":
       return null;
     case "pane-usage":
-      // Bookkeeping: spend is visible on Intel, not a human-meaningful history line.
+    case "capacity-wait":
+    case "recovery-wait":
+      // Bookkeeping: spend and stall time are visible on Intel, waits live on the board; not human-meaningful history lines.
       return null;
     case "decided":
       return line(`${ticket} decided: ${e.choice}${e.by !== "operator" ? ` (by ${e.by})` : ""}`);

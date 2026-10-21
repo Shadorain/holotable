@@ -444,6 +444,29 @@ test("counter and hold changes bypass slow usage sampling; restart seeds all mer
  expect(await readEvents(t.home,"lab")).toEqual(before);
 });
 
+test("a mission problem is sampled once per change, without its text, and cleared once finished", async () => {
+  const t = await setup();
+  const missions = async () => (await readEvents(t.home, "lab")).flatMap(e => e.kind === "sample" && e.contact === "CHR-1" && e.mission ? [e.mission] : []);
+  const problem = { kind: "rate-limit" as const, source: "review", detail: "429 at attempt 1", retryAt: "2026-01-01T00:15:00.000Z", attempt: 1, completed: null, total: null };
+  await t.watcher.pass();
+  // An older producer that reports no problem leaves the field out.
+  expect((await missions()).at(-1)).not.toHaveProperty("problem");
+  t.fake.world.statuses.set("/wt/a", status({ hold: "quota", problem }));
+  await t.watcher.pass();
+  // A retry that only rewords the detail or bumps the attempt is the same problem.
+  t.fake.world.statuses.set("/wt/a", status({ hold: "quota", problem: { ...problem, detail: "429 at attempt 2", attempt: 2 } }));
+  await t.watcher.pass();
+  await t.make().pass();
+  expect((await missions()).at(-1)).toEqual({ id: "run-1", hold: "quota", verify: null, complete: false, problem: { kind: "rate-limit", source: "review", retryAt: "2026-01-01T00:15:00.000Z" } });
+  t.fake.world.statuses.set("/wt/a", status({ hold: "quota", problem: { ...problem, retryAt: "2026-01-01T00:20:00.000Z" } }));
+  await t.watcher.pass();
+  t.fake.world.statuses.set("/wt/a", status({ problem: null }));
+  await t.watcher.pass();
+  t.fake.world.statuses.set("/wt/a", status({ complete: true, problem }));
+  await t.watcher.pass();
+  expect((await missions()).map(m => m.problem?.retryAt ?? m.problem)).toEqual([undefined, "2026-01-01T00:15:00.000Z", "2026-01-01T00:20:00.000Z", null, null]);
+});
+
 test("identical counters on a different mission are not deduplicated or merged across runs",async()=>{
  const t=await setup(),m=makeMeasurements({recordedFailed:1});
  t.fake.world.statuses.set("/wt/a",status({id:"first",measurements:m}));

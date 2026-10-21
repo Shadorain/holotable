@@ -236,8 +236,12 @@ export function createWatcher(deps: WatcherDeps): Watcher {
 
   function statusFields(status: ContactStatus | null, usage: boolean): SampleFields {
     if (!status) return {};
+    const mission: NonNullable<SampleFields["mission"]> = { id: status.id, hold: status.hold, verify: status.verify ?? null, complete: status.complete };
+    // A finished mission's leftover problem is not a stall; an older producer that reports none stays unknown.
+    if (status.problem !== undefined)
+      mission.problem = status.problem && !status.complete ? { kind: status.problem.kind, source: status.problem.source, retryAt: status.problem.retryAt } : null;
     return {
-      mission: { id: status.id, hold: status.hold, verify: status.verify ?? null, complete: status.complete },
+      mission,
       ...(status.measurements !== undefined ? { measurements: status.measurements } : {}),
       ...(usage && status.workers ? { workers: status.workers.live } : {}),
       ...(usage && status.usage ? { usage: { tokens: status.usage.tokens, costUsd: status.usage.costUsd } } : {}),

@@ -1,6 +1,7 @@
 import { actionOf, canDo, contactOf } from "../core/projection.ts";
 import type { ActionRequest } from "../board.ts";
 import type { ContactView, Event, Operation, Settings } from "../core/types.ts";
+import { foldEvents } from "../core/fold.ts";
 import { messageOf } from "../core/errors.ts";
 import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
@@ -95,6 +96,17 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
   const landingWaits = new Map<string, { reason: string; retryAt: number }>();
   // A finished contact whose work is not in the base yet (Mark done refused): leave it, try again much later.
   const unmerged = new Map<string, number>();
+  // Whether history has an open capacity wait, seeded once per operation so a restart records no transition twice.
+  const capacityRecorded = new Map<string, boolean>();
+
+  /** Appends `capacity-wait` only when auto mode starts or stops waiting for provider capacity. */
+  async function recordCapacityWait(opId: string, waiting: boolean): Promise<void> {
+    let recorded = capacityRecorded.get(opId);
+    recorded ??= foldEvents(await readEvents(deps.home, opId)).evaluation!.capacity.from !== null;
+    if (recorded !== waiting)
+      await appendEvent(deps.home, opId, { v: 1, at: deps.now().toISOString(), kind: "capacity-wait", waiting });
+    capacityRecorded.set(opId, waiting);
+  }
 
   async function pause(opId: string, reason: string): Promise<void> {
     landingWaits.delete(opId);
@@ -109,6 +121,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
   async function runOp(opId: string): Promise<void> {
     const projection = await loadProjection(deps.home, opId, await deps.settings(), deps.now().getTime(), deps.extras(opId));
     const auto = projection.operation.auto;
+    await recordCapacityWait(opId, auto?.enabled === true && !!auto.capacityWait);
     if (!auto?.enabled || !auto.land) landingWaits.delete(opId);
     if (!auto?.enabled) return;
 
@@ -280,6 +293,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
       const rows = await listOperations(deps.home);
       const ids = new Set(rows.map(row => row.id));
       for (const id of landingWaits.keys()) if (!ids.has(id)) landingWaits.delete(id);
+      for (const id of capacityRecorded.keys()) if (!ids.has(id)) capacityRecorded.delete(id);
       for (const row of rows) {
         if (busy.has(row.id)) continue;
         busy.add(row.id);

@@ -1,5 +1,6 @@
+import { RECOVERY_DEFERRALS } from "../types.ts";
 import { isWork, MS_PER_HOUR } from "./shared.ts";
-import type { Evaluation, FoldEvaluation, SeriesBucket, Timeline } from "./types.ts";
+import type { Evaluation, FoldEvaluation, SeriesBucket, StallEvaluation, Timeline } from "./types.ts";
 
 const MS_PER_DAY = 24 * MS_PER_HOUR;
 const MS_PER_WEEK = 7 * MS_PER_DAY;
@@ -9,7 +10,7 @@ const MAX_BUCKETS = 168;
 const TOP_PATHS = 10;
 const TOP_CONTACTS = 5;
 
-const STALL_CAVEAT = "Quota time is the mission's quota hold, which the producer also uses for provider rate limits. Events record neither the problem kind nor retryAt, and board capacity waits (auto mode waiting for provider capacity, recovery deferring a relaunch for memory or session slots) are never appended, so their duration is unmeasured; launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline and quota time can overlap.";
+const STALL_CAVEAT = "Missions whose samples carry no problem (logs and producers from before it was recorded) count every quota hold as quota, provider rate limits included. Capacity waits and Recovery deferrals are timed from the events the board appends: nothing before they were recorded counts, and board downtime inside an open wait does. Launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline, problem and deferral time can overlap.";
 
 /** Union of the time declared contacts were queued or live; throughput per active hour excludes idle stretches. */
 export function evaluateActivity(result: Evaluation, timelines: readonly Timeline[], clock: number, elapsed: number): void {
@@ -59,18 +60,29 @@ export function evaluateSeries(result: Evaluation, timelines: readonly Timeline[
   result.series = { bucketMs: width, truncated, buckets };
 }
 
-/** Quota holds, offline time and recorded launch refusals, kept apart from review failures. */
-export function evaluateStalls(result: Evaluation, timelines: readonly Timeline[]): void {
-  const stalls = {
-    quota: { ms: 0, episodes: 0 }, offline: { ms: 0, episodes: 0 },
+/** Mission problems by class, offline time, board capacity waits and recorded launch refusals, kept apart from review failures. */
+export function evaluateStalls(result: Evaluation, timelines: readonly Timeline[], fold: FoldEvaluation, clock: number): void {
+  const { capacity } = fold;
+  const stalls: Required<StallEvaluation> = {
+    quota: { ms: 0, episodes: 0 }, rateLimit: { ms: 0, episodes: 0 }, otherProblem: { ms: 0, episodes: 0 },
+    offline: { ms: 0, episodes: 0 },
+    capacityWait: { ms: capacity.ms + (capacity.from === null ? 0 : Math.max(0, clock - capacity.from)), episodes: capacity.episodes },
+    recoveryDeferral: { ms: 0, episodes: 0, byKind: { capacity: 0, memory: 0, refused: 0 } },
     launchRefusals: { memory: 0, sessionCap: 0, refused: 0, gaveUp: 0 },
     reviewFailures: result.quality?.reviewFailures ?? null, caveat: STALL_CAVEAT,
   };
   for (const { state } of timelines) {
-    stalls.quota.ms += state.holdMs.quota ?? 0;
-    stalls.quota.episodes += state.quotaEpisodes;
+    for (const kind of ["quota", "rateLimit", "otherProblem"] as const) {
+      stalls[kind].ms += state.stallMs[kind];
+      stalls[kind].episodes += state.stallEpisodes[kind];
+    }
     stalls.offline.ms += state.offlineMs ?? 0;
     stalls.offline.episodes += state.offlineEpisodes;
+    for (const kind of RECOVERY_DEFERRALS) {
+      stalls.recoveryDeferral.ms += state.deferralMs[kind];
+      stalls.recoveryDeferral.byKind[kind] += state.deferralMs[kind];
+    }
+    stalls.recoveryDeferral.episodes += state.deferralEpisodes;
     stalls.launchRefusals.memory += state.refusals.memory;
     stalls.launchRefusals.sessionCap += state.refusals.sessionCap;
     stalls.launchRefusals.refused += state.refusals.refused;

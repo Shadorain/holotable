@@ -120,6 +120,8 @@ async function setup(opts: Opts = {}) {
 
 const resume = { hold: "resume" as const, actions: ["continue"] };
 const controls = (t: Awaited<ReturnType<typeof setup>>) => t.fake.calls.filter((c) => c.port === "fleet" && c.method === "control");
+const deferrals = async (t: Awaited<ReturnType<typeof setup>>) =>
+  (await t.events()).flatMap((e) => (e.kind === "recovery-wait" ? [[e.contact, e.wait]] : []));
 
 describe("recovery: resume hold", () => {
   test("continues a live board-launched session holding at resume, credited to recover", async () => {
@@ -561,7 +563,7 @@ describe("recovery: crash-loop guard", () => {
 });
 
 describe("recovery: cap", () => {
-  test("a full cap makes no attempt and writes no event", async () => {
+  test("a full cap makes no attempt and records only the deferral, once", async () => {
     const t = await setup({ cap: 1, open: 1 });
     t.fake.world.terminals = [];
     t.dead("a");
@@ -569,9 +571,11 @@ describe("recovery: cap", () => {
     await t.ev("socket-up", T - MIN);
     const before = (await t.events()).length;
     await t.recover.pass();
+    await t.recover.pass();
     await t.settle();
     expect(t.fake.count("frontend.openTerminal")).toBe(0);
-    expect((await t.events()).length).toBe(before);
+    expect((await t.events()).slice(before).map((e) => e.kind)).toEqual(["recovery-wait"]);
+    expect(await deferrals(t)).toEqual([["a", "capacity"]]);
   });
 });
 
@@ -651,6 +655,9 @@ test("memory pressure defers recovery without spending the crash-loop budget", a
   expect(await t.relaunches()).toEqual([]);
   expect(t.fake.count("frontend.openTerminal")).toBe(0);
   expect(t.recover.deferred("lab").a?.kind).toBe("memory");
+  // Four passes and a board restart record the deferral once.
+  await t.newRecover().pass();
+  expect(await deferrals(t)).toEqual([["a", "memory"]]);
   // Headroom can disappear after the queue check; persisted refusals aren't crashes.
   for (let attempt = 0; attempt < 3; attempt++) {
     await appendEvent(t.home, "lab", {
@@ -675,12 +682,15 @@ test("a recovery batch reserves its last slot and starts the waiting mission aft
   await t.until(async () => (await t.relaunches()).length === 1);
   expect(t.fake.count("frontend.openTerminal")).toBe(1);
   expect(t.recover.deferred("lab").b?.kind).toBe("capacity");
+  // The relaunch in flight for a is not a deferral; b's wait for a slot is.
+  expect(await deferrals(t)).toEqual([["b", "capacity"]]);
   t.live("a");
   t.vanished.delete("a");
   await t.recover.pass();
   await t.until(async () => (await t.relaunches()).length === 2);
   expect(t.fake.count("frontend.openTerminal")).toBe(2);
   expect((await t.relaunches()).every(e => e.ok)).toBe(true);
+  expect(await deferrals(t)).toEqual([["b", "capacity"], ["b", null]]);
 });
 
 test("waiting for memory is canceled by a producer quota park or operator Reap", async () => {
@@ -698,6 +708,7 @@ test("waiting for memory is canceled by a producer quota park or operator Reap",
   await t.recover.pass();
   expect(t.recover.deferred("lab").a).toBeUndefined();
   expect(t.fake.count("frontend.openTerminal")).toBe(0);
+  expect(await deferrals(t)).toEqual([["a", "memory"], ["a", null], ["a", "memory"], ["a", null]]);
 });
 
 test("automatic Continue rechecks a producer quota park even when the watcher still shows resume", async () => {

@@ -1,4 +1,4 @@
-import { HOLDS, KINDS, MODES, type MeasurementConfig, type Measurements, type UsageEvidence, type UsageSource } from "../types.ts";
+import { HOLDS, KINDS, MODES, RECOVERY_DEFERRALS, type MeasurementConfig, type Measurements, type UsageEvidence, type UsageSource } from "../types.ts";
 import { isRecord } from "../validate.ts";
 import { HISTORICAL_COUNTS, isCount, isNonnegative, isTimestamp, MEASUREMENT_COUNTS, SEVERITIES, TOKEN_KEYS } from "./shared.ts";
 import type { ContactFinalState, Evaluation, WaitKind } from "./types.ts";
@@ -122,10 +122,16 @@ function isSeries(value: unknown): boolean {
     buckets.every(bucket => fieldsAre(bucket, ["at", "launches", "deliveries", "landAttempts", "conflicts", "reviewFailures"], isNonnegative));
 }
 
+const isStallTotals = (value: unknown): boolean => fieldsAre(value, ["ms", "episodes"], isNonnegative);
+
 function isStalls(value: unknown): boolean {
   if (!isRecord(value) || typeof value.caveat !== "string" || !isNullableNumber(value.reviewFailures)) return false;
-  return fieldsAre(value.quota, ["ms", "episodes"], isNonnegative) && fieldsAre(value.offline, ["ms", "episodes"], isNonnegative) &&
-    fieldsAre(value.launchRefusals, ["memory", "sessionCap", "refused", "gaveUp"], isCount);
+  if (!isStallTotals(value.quota) || !isStallTotals(value.offline) ||
+    !fieldsAre(value.launchRefusals, ["memory", "sessionCap", "refused", "gaveUp"], isCount)) return false;
+  // Absent on evaluations archived before problems and board waits were recorded.
+  for (const key of ["rateLimit", "otherProblem", "capacityWait"]) if (value[key] !== undefined && !isStallTotals(value[key])) return false;
+  const deferral = value.recoveryDeferral;
+  return deferral === undefined || (isRecord(deferral) && isStallTotals(deferral) && fieldsAre(deferral.byKind, RECOVERY_DEFERRALS, isNonnegative));
 }
 
 function isConflicts(value: unknown): boolean {

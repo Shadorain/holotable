@@ -198,7 +198,10 @@ export function evaluateOperation(operation: Operation, derived: Derived, now: n
     const original = fold.contacts[contact.ticket];
     if (!original) continue;
     // Accrue on a copy: the fold state must stay valid for the next event.
-    const state = { ...original, phaseMs: { ...original.phaseMs }, holdMs: { ...original.holdMs }, blockedByMs: Object.assign(Object.create(null), original.blockedByMs) };
+    const state = {
+      ...original, phaseMs: { ...original.phaseMs }, holdMs: { ...original.holdMs }, blockedByMs: Object.assign(Object.create(null), original.blockedByMs),
+      stallMs: { ...original.stallMs }, deferralMs: { ...original.deferralMs },
+    };
     accrue(state, clock);
     timelines.push({ contact, state });
   }
@@ -210,7 +213,7 @@ export function evaluateOperation(operation: Operation, derived: Derived, now: n
   evaluateContacts(result, timelines, fold);
   evaluateActivity(result, timelines, clock, elapsed);
   evaluateSeries(result, timelines, fold, createdAt, clock);
-  evaluateStalls(result, timelines);
+  evaluateStalls(result, timelines, fold, clock);
   evaluateConflicts(result, timelines, fold);
   const autoLand = operation.auto?.enabled === true && operation.auto.land === true;
   result.recommendations = recommendEvaluation(result, evaluationEvidence(operation, derived, clock), { autoLand });

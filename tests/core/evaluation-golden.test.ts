@@ -56,6 +56,15 @@ function fixture() {
   events.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   // A late, out-of-order sample exercises the clock-anomaly path.
   events.push(ev(30, "a", "sample", { usageEvidence: null }));
+  // Stall evidence, appended after the anomaly so earlier event indexes keep their meaning: a rate-limited
+  // mission, an auto capacity wait and a Recovery deferral still open at the clock.
+  events.push(
+    ev(70 * MIN, "f", "sample", { mission: { ...mission("m-f", "quota"), problem: { kind: "rate-limit", source: "review", retryAt: null } } }),
+    ev(70 * MIN, null, "capacity-wait", { waiting: true }),
+    ev(72 * MIN, "e", "recovery-wait", { wait: "memory" }),
+    ev(75 * MIN, "f", "sample", { mission: { ...mission("m-f"), problem: null } }),
+    ev(75 * MIN, null, "capacity-wait", { waiting: false }),
+  );
   return { operation, events };
 }
 

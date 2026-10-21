@@ -176,7 +176,7 @@ test("spend splits known cost by outcome, keeps panes as waste and reports cover
   });
 });
 
-test("stalls separate quota holds and offline time from review failures", () => {
+test("logs without recorded problems or board waits count quota holds and nothing else", () => {
   const events = [
     launched(0, "a"), ev(0, "a", "socket-up", { generation: 1 }),
     hold(10 * M, "a", "quota"), hold(25 * M, "a", "none"), hold(30 * M, "a", "quota", { measurements: makeMeasurements({ reviewFailures: 2 }) }),
@@ -185,8 +185,42 @@ test("stalls separate quota holds and offline time from review failures", () => 
   const stalls = evaluate([makeContact("a")], events, 40 * M).stalls!;
   expect(stalls.quota).toEqual({ ms: 25 * M, episodes: 2 });
   expect(stalls.offline).toEqual({ ms: 4 * M, episodes: 1 });
+  expect(stalls.rateLimit).toEqual({ ms: 0, episodes: 0 });
+  expect(stalls.otherProblem).toEqual({ ms: 0, episodes: 0 });
+  expect(stalls.capacityWait).toEqual({ ms: 0, episodes: 0 });
+  expect(stalls.recoveryDeferral).toEqual({ ms: 0, episodes: 0, byKind: { capacity: 0, memory: 0, refused: 0 } });
   expect(stalls.reviewFailures).toBe(2);
-  expect(stalls.caveat).toContain("retryAt");
+  expect(stalls.caveat).toContain("carry no problem");
+});
+
+test("stalls split recorded problems by kind and time capacity waits and recovery deferrals", () => {
+  const problem = (kind: string) => ({ kind, source: "review", retryAt: null });
+  const events = [
+    launched(0, "a"), ev(0, "a", "socket-up", { generation: 1 }), launched(0, "b"),
+    hold(5 * M, "a", "quota", { mission: { id: "m-a", hold: "quota", verify: null, complete: false, problem: problem("quota") } }),
+    // A rate limit under the same quota hold is its own stall, not more quota.
+    hold(10 * M, "a", "quota", { mission: { id: "m-a", hold: "quota", verify: null, complete: false, problem: problem("rate-limit") } }),
+    hold(20 * M, "a", "none", { mission: { id: "m-a", hold: "none", verify: null, complete: false, problem: null } }),
+    hold(25 * M, "a", "blocked", { mission: { id: "m-a", hold: "blocked", verify: null, complete: false, problem: problem("timeout") } }),
+    hold(28 * M, "a", "blocked", { mission: { id: "m-a", hold: "blocked", verify: null, complete: false, problem: problem("error") } }),
+    hold(30 * M, "a", "none", { mission: { id: "m-a", hold: "none", verify: null, complete: false, problem: null } }),
+    hold(32 * M, "a", "quota", { mission: { id: "m-a", hold: "quota", verify: null, complete: false, problem: problem("rate-limit") } }),
+    ev(12 * M, null, "capacity-wait", { waiting: true }), ev(13 * M, null, "capacity-wait", { waiting: true }),
+    ev(18 * M, null, "capacity-wait", { waiting: false }), ev(35 * M, null, "capacity-wait", { waiting: true }),
+    ev(10 * M, "b", "recovery-wait", { wait: "capacity" }), ev(14 * M, "b", "recovery-wait", { wait: "memory" }),
+    ev(20 * M, "b", "recovery-wait", { wait: null }), ev(30 * M, "b", "recovery-wait", { wait: "refused" }),
+  ];
+  const contacts = [makeContact("a"), makeContact("b")];
+  const stalls = evaluate(contacts, events, 40 * M).stalls!;
+  expect(stalls.quota).toEqual({ ms: 5 * M, episodes: 1 });
+  expect(stalls.rateLimit).toEqual({ ms: 18 * M, episodes: 2 });
+  expect(stalls.otherProblem).toEqual({ ms: 5 * M, episodes: 1 });
+  expect(stalls.capacityWait).toEqual({ ms: 11 * M, episodes: 2 });
+  expect(stalls.recoveryDeferral).toEqual({ ms: 20 * M, episodes: 2, byKind: { capacity: 4 * M, memory: 6 * M, refused: 10 * M } });
+  // Closing the operation ends an open capacity wait at the close.
+  const closed = evaluate(contacts, [...events, ev(38 * M, null, "closed", { outcome: "abandoned" })], 100 * M).stalls!;
+  expect(closed.capacityWait).toEqual({ ms: 9 * M, episodes: 2 });
+  expect(closed.rateLimit).toEqual({ ms: 16 * M, episodes: 2 });
 });
 
 test("waiting and delivery advice outranks accounting and churn under the six-rule cap", () => {
@@ -223,11 +257,15 @@ test("archived evaluations validate new fields when present and stay valid witho
   const { contacts: _c, operatorWait: _w, activity: _a, series: _s, stalls: _t, conflicts: _x, ...legacy } = result;
   const { spend: _spend, ...usage } = legacy.usage;
   expect(parseEvaluation({ ...legacy, usage })).not.toBeNull();
+  const { rateLimit: _r, otherProblem: _o, capacityWait: _cw, recoveryDeferral: _rd, ...stalls } = result.stalls;
+  expect(parseEvaluation({ ...result, stalls })).not.toBeNull();
   const broken = [
     { contacts: [{ ...result.contacts[0], state: "lost" }] },
     { operatorWait: { ...result.operatorWait, byKind: { nap: result.operatorWait.byKind.launch } } },
     { series: { ...result.series, buckets: Array.from({ length: 169 }, () => result.series.buckets[0]) } },
     { stalls: { ...result.stalls, quota: { ms: -1, episodes: 0 } } },
+    { stalls: { ...result.stalls, rateLimit: { ms: 1 } } },
+    { stalls: { ...result.stalls, recoveryDeferral: { ...result.stalls.recoveryDeferral, byKind: { capacity: 0 } } } },
     { conflicts: { ...result.conflicts, rate: Infinity } },
     { usage: { ...result.usage, spend: { ...result.usage.spend, landedPriced: 0.5 } } },
     { activity: { ...result.activity, deliveriesPerActiveHour: -1 } },

@@ -409,19 +409,39 @@ async function seedOperationLaunchedLane(home: string, ticket: string, worktree:
   }));
 }
 
+const capacityWaits = async (home: string) => (await readEvents(home, "lab")).flatMap(e => e.kind === "capacity-wait" ? [e.waiting] : []);
+const capacityProblem = (kind: "quota" | "rate-limit") => ({
+  kind, source: "review", detail: "Provider capacity unavailable", retryAt: kind === "quota" ? null : "2026-01-01T04:00:00Z",
+  attempt: 1, completed: 1, total: 2,
+});
+
 for (const kind of ["quota", "rate-limit"] as const) test(`auto waits for ${kind} before starting more AI work, then resumes`, async () => {
   const t = await setup([contact("a", { lane: lane("/wt/a", "t1") }), contact("b")]);
-  t.setStatus("a", status({ worktree: "/wt/a", phase: "review", problem: {
-    kind, source: "review", detail: "Provider capacity unavailable", retryAt: kind === "quota" ? null : "2026-01-01T04:00:00Z",
-    attempt: 1, completed: 1, total: 2,
-  } }));
+  t.setStatus("a", status({ worktree: "/wt/a", phase: "review", problem: capacityProblem(kind) }));
   t.liveWorktree("b");
+  await t.auto.pass();
   await t.auto.pass();
   expect((await t.op()).contacts.find(c => c.ticket === "b")!.lane).toBeNull();
   expect((await t.op()).auto?.enabled).toBe(true);
+  // The wait is history once, however many passes see it.
+  expect(await capacityWaits(t.home)).toEqual([true]);
   t.setStatus("a", status({ worktree: "/wt/a", phase: "review", next: "Independent review running", problem: null }));
   await t.auto.pass();
+  await t.auto.pass();
   expect((await t.op()).contacts.find(c => c.ticket === "b")!.lane?.worktree).toBe("/wt/b");
+  expect(await capacityWaits(t.home)).toEqual([true, false]);
+});
+
+test("a capacity wait already in history is not started again, and switching auto off ends it", async () => {
+  const t = await setup([contact("a", { lane: lane("/wt/a", "t1") })], { auto: { ...AUTO, launch: false, land: false } });
+  await appendEvent(t.home, "lab", { v: 1, at: "2026-01-01T02:59:00Z", kind: "capacity-wait", waiting: true });
+  t.setStatus("a", status({ worktree: "/wt/a", phase: "review", problem: capacityProblem("quota") }));
+  await t.auto.pass();
+  expect(await capacityWaits(t.home)).toEqual([true]);
+  await mutateOperation(t.home, "lab", op => ({ ...op, auto: { ...op.auto!, enabled: false } }));
+  await t.auto.pass();
+  await t.auto.pass();
+  expect(await capacityWaits(t.home)).toEqual([true, false]);
 });
 
 test("extra repair authorization is opt-in and recorded durably", async () => {

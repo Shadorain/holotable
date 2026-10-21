@@ -39,7 +39,8 @@
   "offlineMs": 600000,
   "deliveryReadyMs": 3600000,
   "holdMs": {
-   "gate": 4499990
+   "gate": 4499990,
+   "quota": 300000
   },
   "connectivity": {
    "observedMs": 5100000,
@@ -247,12 +248,12 @@
      "denominator": 200000220,
      "observedMs": null,
      "contacts": [
-      "a",
-      "f"
+      "f",
+      "a"
      ],
      "eventIndexes": [
-      114,
-      109
+      118,
+      114
      ]
     },
     "caveat": "Review-phase tokens include coordinator-session spend during review and are not exclusively reviewer cost.",
@@ -588,7 +589,7 @@
     "state": "running",
     "outcome": "open",
     "phase": null,
-    "hold": null,
+    "hold": "none",
     "queuedAt": 1767225600005,
     "launchedAt": 1767229260000,
     "landedAt": null,
@@ -826,9 +827,30 @@
     "ms": 0,
     "episodes": 0
    },
+   "rateLimit": {
+    "ms": 300000,
+    "episodes": 1
+   },
+   "otherProblem": {
+    "ms": 0,
+    "episodes": 0
+   },
    "offline": {
     "ms": 600000,
     "episodes": 5
+   },
+   "capacityWait": {
+    "ms": 300000,
+    "episodes": 1
+   },
+   "recoveryDeferral": {
+    "ms": 1080000,
+    "episodes": 1,
+    "byKind": {
+     "capacity": 0,
+     "memory": 1080000,
+     "refused": 0
+    }
    },
    "launchRefusals": {
     "memory": 0,
@@ -837,7 +859,7 @@
     "gaveUp": 0
    },
    "reviewFailures": 10,
-   "caveat": "Quota time is the mission's quota hold, which the producer also uses for provider rate limits. Events record neither the problem kind nor retryAt, and board capacity waits (auto mode waiting for provider capacity, recovery deferring a relaunch for memory or session slots) are never appended, so their duration is unmeasured; launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline and quota time can overlap."
+   "caveat": "Missions whose samples carry no problem (logs and producers from before it was recorded) count every quota hold as quota, provider rate limits included. Capacity waits and Recovery deferrals are timed from the events the board appends: nothing before they were recorded counts, and board downtime inside an open wait does. Launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline, problem and deferral time can overlap."
   },
   "conflicts": {
    "rate": 0.3,
@@ -1239,12 +1261,12 @@
   ],
   "usageEvents": [
    {
-    "contact": "a",
-    "index": 114
+    "contact": "f",
+    "index": 118
    },
    {
-    "contact": "f",
-    "index": 109
+    "contact": "a",
+    "index": 114
    }
   ]
  },
@@ -1288,7 +1310,8 @@
   "offlineMs": 600000,
   "deliveryReadyMs": 3600000,
   "holdMs": {
-   "gate": 4499990
+   "gate": 4499990,
+   "quota": 300000
   },
   "connectivity": {
    "observedMs": 4500000,
@@ -1496,12 +1519,12 @@
      "denominator": 200000220,
      "observedMs": null,
      "contacts": [
-      "a",
-      "f"
+      "f",
+      "a"
      ],
      "eventIndexes": [
-      114,
-      109
+      118,
+      114
      ]
     },
     "caveat": "Review-phase tokens include coordinator-session spend during review and are not exclusively reviewer cost.",
@@ -1837,7 +1860,7 @@
     "state": "closed",
     "outcome": "abandoned",
     "phase": null,
-    "hold": null,
+    "hold": "none",
     "queuedAt": 1767225600005,
     "launchedAt": 1767229260000,
     "landedAt": null,
@@ -2075,9 +2098,30 @@
     "ms": 0,
     "episodes": 0
    },
+   "rateLimit": {
+    "ms": 300000,
+    "episodes": 1
+   },
+   "otherProblem": {
+    "ms": 0,
+    "episodes": 0
+   },
    "offline": {
     "ms": 600000,
     "episodes": 5
+   },
+   "capacityWait": {
+    "ms": 300000,
+    "episodes": 1
+   },
+   "recoveryDeferral": {
+    "ms": 480000,
+    "episodes": 1,
+    "byKind": {
+     "capacity": 0,
+     "memory": 480000,
+     "refused": 0
+    }
    },
    "launchRefusals": {
     "memory": 0,
@@ -2086,7 +2130,7 @@
     "gaveUp": 0
    },
    "reviewFailures": 10,
-   "caveat": "Quota time is the mission's quota hold, which the producer also uses for provider rate limits. Events record neither the problem kind nor retryAt, and board capacity waits (auto mode waiting for provider capacity, recovery deferring a relaunch for memory or session slots) are never appended, so their duration is unmeasured; launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline and quota time can overlap."
+   "caveat": "Missions whose samples carry no problem (logs and producers from before it was recorded) count every quota hold as quota, provider rate limits included. Capacity waits and Recovery deferrals are timed from the events the board appends: nothing before they were recorded counts, and board downtime inside an open wait does. Launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline, problem and deferral time can overlap."
   },
   "conflicts": {
    "rate": 0.3,
@@ -2152,7 +2196,8 @@
   "offlineMs": 600000,
   "deliveryReadyMs": 3600000,
   "holdMs": {
-   "gate": 4499990
+   "gate": 4499990,
+   "quota": 300000
   },
   "connectivity": {
    "observedMs": 5100000,
@@ -2325,14 +2370,10 @@
      "denominator": 200000000,
      "observedMs": null,
      "contacts": [
-      "e",
-      "d",
-      "c"
+      "f"
      ],
      "eventIndexes": [
-      73,
-      71,
-      68
+      86
      ]
     },
     "caveat": "Review-phase tokens include coordinator-session spend during review and are not exclusively reviewer cost.",
@@ -2595,7 +2636,7 @@
     "state": "queued",
     "outcome": "open",
     "phase": null,
-    "hold": null,
+    "hold": "none",
     "queuedAt": 1767225600005,
     "launchedAt": null,
     "landedAt": null,
@@ -2788,9 +2829,30 @@
     "ms": 0,
     "episodes": 0
    },
+   "rateLimit": {
+    "ms": 300000,
+    "episodes": 1
+   },
+   "otherProblem": {
+    "ms": 0,
+    "episodes": 0
+   },
    "offline": {
     "ms": 600000,
     "episodes": 5
+   },
+   "capacityWait": {
+    "ms": 300000,
+    "episodes": 1
+   },
+   "recoveryDeferral": {
+    "ms": 1080000,
+    "episodes": 1,
+    "byKind": {
+     "capacity": 0,
+     "memory": 1080000,
+     "refused": 0
+    }
    },
    "launchRefusals": {
     "memory": 0,
@@ -2799,7 +2861,7 @@
     "gaveUp": 0
    },
    "reviewFailures": null,
-   "caveat": "Quota time is the mission's quota hold, which the producer also uses for provider rate limits. Events record neither the problem kind nor retryAt, and board capacity waits (auto mode waiting for provider capacity, recovery deferring a relaunch for memory or session slots) are never appended, so their duration is unmeasured; launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline and quota time can overlap."
+   "caveat": "Missions whose samples carry no problem (logs and producers from before it was recorded) count every quota hold as quota, provider rate limits included. Capacity waits and Recovery deferrals are timed from the events the board appends: nothing before they were recorded counts, and board downtime inside an open wait does. Launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline, problem and deferral time can overlap."
   },
   "conflicts": {
    "rate": null,

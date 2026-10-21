@@ -1,4 +1,4 @@
-import { HOLDS, MODES, VERIFIES, type ContactStatus, type Hold, type Mode, type UsageTotals, type Verify } from "./types.ts";
+import { HOLDS, MODES, PROBLEM_KINDS, VERIFIES, type ContactStatus, type Hold, type Mode, type UsageTotals, type Verify } from "./types.ts";
 import { invalidAt, isRecord } from "./validate.ts";
 import { parseMeasurements, parseUsageEvidence } from "./evaluation.ts";
 
@@ -152,7 +152,7 @@ export function validateStatus(
   let problem: ContactStatus["problem"] = null;
   if (value.problem !== undefined && value.problem !== null) {
     const p = value.problem;
-    if (!isRecord(p) || !["quota", "rate-limit", "timeout", "error"].includes(String(p.kind)) ||
+    if (!isRecord(p) || !(PROBLEM_KINDS as readonly unknown[]).includes(p.kind) ||
         typeof p.source !== "string" || !p.source || typeof p.detail !== "string" || !p.detail)
       return fail("problem must carry kind, source and detail");
     if (p.retryAt !== null && (typeof p.retryAt !== "string" || !Number.isFinite(Date.parse(p.retryAt))))
