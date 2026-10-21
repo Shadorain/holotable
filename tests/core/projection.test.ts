@@ -144,10 +144,14 @@ describe("project: state table", () => {
     expect(v.detail).toBe("Ready to launch");
   });
 
-  test("ready detail is the refusal text when one exists", () => {
+  test("an operation without a frontend holds its queue as blocked, pointing at its settings", () => {
     const op = makeOp([makeContact("a")], { frontend: "none" });
     const v = viewOf(op, "a");
-    expect(v.detail).toBe("no frontend: set one with /holotable set frontend orca");
+    expect(v.state).toBe("blocked");
+    expect(v.detail).toBe("no frontend: choose Panes in Project settings");
+    expect(v.actions.find((a) => a.id === "launch")?.enabled).toBe(false);
+    // The setting wins over a full cap: changing it is what unblocks the queue.
+    expect(viewOf(op, "a", { load: { live: 8, open: 8 } }).detail).toBe("no frontend: choose Panes in Project settings");
   });
 
   test("unresolved conflict contact makes target conflict", () => {
@@ -337,7 +341,7 @@ describe("project: shape", () => {
     const op = makeOp([
       makeContact("b"),
       makeContact("a", { blockedBy: ["b"] }),
-    ]);
+    ], { fleet: "omp-mission", frontend: "orca" });
     const p = project(
       input(op, { events: [ev(0, "b", "landed", { via: "manual" })] }),
     );
@@ -370,13 +374,14 @@ describe("project: shape", () => {
     expect(p2.contacts[0].delivery?.state).toBe("merged");
   });
 
-  test("detail: status.next wins; conflict detail names the mission", () => {
+  test("detail: status.next wins, minus its slash commands; conflict detail names the mission", () => {
     const op = makeOp([makeContact("a", { lane: live() })]);
-    const v = viewOf(op, "a", {
-      statuses: { a: makeStatus({ next: "/mission approve" }) },
-      owners: { a: "live" },
-    });
-    expect(v.detail).toBe("/mission approve");
+    const step = (next: string) => viewOf(op, "a", { statuses: { a: makeStatus({ next }) }, owners: { a: "live" } }).detail;
+    expect(step("Workers are running")).toBe("Workers are running");
+    expect(step("/mission approve — verification passed, approve to continue")).toBe("Verification passed, approve to continue");
+    expect(step("Restore quota or change the model, then /mission continue")).toBe("Restore quota or change the model, then Continue");
+    expect(step("/mission approve")).toBe("Approve");
+    expect(step("run /mission frobnicate")).toBe("Run /mission frobnicate");
     const c = makeOp(
       [
         makeContact("a", { lane: live() }),
@@ -388,6 +393,34 @@ describe("project: shape", () => {
       statuses: { a: makeStatus(), "a-c-1": makeStatus() },
     });
     expect(cv.detail).toBe("Waiting on conflict mission a-c-1");
+  });
+
+  test("a conflict mission stuck on the operator leaves its target nothing to keep hands off", () => {
+    const c = makeOp(
+      [
+        makeContact("a", { lane: live() }),
+        makeContact("a-c-1", { kind: "conflict", conflictOf: "a", lane: live() }),
+      ],
+      { fleet: "omp-mission", frontend: "orca" },
+    );
+    const working = viewOf(c, "a", { statuses: { a: makeStatus(), "a-c-1": makeStatus() }, owners: { a: "live", "a-c-1": "live" } });
+    expect(working.handsOff).toBe("Its conflict mission a-c-1 is resolving this");
+    const stuck = { hold: "quota" as const, actions: ["retry-model"] };
+    const v = viewOf(c, "a", { statuses: { a: makeStatus(), "a-c-1": makeStatus(stuck) }, owners: { a: "live", "a-c-1": "live" } });
+    expect(v.handsOff).toBeNull();
+    expect(v.detail).toBe("Waiting on conflict mission a-c-1, which needs you");
+  });
+
+  test("an idle coordinator whose pane the board cannot open says where to reply instead of offering a dead Focus", () => {
+    const idle = makeStatus({ phase: "review", coordinator: { state: "idle", since: iso(0) } });
+    const op = makeOp([makeContact("a", { lane: live(false) })], { fleet: "omp-mission", frontend: "orca" });
+    const v = viewOf(op, "a", { statuses: { a: idle }, owners: { a: "live" }, now: T0 + 10 * 60_000 });
+    expect(v.attention).toBe(true);
+    expect(v.actions.some((a) => a.primary && !a.enabled)).toBe(false);
+    expect(v.detail).toContain("reply in the omp session that runs it");
+    const open = makeOp([makeContact("a", { lane: live() })], { fleet: "omp-mission", frontend: "orca" });
+    const w = viewOf(open, "a", { statuses: { a: idle }, owners: { a: "live" }, now: T0 + 10 * 60_000 });
+    expect(w.actions.find((a) => a.id === "focus")).toMatchObject({ primary: true, enabled: true });
   });
 
   test("progress, phase, workers, owner, conflictOf pass through", () => {

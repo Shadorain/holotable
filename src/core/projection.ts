@@ -1,6 +1,6 @@
 import { foldEvents, contactDerived } from "./fold.ts";
 import { countTasks } from "./notes.ts";
-import { actionsFor, contactState, handsOff, idleSince, launchRefusal } from "./policy.ts";
+import { actionsFor, contactState, FLEET_OP_LABELS, handsOff, idleSince, launchRefusal, setupRefusal } from "./policy.ts";
 import { computeStats } from "./stats.ts";
 import { missionProblem, retryWaiting } from "./mission-problem.ts";
 import type {
@@ -232,6 +232,19 @@ function originOf(events: Event[], ticket: string): ContactView["origin"] {
   return null;
 }
 
+/**
+ * The producer's step text names the `/mission <op>` command to type in its pane; on the board the
+ * same op is a button. A leading command (`/mission approve — verification passed…`) is dropped and
+ * one inside a sentence becomes its button label.
+ */
+export function plainStep(text: string): string {
+  const label = (op: string) => (Object.hasOwn(FLEET_OP_LABELS, op) ? FLEET_OP_LABELS[op] : null);
+  const lead = /^\/mission ([\w-]+)\s+[—–:-]\s+(\S)/.exec(text);
+  const body = lead && label(lead[1]!) ? text.slice(lead[0].length - 1) : text;
+  const plain = body.replace(/\/mission ([\w-]+)/g, (command, op: string) => label(op) ?? command);
+  return plain.charAt(0).toUpperCase() + plain.slice(1);
+}
+
 /** One sentence for the card and list when the mission has nothing more specific to say. */
 function detailFor(state: ContactState, view: { refusal: string | null; next: string | null; conflictOpen: string | null; blockers: string[]; conflictOf: string | null; deciding: boolean; autoDecides: boolean }): string {
   switch (state) {
@@ -298,9 +311,13 @@ function contactView(
   };
 
   const blockers = contact.blockedBy.filter((b) => !contactDerived(derived, b).landed);
+  let refusal: string | null = null;
+  if (state === "ready") refusal = launchRefusal(policy);
+  // A contact blocked only by the operation's settings says which setting, even when the cap is also full.
+  else if (state === "blocked") refusal = setupRefusal(op) ?? launchRefusal(policy);
   let detail = state === "waiting" && !retryWaiting(status) ? input.recoveryWaits?.[contact.ticket]?.detail ?? "Waiting to reconnect" : detailFor(state === "waiting" ? "review" : state, {
-    refusal: state === "ready" || state === "blocked" ? launchRefusal(policy) : null,
-    next: status?.next ?? null,
+    refusal,
+    next: status?.next ? plainStep(status.next) : null,
     conflictOpen,
     blockers,
     conflictOf: contact.conflictOf,
@@ -311,15 +328,18 @@ function contactView(
     detail = `Review retry at ${problem.retryAt.slice(0, 16).replace("T", " ")} UTC`;
   if (reviewStale)
     detail = `Review stalled past its deadline (${review!.deadlineAt.slice(0, 16).replace("T", " ")} UTC); the pane may be stuck — Relaunch it`;
-  if (idle)
-    detail = `Idle in its pane since ${new Date(idle).toISOString().slice(11, 16)} UTC; it may be waiting for you`;
+  const actions = actionsFor(policy);
+  const hands = handsOff({ ...policy, actions, reviewStalled: reviewStale });
+  if (idle) {
+    const since = `Idle in its pane since ${new Date(idle).toISOString().slice(11, 16)} UTC; it may be waiting for you`;
+    const focus = actions.find((a) => a.id === "focus");
+    detail = focus?.enabled ? since : `${since}. The board cannot open its pane (${focus?.reason}): reply in the omp session that runs it`;
+  }
   // The producer's step says "Answer in mission"; when the card itself can answer, point there instead.
   if (status?.hold === "question") {
     if (status.approval && status.actions.includes("permit")) detail = `Approve or deny below: ${status.approval.summary}`;
     else if (status.ask && status.actions.includes("answer")) detail = `Answer below: ${status.ask.questions[0]?.question ?? "the mission's question"}`;
   }
-  const actions = actionsFor(policy);
-  const hands = handsOff({ ...policy, actions, reviewStalled: reviewStale });
   if (state === "complete") {
     const next = actions.find(action => action.primary);
     detail = next?.reason ? `Mission complete; ${next.reason}`
@@ -397,6 +417,15 @@ export function project(input: ProjectionInput): Projection {
       op.contacts.filter((r) => r.conflictOf === c.ticket && states.get(r.ticket) === "complete").at(-1)?.ticket ?? null,
     ),
   );
+  // A conflict mission stuck on the operator (quota, a gate, a question) is resolving nothing on its own:
+  // its target says so instead of telling the operator to keep their hands off.
+  for (const c of contacts) {
+    if (c.state !== "conflict") continue;
+    const resolver = contacts.find((r) => r.ticket === conflictOpenFor(op, states, c.ticket, derived));
+    if (!resolver?.attention) continue;
+    c.handsOff = null;
+    c.detail = `Waiting on conflict mission ${resolver.ticket}, which needs you`;
+  }
   // Only a running pane's problem is current evidence: a reaped or dead pane's last quota error must not
   // hold every new launch in the operation forever.
   const capacityTickets = contacts.filter(c => c.state !== "landed" && c.state !== "offline" && (c.owner === "live" || c.owner === "observed") &&

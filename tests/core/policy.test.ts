@@ -87,7 +87,7 @@ describe("launchRefusal order", () => {
     op.frontend = "none";
     expect(
       launchRefusal(policy(op, "a", { load: { live: 3, open: 2 } })),
-    ).toBe("no frontend: set one with /holotable set frontend orca");
+    ).toBe("no frontend: choose Panes in Project settings");
     op.frontend = "orca";
     op.fleet = "none";
     expect(launchRefusal(policy(op, "a"))).toBe("no fleet configured");
@@ -252,13 +252,13 @@ describe("actionsFor", () => {
     expect(a[0].reason).toBe("conflict mission a-conflict-1 open");
   });
 
-  test("landed: only reap; disabled after reaped", () => {
+  test("landed: Reap only while a terminal is still open; a decision offers only Change decision", () => {
     const a = actionsFor(policy(op, "a", { state: "landed" }));
     expect(labels(a)).toEqual(["reap:on"]);
     const d = foldEvents([ev(0, "a", "reaped")]);
-    const b = actionsFor(policy(op, "a", { state: "landed", derived: d }));
-    expect(b[0].enabled).toBe(false);
-    expect(b[0].reason).toBe("already reaped");
+    expect(actionsFor(policy(op, "a", { state: "landed", derived: d }))).toEqual([]);
+    const decision = makeOp([makeContact("q", { kind: "decision" })]);
+    expect(labels(actionsFor(policy(decision, "q", { state: "landed" })))).toEqual(["redecide:on"]);
   });
 });
 

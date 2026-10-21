@@ -334,7 +334,7 @@ Contact state, first match wins:
 |---|---|
 | landed event | `landed` |
 | lane null, kind decision | `decision` |
-| lane null, unmet blockers | `blocked` |
+| lane null, unmet blockers, or no frontend/fleet configured | `blocked` |
 | lane null | `ready` |
 | a contact with `conflictOf` = this exists and is not yet `complete` or `landed` | `conflict` |
 | status null, no `socket-up` event yet, lane has a terminal | `planning` |
@@ -370,7 +370,7 @@ Group: `queue` if lane is null and the contact has no `landed` event, else `live
 3. `already launched` (lane has a terminal)
 4. `blocked by <T1, T2>` (unmet blockers, ticket list comma-space joined)
 5. `cap <open>/<cap> omp` when `load.open >= cap`
-6. `no frontend: set one with /holotable set frontend orca` when frontend `none`
+6. `no frontend: choose Panes in Project settings` when frontend `none`
 7. `no fleet configured` when fleet `none`
 
 `actionsFor` returns `ActionView = { id, label, primary: boolean, enabled: boolean, reason: string | null }[]`:
@@ -383,9 +383,11 @@ Group: `queue` if lane is null and the contact has no `landed` event, else `live
 | planning, running, verify, hold, offline | `focus` (Focus, enabled iff terminal recorded and frontend not `none`/`external`); for owner live and hold/running/verify: one button per op in `status.actions ∩ {approve, continue, review, dispatch}` (labels Approve, Continue, Review, Dispatch; `approve` and `continue` primary) plus `mode` (Mode); owner not live: those buttons disabled with reason `owner-offline`; `ctl === null` disabled with reason `no control socket (not launched by holotable)`; `reap` (Reap, enabled iff terminal recorded) |
 | complete | `land` (Land, primary; enabled iff delivery is not `none`, kind is `implement` or an `audit` that carried code — probe non-null —, the probe is not `closed` or `merged`, no conflict contact for it is unresolved, and the probe reports no failed check unless the operation's `ignoreChecks` is on; reason otherwise: `no delivery configured`, `conflict mission <ticket> open`, `pull request closed`, `failing check: <names>`); `land-anyway` (Land anyway, operator-only, two-click confirm) only when failing checks are the sole reason Land is off — it lands with `ignoreChecks` for that one call; `done` (Mark done, or Mark merged when the probe reports the PR merged outside the board, primary in that case) when Land does not apply; `relaunch` when the owner is offline, the contact carries code, its PR is not merged and the lane is relaunchable (same conditions as `offline`); `check` (Check PR, operator-only) when `status.actions` advertises it; `focus`; `reap` |
 | conflict | `land` disabled with reason `conflict mission <ticket> open`; `focus`; `reap`. The conflict contact has its own card in `planning`/`running`/... states. When every conflict contact for this contact is `complete`, this contact falls through to its own state (`complete`) and Land uses the newest conflict contact's branch |
-| landed | `reap` (enabled iff terminal recorded and not reaped); `redecide` (Change decision, `{choice, rationale?}`, same choice rules as `done`) when `kind: "decision"` |
+| landed | `reap` only while its terminal is still recorded and not reaped (never disabled); `redecide` (Change decision, `{choice, rationale?}`, same choice rules as `done`) when `kind: "decision"` |
 
 Fleet buttons require `status.ctl !== null`. Holotable never computes mission legality itself; it renders `status.actions`.
+
+An idle coordinator makes `focus` primary only when Focus can open its pane; otherwise the detail names why and says to reply in the omp session that runs it. Producer step text (`status.next`) loses its `/mission <op>` commands in the detail: a leading command is dropped and one inside a sentence becomes its button label. A `conflict` contact whose open conflict mission needs the operator drops its hands-off note and says so in its detail.
 
 `relaunch` (Relaunch, primary) is offered in state `offline`, and in state `complete` when the finished pane is offline and its code has not merged (Recovery skips complete contacts), when the lane has a terminal and the frontend is neither `none` nor `external`. A reaped contact is `offline` and therefore relaunchable by the operator; that is the only way back after Reap. It is enabled unless the operation is closed or `load.open >= cap`, with the reason `operation closed` or `cap <open>/<cap> omp`. A lane with no terminal (a launch that stopped early) offers `launch` instead.
 

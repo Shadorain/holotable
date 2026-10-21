@@ -57,7 +57,7 @@ export function contactState(i: {
   if (contact.kind === "conflict" && d.reaped && contact.conflictOf && contactDerived(derived, contact.conflictOf).landed) return "landed";
   if (contact.lane === null) {
     if (contact.kind === "decision") return "decision";
-    if (unmetBlockers(i.operation, derived, contact.ticket).length > 0)
+    if (unmetBlockers(i.operation, derived, contact.ticket).length > 0 || setupRefusal(i.operation) !== null)
       return "blocked";
     return "ready";
   }
@@ -79,6 +79,15 @@ export function contactState(i: {
   return "running";
 }
 
+const NO_FRONTEND = "no frontend: choose Panes in Project settings";
+
+/** Why nothing in this operation can launch until its settings change, else null. */
+export function setupRefusal(operation: Operation): string | null {
+  if (operation.frontend === "none") return NO_FRONTEND;
+  if (operation.fleet === "none") return "no fleet configured";
+  return null;
+}
+
 /** First matching refusal reason, exact C7 strings, else null. */
 export function launchRefusal(i: PolicyInput): string | null {
   const { operation, contact, derived, load, cap } = i;
@@ -88,13 +97,10 @@ export function launchRefusal(i: PolicyInput): string | null {
   const blockers = unmetBlockers(operation, derived, contact.ticket);
   if (blockers.length > 0) return `blocked by ${blockers.join(", ")}`;
   if (load.open >= cap) return `cap ${load.open}/${cap} omp`;
-  if (operation.frontend === "none")
-    return "no frontend: set one with /holotable set frontend orca";
-  if (operation.fleet === "none") return "no fleet configured";
-  return null;
+  return setupRefusal(operation);
 }
 
-const FLEET_OP_LABELS: Record<string, string> = {
+export const FLEET_OP_LABELS: Record<string, string> = {
   check: "Check PR",
   "retry-model": "Switch model",
   "plan-approve": "Approve plan",
@@ -155,7 +161,7 @@ function sharedActions(i: PolicyInput): Shared {
       return view(
         "focus",
         status?.hold === "question" ? "Answer in mission" : "Focus",
-        (status?.hold === "question" && !boardAnswers) || (idlePrimary && !!i.idleSince),
+        (status?.hold === "question" && !boardAnswers) || (idlePrimary && !!i.idleSince && ok),
         ok,
         ok ? null : i.terminalMissing ? "terminal closed" : terminal === null ? "no terminal recorded" : "no frontend",
       );
@@ -211,7 +217,7 @@ function decisionActions(i: PolicyInput): ActionView[] {
   const { operation, derived, contact } = i;
   let agentReason: string | null = null;
   if (unmetBlockers(operation, derived, contact.ticket).length > 0) agentReason = "blocked";
-  else if (operation.frontend === "none") agentReason = "no frontend: set one with /holotable set frontend orca";
+  else if (operation.frontend === "none") agentReason = NO_FRONTEND;
   else if (i.load.open >= i.cap) agentReason = `cap ${i.load.open}/${i.cap} omp`;
   else if (i.decisionPaneOpen) agentReason = "already asking an agent";
   return [
@@ -305,9 +311,14 @@ export function actionsFor(i: PolicyInput): ActionView[] {
       return completeActions(i, s);
     case "conflict":
       return [view("land", "Land", true, false, `conflict mission ${i.conflictOpen ?? ""} open`), s.focus(), s.reap()];
-    case "landed":
-      if (i.contact.kind === "decision") return [view("redecide", "Change decision", false, true), s.reap()];
-      return [s.reap()];
+    case "landed": {
+      // Nothing is left to undo on a landed contact; Reap only closes a terminal cleanup kept open.
+      const reap = s.reap();
+      return [
+        ...(i.contact.kind === "decision" ? [view("redecide", "Change decision", false, true)] : []),
+        ...(reap.enabled ? [reap] : []),
+      ];
+    }
   }
 }
 
