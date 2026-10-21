@@ -317,6 +317,8 @@ export function handsOff(i: PolicyInput & { actions: ActionView[]; reviewStalled
     if (i.recoveryWait && operation.recover && i.recoveryWait.kind !== "refused") return "Recovery restarts this mission when it can";
     return null;
   }
+  // Land comes back to this contact once the conflict mission completes; nothing here is the operator's.
+  if (state === "conflict" && i.conflictOpen !== null) return `Its conflict mission ${i.conflictOpen} is resolving this`;
   if (owner !== "live") return null;
   if (status?.hold === "resume") return operation.recover && status.verify !== "failed" ? "Recovery continues this mission" : null;
   if (status?.hold === "plan-approval") {

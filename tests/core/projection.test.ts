@@ -543,6 +543,11 @@ test("work automation owns is hands-off and not 'Your move'; a question or a man
 
   const manual = makeOp([makeContact("a", { lane: live() })], { frontend: "orca", fleet: "omp-mission", delivery: "github-pr" });
   expect(viewOf(manual, "a", { statuses: { a: makeStatus({ complete: true, phase: "complete" }) }, owners: { a: "live" }, probes: { a: { url: "u", state: "open", mergeable: "clean", checks: "pass" } } } as never).handsOff).toBeNull();
+
+  const conflicted = makeOp([makeContact("a", { lane: live() }), makeContact("a-conflict-1", { kind: "conflict", conflictOf: "a", lane: live() })], { frontend: "orca", fleet: "omp-mission", delivery: "github-pr", auto });
+  const waiting = viewOf(conflicted, "a", { statuses: { a: makeStatus({ complete: true, phase: "complete" }), "a-conflict-1": makeStatus({ phase: "execute" }) }, owners: { a: "live", "a-conflict-1": "live" } });
+  expect(waiting.state).toBe("conflict");
+  expect(waiting.handsOff).toBe("Its conflict mission a-conflict-1 is resolving this");
 });
 
 test("completed work with blocked landing needs attention instead of appearing to run", () => {
