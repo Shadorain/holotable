@@ -1,4 +1,5 @@
 import type { Contact, ContactStatus, Operation } from "../core/types.ts";
+import { normalizeTicket } from "../core/validate-operation.ts";
 import { PortError, type Run } from "../ports.ts";
 import { loadProjection } from "../snapshot.ts";
 import { appendEvent } from "../store/events.ts";
@@ -72,7 +73,8 @@ export async function landContact(deps: LanderDeps, opId: string, ticket: string
     await deps.run("git", ["branch", "-D", pin], operation.repo);
   }
   const n = operation.contacts.filter((c) => c.conflictOf === ticket).length + 1;
-  const conflictTicket = `${ticket}-conflict-${n}`;
+  // The store upper-cases Linear tickets; events and the launch must use the stored form.
+  const conflictTicket = normalizeTicket(operation.tracker, `${ticket}-conflict-${n}`);
   const created: Contact = {
     ticket: conflictTicket,
     title: `Resolve conflicts for ${ticket}`,

@@ -30,7 +30,7 @@ const git = async (cwd: string, ...args: string[]) => {
   return out.stdout.trim();
 };
 
-async function setup(capture=false) {
+async function setup(capture = false, { ticket = "a", tracker }: { ticket?: string; tracker?: "linear" } = {}) {
   const root = tempDir("land", dirs);
   const repo = join(root, "repo");
   await run("git", ["init", "-q", "-b", "main", repo], root);
@@ -50,14 +50,15 @@ async function setup(capture=false) {
     integration: repo,
     frontend: "herdr",
     delivery: "local-merge",
-    contacts: [contact("a", { lane: lane(join(root, "wt-a"), "t1", "feat/a") })],
+    ...(tracker ? { tracker } : {}),
+    contacts: [contact(ticket, { lane: lane(join(root, "wt-a"), "t1", "feat/a") })],
   });
   const fake = fakePorts();
   const conflictWt = `${repo}-holotable-conflict-abc123`;
   const statuses = new Map<string, ContactStatus>([
-    ["a", status({ worktree: join(root, "wt-a"), complete: true, phase: "complete", ctl: null })],
+    [ticket, status({ worktree: join(root, "wt-a"), complete: true, phase: "complete", ctl: null })],
   ]);
-  fake.world.statuses.set(join(root, "wt-a"), statuses.get("a") as ContactStatus);
+  fake.world.statuses.set(join(root, "wt-a"), statuses.get(ticket) as ContactStatus);
   const portsFor = () => ({
     ...fake.ports,
     delivery: localMergeDelivery(run),
@@ -129,6 +130,21 @@ test("a conflicting land leaves integration clean and opens one conflict mission
 
   const again = await t.refused(t.act({ op: "lab", contact: "a", action: "land", args: {} }));
   expect(again.message).toBe("conflict mission a-conflict-1 open");
+});
+
+test("a Linear ticket's conflict mission keeps the ticket's case, so it is found and launched", async () => {
+  const t = await setup(false, { ticket: "CHR-154", tracker: "linear" });
+  await t.branch("feat/a", "f.txt", "one\ntwo from a\nthree\n");
+  writeFileSync(join(t.repo, "f.txt"), "one\ntwo from main\nthree\n");
+  await git(t.repo, "commit", "-qam", "main moves");
+  t.fake.world.statuses.set(t.conflictWt, status({ id: "run-c", worktree: t.conflictWt }));
+  t.fake.world.alive.add("/tmp/x.sock");
+  await t.act({ op: "lab", contact: "CHR-154", action: "land", args: {} });
+  const op = await readOperation(t.home, "lab");
+  expect(op.contacts.map((c) => c.ticket)).toEqual(["CHR-154", "CHR-154-CONFLICT-1"]);
+  const events = await readEvents(t.home, "lab");
+  expect(events.find((e) => e.kind === "conflict-opened")).toMatchObject({ conflictContact: "CHR-154-CONFLICT-1" });
+  expect(t.fake.count("fleet.launch")).toBe(1);
 });
 
 test("once the conflict mission is complete, Land merges its resolution branch", async () => {
