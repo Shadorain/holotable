@@ -16,6 +16,16 @@ export function agentDir(): string {
   );
 }
 
+/** XDG config home (`~/.config` when unset or empty). */
+export function configHome(): string {
+  return process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+}
+
+/** Where systemd reads user units: the board's own and each project's Dolt server. */
+export function userUnitDir(configDir = configHome()): string {
+  return join(configDir, "systemd", "user");
+}
+
 export function operationsDir(home: string): string {
   return join(home, "operations");
 }

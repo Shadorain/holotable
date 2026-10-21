@@ -6,7 +6,7 @@ import { assertIntegrationReady } from "./adapters/git-merge.ts";
 import { createBoardService } from "./board.ts";
 import type { Access, Operation, Settings } from "./core/types.ts";
 import { messageOf } from "./core/errors.ts";
-import { agentDir } from "./paths.ts";
+import { agentDir, userUnitDir } from "./paths.ts";
 import { PortError, type Ports, type Run } from "./ports.ts";
 import { readOperation } from "./store/operations.ts";
 import { migrateHome } from "./store/migrate.ts";
@@ -340,7 +340,7 @@ export interface InstallResult {
 }
 
 export async function installService(opts: InstallOptions, enableNow: boolean): Promise<InstallResult> {
-  const dir = join(opts.configDir, "systemd", "user");
+  const dir = userUnitDir(opts.configDir);
   await mkdir(dir, { recursive: true });
   const unitPath = join(dir, UNIT_NAME);
   await Bun.write(
@@ -362,7 +362,7 @@ export async function installService(opts: InstallOptions, enableNow: boolean): 
 }
 
 export async function uninstallService(opts: InstallOptions): Promise<InstallResult> {
-  const unitPath = join(opts.configDir, "systemd", "user", UNIT_NAME);
+  const unitPath = join(userUnitDir(opts.configDir), UNIT_NAME);
   const warnings: string[] = [];
   const systemctl = opts.systemctl ?? systemctlDefault();
   const result = await systemctl(["--user", "disable", "--now", UNIT_NAME]);

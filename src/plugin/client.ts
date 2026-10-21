@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OperationSummary } from "../board.ts";
 import type { Projection } from "../core/types.ts";
+import { configHome, userUnitDir } from "../paths.ts";
 import { installService, UNIT_NAME, type InstallOptions, type InstallResult } from "../service.ts";
 import { boardIsLocked, readBoardInfo, readToken } from "../store/board.ts";
 
@@ -161,8 +162,8 @@ export async function ensureService(options: string | EnsureServiceOptions): Pro
   }
 
   if (useSystemd) {
-    const configDir = opts.configDir ?? process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-    const unitPath = join(configDir, "systemd", "user", UNIT_NAME);
+    const configDir = opts.configDir ?? configHome();
+    const unitPath = join(userUnitDir(configDir), UNIT_NAME);
     const installOpts: InstallOptions = {
       bunPath,
       scriptPath,

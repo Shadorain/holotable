@@ -1,6 +1,5 @@
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { mkdir, realpath } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { usableMemoryBytes } from "./machine.ts";
 import { messageOf } from "./core/errors.ts";
 import { zoneIdFor } from "./core/zones.ts";
@@ -683,18 +682,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       const doltPath = dolt.stdout.trim();
       if (dolt.code !== 0 || !doltPath.startsWith("/"))
         throw new HttpError(400, "dolt is not on PATH; install it before managing the graph server");
-      const result = await asBadRequest(() =>
-        installDolt(project.id, project.name, project.repo, {
-          run,
-          doltPath,
-          unitDir: join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "systemd", "user"),
-          write: async (path, content) => {
-            await mkdir(dirname(path), { recursive: true });
-            await writeFile(path, content);
-          },
-          read: (path) => readFile(path, "utf8").catch(() => null),
-        }),
-      );
+      const result = await asBadRequest(() => installDolt(project.id, project.name, project.repo, { run, doltPath }));
       if (result.warnings.length) throw new HttpError(502, result.warnings.join("; "));
       return projectConfig(id);
     },

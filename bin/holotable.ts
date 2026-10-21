@@ -7,7 +7,7 @@ import type { CliReply } from "../src/adapters/holotable-cli.ts";
 import { HELP } from "../src/commands.ts";
 import { ACCESS_MODES } from "../src/core/types.ts";
 import type { Access } from "../src/core/types.ts";
-import { holotableHome } from "../src/paths.ts";
+import { configHome, holotableHome } from "../src/paths.ts";
 import { createHolotableCore } from "../src/plugin/core.ts";
 import { stopService } from "../src/plugin/client.ts";
 import { installService, startBoard, uninstallService } from "../src/service.ts";
@@ -111,7 +111,7 @@ ${HELP.replaceAll("/holotable", "holotable")}` });
       const options: InstallOptions = {
         bunPath: process.execPath,
         scriptPath: SCRIPT,
-        configDir: process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
+        configDir: configHome(),
         env: { path: process.env.PATH },
       };
       const result = verb === "install" ? await installService(options, rest.includes("--now")) : await uninstallService(options);

@@ -1,7 +1,8 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { connect } from "node:net";
 import type { Run } from "../ports.ts";
+import { userUnitDir } from "../paths.ts";
 
 /**
  * The bead graph of a beads mission lives in a Dolt SQL server. `bd` can auto-start one, but a server
@@ -163,9 +164,15 @@ async function unitInstalled(unit: string, deps: DoltDeps, cwd: string): Promise
 export interface DoltWriteDeps extends DoltDeps {
   /** Absolute path of the `dolt` binary; the unit must not depend on PATH. */
   doltPath: string;
-  unitDir: string;
-  write: (path: string, content: string) => Promise<void>;
-  read: (path: string) => Promise<string | null>;
+  /** Overridable for tests; default to the user's systemd unit dir and the real filesystem. */
+  unitDir?: string;
+  write?: (path: string, content: string) => Promise<void>;
+  read?: (path: string) => Promise<string | null>;
+}
+
+async function writeCreatingDirs(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, content);
 }
 
 export interface InstallDoltResult {
@@ -188,20 +195,22 @@ export async function installDolt(
   if (!(await serverMode(repo)))
     throw new Error(`${repo} has no server-mode bead database (.beads/metadata.json dolt_mode: server)`);
   const unit = unitName(projectId);
-  const unitPath = join(deps.unitDir, unit);
+  const write = deps.write ?? writeCreatingDirs;
+  const read = deps.read ?? ((path: string) => readFile(path, "utf8").catch(() => null));
+  const unitPath = join(deps.unitDir ?? userUnitDir(), unit);
   const port = (await readPort(repo)) ?? defaultPort(repo);
-  await deps.write(serverConfigPath(repo), renderServerConfig(repo, port));
-  await deps.write(unitPath, renderUnit({ projectName, repo, doltPath: deps.doltPath }));
+  await write(serverConfigPath(repo), renderServerConfig(repo, port));
+  await write(unitPath, renderUnit({ projectName, repo, doltPath: deps.doltPath }));
 
   const warnings: string[] = [];
   // bd would otherwise start its own server whenever the unit is briefly down, and that copy dies with its pane.
   const configPath = join(repo, ".beads", "config.yaml");
-  const config = (await deps.read(configPath)) ?? "";
+  const config = (await read(configPath)) ?? "";
   if (!/^\s*dolt\.auto-start:/m.test(config)) {
     const note = "\n# holotable manages the Dolt server as a systemd unit; a pane must never start its own.\ndolt.auto-start: false\n";
-    await deps.write(configPath, `${config.replace(/\s*$/, "")}\n${note}`);
+    await write(configPath, `${config.replace(/\s*$/, "")}\n${note}`);
   } else if (!/^\s*dolt\.auto-start:\s*false\s*$/m.test(config)) {
-    await deps.write(configPath, config.replace(/^\s*dolt\.auto-start:.*$/m, "dolt.auto-start: false"));
+    await write(configPath, config.replace(/^\s*dolt\.auto-start:.*$/m, "dolt.auto-start: false"));
   }
 
   const systemctl = systemctlOf(deps);
