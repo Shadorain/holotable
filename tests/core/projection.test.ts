@@ -57,10 +57,13 @@ test("an open ask is answered from the board only while the pane advertises answ
   const answerable = viewOf(op, "a", { statuses: { a: makeStatus({ hold: "question", next: "Answer in mission: Where?", ask, actions: ["answer"] }) }, owners: { a: "live" } });
   expect(answerable.ask).toEqual(ask);
   expect(answerable.actions.filter((a) => a.primary && a.enabled).map((a) => a.id)).toEqual(["answer"]);
+  // The card answers it, so it points there, not at the pane; an older pane still sends the operator to it.
+  expect(answerable.detail).toMatch(/below: Where\?$/);
   // An older pane publishes the question without taking answers: Focus is the way to it.
   const older = viewOf(op, "a", { statuses: { a: makeStatus({ hold: "question", next: "Answer in mission: Where?", ask, actions: [] }) }, owners: { a: "live" } });
   expect(older.actions.some((a) => a.id === "answer")).toBe(false);
   expect(older.actions.find((a) => a.id === "focus")).toMatchObject({ primary: true, label: "Answer in mission" });
+  expect(older.detail).toBe("Answer in mission: Where?");
   // Answered: the hold clears and the choices go with it.
   const after = viewOf(op, "a", { statuses: { a: makeStatus({ hold: "none", ask }) }, owners: { a: "live" } });
   expect(after.ask).toBeNull();
@@ -74,6 +77,7 @@ test("an open tool approval is answered from the board only while the pane adver
   expect(answerable.approval).toEqual(approval);
   expect(answerable.attention).toBe(true);
   expect(answerable.actions.filter((a) => a.primary && a.enabled).map((a) => a.id)).toEqual(["permit"]);
+  expect(answerable.detail).toMatch(/below: Allow tool: bash/);
   expect(answerable.actions.some((a) => a.id === "continue" || a.id === "approve")).toBe(false);
   // A pane whose owner is not live cannot take the answer.
   const observed = viewOf(op, "a", { statuses: { a: makeStatus({ ...open, actions: ["permit"] }) }, owners: { a: "observed" } });
@@ -82,6 +86,7 @@ test("an open tool approval is answered from the board only while the pane adver
   const older = viewOf(op, "a", { statuses: { a: makeStatus({ ...open, actions: [] }) }, owners: { a: "live" } });
   expect(older.actions.some((a) => a.id === "permit")).toBe(false);
   expect(older.actions.find((a) => a.id === "focus")).toMatchObject({ primary: true, label: "Answer in mission" });
+  expect(older.detail).toMatch(/^Answer in mission: /);
   const after = viewOf(op, "a", { statuses: { a: makeStatus({ hold: "none", approval }) }, owners: { a: "live" } });
   expect(after.approval).toBeNull();
 });

@@ -313,6 +313,11 @@ function contactView(
     detail = `Review stalled past its deadline (${review!.deadlineAt.slice(0, 16).replace("T", " ")} UTC); the pane may be stuck — Relaunch it`;
   if (idle)
     detail = `Idle in its pane since ${new Date(idle).toISOString().slice(11, 16)} UTC; it may be waiting for you`;
+  // The producer's step says "Answer in mission"; when the card itself can answer, point there instead.
+  if (status?.hold === "question") {
+    if (status.approval && status.actions.includes("permit")) detail = `Approve or deny below: ${status.approval.summary}`;
+    else if (status.ask && status.actions.includes("answer")) detail = `Answer below: ${status.ask.questions[0]?.question ?? "the mission's question"}`;
+  }
   const actions = actionsFor(policy);
   const hands = handsOff({ ...policy, actions, reviewStalled: reviewStale });
   if (state === "complete") {
