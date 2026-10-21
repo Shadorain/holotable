@@ -14,7 +14,7 @@ export const PORT_OPTIONS = {
 };
 const PORTS = ["tracker", "fleet", "frontend", "delivery"];
 const SOURCE = { orca: "Orca", project: "project", session: "omp session" };
-const FIELD_LABEL = { base: "Base branch", tracker: "Tracker", frontend: "Panes", delivery: "Lands by", name: "Name", pause: "Mission mode" };
+const FIELD_LABEL = { base: "Base branch", tracker: "Tracker", frontend: "Panes", delivery: "Lands by", name: "Name", pause: "Pause gates" };
 
 let reposCache = null;
 /** GET /api/repos once per page; the list barely changes while someone fills a form. */
@@ -86,7 +86,7 @@ export function projectFields(defaults, api) {
   }
   const pause = switcher({ label: "Pause gates", checked: defaults?.pause === true });
   adjust.append(grid, portGrid);
-  field(adjust, "Pause gates", pause.root, { note: "On launches omp-mission in pause. Off is auto. Starts from Settings → Mission mode." });
+  field(adjust, "Pause gates", pause.root, { note: "On: missions stop at each Pause gate for your approval. Starts from Settings → Pause gates." });
   box.append(adjust);
 
   const toggle = el("button", "linkish pf-toggle");

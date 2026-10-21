@@ -10,9 +10,7 @@ import { renderMarkdown } from "./markdown.js";
 import { endSection } from "./endop.js";
 import { addContactButton } from "./addcontact.js";
 import { notesPanel } from "./notes.js";
-import { kindPill, openTicket, statePill } from "./ui.js";
-
-const titleCase = (kind) => `${kind[0].toUpperCase()}${kind.slice(1)}`;
+import { dateTime, errorText, fetchJson, kindPill, openTicket, statePill, titleCase } from "./ui.js";
 
 const WORKSPACE_SOURCE = {
   "orca-project": "from the Orca project",
@@ -100,17 +98,15 @@ function briefSection(p, doc, ctx) {
       cancel.disabled = true;
       ui.error = null;
       try {
-        const res = await ctx.api("/api/brief", {
+        await fetchJson(await ctx.api("/api/brief", {
           method: "PUT",
           body: JSON.stringify({ op: opId, text: area.value }),
-        });
-        const data = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+        }));
         ui.editing = false;
         ctx.toast("Brief saved", "ok");
         await ctx.reloadOp();
       } catch (error) {
-        ui.error = error instanceof Error ? error.message : String(error);
+        ui.error = errorText(error);
       } finally {
         ui.saving = false;
         save.disabled = false;
@@ -400,18 +396,16 @@ function zonesContactsSection(p, ctx) {
     zoneUi.zoneError = null;
     zerr.hidden = true;
     try {
-      const res = await ctx.api("/api/zones", {
+      await fetchJson(await ctx.api("/api/zones", {
         method: "POST",
         body: JSON.stringify({ op: p.operation.id, label: zlabel.input.value.trim() }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      }));
       zlabel.input.value = "";
       ctx.toast("Zone added", "ok");
       await ctx.poll();
     } catch (error) {
       zerr.hidden = false;
-      zerr.textContent = error instanceof Error ? error.message : String(error);
+      zerr.textContent = errorText(error);
       zoneUi.zoneError = zerr.textContent;
     } finally {
       zoneUi.addingZone = false;
@@ -527,6 +521,6 @@ export function renderOperation(root, projection, doc, ctx) {
 
   root.append(seedSection(doc, p), endSection(p, ctx));
   const created = el("div", "set-note opdoc-created");
-  created.textContent = doc.createdAt ? `Created ${new Date(doc.createdAt).toLocaleString()}` : "";
+  created.textContent = doc.createdAt ? `Created ${dateTime(doc.createdAt)}` : "";
   root.append(created);
 }

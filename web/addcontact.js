@@ -2,6 +2,7 @@
 // POST /api/contacts queues it as an operator addition; nothing launches until you click.
 import { combobox, dropdown, el, textField } from "./components.js";
 import { modalButton, openModal } from "./modal.js";
+import { fetchJson, storeErrorText } from "./ui.js";
 
 const KINDS = [
   ["implement", "Implement", "A mission builds and delivers it"],
@@ -27,7 +28,7 @@ export function openAddContact(projection, ctx) {
     return;
   }
   const tracked = op.tracker !== "none";
-  const title = textField({ label: "Title", placeholder: "Short title (optional when the tracker has one)", spellcheck: false });
+  const title = textField({ label: "Title", placeholder: tracked ? "Optional: the tracker's title" : "Short title", spellcheck: false });
   const description = el("textarea", "plan-edit contact-desc-edit");
   description.rows = 4;
   description.placeholder = "Full task scope, acceptance criteria, or context (optional)";
@@ -137,13 +138,12 @@ export function openAddContact(projection, ctx) {
   const err = el("div", "set-err");
   err.hidden = true;
 
+  const ticketRow = row("Ticket", ticket.root, tracked ? `Pick from ${op.tracker}; the title fills in.` : "Any short id.");
+  const ticketErr = el("span", "set-err", "Pick or type a ticket");
+  ticketErr.hidden = true;
+  ticketRow.append(ticketErr);
   const grid = el("div", "modal-grid");
-  grid.append(
-    row("Ticket", ticket.root, tracked ? `Pick from ${op.tracker}; the title fills in.` : "Any short id."),
-    row("Title", title.root),
-    row("Zone", zone.root),
-    row("Kind", kind.root),
-  );
+  grid.append(ticketRow, row("Title", title.root), row("Zone", zone.root), row("Kind", kind.root));
   const descRow = row("Description", description);
   const waits = row("Waits for", chips, "It stays queued until these land.");
   decideBox.append(row("Options", optionsText, "Two or more, for a pick-one decision."), row("Recommended", recommended.root, "Auto mode takes it when deciding is automated."));
@@ -151,10 +151,16 @@ export function openAddContact(projection, ctx) {
   const add = modalButton("Add contact", { kind: "primary", iconName: "plus" });
   const submit = async () => {
     err.hidden = true;
+    ticketErr.hidden = true;
+    if (!ticket.input.value.trim()) {
+      ticketErr.hidden = false;
+      ticket.input.focus();
+      return;
+    }
     add.disabled = true;
     const blockedBy = [...chosen];
     try {
-      const res = await ctx.api("/api/contacts", {
+      const data = await fetchJson(await ctx.api("/api/contacts", {
         method: "POST",
         body: JSON.stringify({
           op: op.id,
@@ -168,16 +174,13 @@ export function openAddContact(projection, ctx) {
             ? { options: optionLines(), ...(recommended.value ? { recommended: recommended.value } : {}) }
             : {}),
         }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      }));
       modal.close();
       ctx.toast(`${data?.ticket ?? "Contact"} queued`, "ok");
       ctx.added?.(data?.ticket);
     } catch (error) {
       err.hidden = false;
-      // The store names the file and array index; the operator only needs the reason.
-      err.textContent = (error instanceof Error ? error.message : String(error)).replace(/^Invalid \w+ at [^:]+: (contacts\[\d+\]\.)?/, "");
+      err.textContent = storeErrorText(error);
       add.disabled = false;
     }
   };

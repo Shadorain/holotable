@@ -268,7 +268,7 @@ Start an automatic campaign from OMP with `/holotable new release --repo /path/t
 |`defaults.fleet`|`omp-mission`|`omp-mission`, `none`|
 |`defaults.frontend`|`none`|`orca`, `herdr`, `custom`, `none`|
 |`defaults.delivery`|`none`|`github-pr`, `local-merge`, `none`|
-|`defaults.pause`|`false`|new mission mode: Auto when false, Pause gates when true; saved projects and operations retain their mode|
+|`defaults.pause`|`false`|Settings → Defaults → **Pause gates**: whether missions in new projects and standalone operations stop at each Pause gate (unrelated to an operation's Auto mode); saved projects and operations keep theirs|
 |`cleanup`|`true`|after a contact lands or is marked done, close its terminal and remove its worktree when clean (a dirty worktree is kept and noted)|
 
 ### AI models and token usage

@@ -1,7 +1,7 @@
 // Plan view: the whole operation as a dependency map by zone, and its full history.
 // Answers "what is the plan, what is in the way, and where did each thing come from".
 import { addContactButton } from "./addcontact.js";
-import { clock, el, statePill } from "./ui.js";
+import { clock, el, needsYou, statePill } from "./ui.js";
 
 const ACTOR_WORD = { operator: "you", model: "model", mission: "mission", board: "board" };
 
@@ -160,7 +160,7 @@ export function renderMap(root, projection, selected, focus, onAdd = null) {
     el("span", "", `${count((c) => c.group === "queue")} queued`),
   );
   const needs = count((c) => c.attention);
-  if (needs) summary.append(el("span", "warn", `${needs} need you`));
+  if (needs) summary.append(el("span", "warn", needsYou(needs)));
   if (projection.notes?.total) summary.append(el("span", "", `${projection.notes.done}/${projection.notes.total} tasks done`));
   summary.append(el("span", "map-legend", "arrows: waits for → · green: landed · red dashed: conflict"));
   if (onAdd) summary.append(addContactButton(onAdd));

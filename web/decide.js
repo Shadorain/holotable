@@ -5,6 +5,7 @@ import { el, textField } from "./components.js";
 import { icon } from "./icons.js";
 import { renderMarkdown } from "./markdown.js";
 import { modalButton, openModal } from "./modal.js";
+import { errorText } from "./ui.js";
 
 /** `contact`: ContactView; `action`: "done" | "redecide"; `run(args)` returns {ok, error}. */
 export function openDecide(contact, action, run, { initialChoice = null } = {}) {
@@ -30,6 +31,9 @@ export function openDecide(contact, action, run, { initialChoice = null } = {}) 
 
   const err = el("div", "set-err");
   err.hidden = true;
+  // A missing choice is reported under the choices, not at the bottom with server errors.
+  const choiceErr = el("div", "set-err", options.length ? "Choose an option." : "Write what was decided.");
+  choiceErr.hidden = true;
 
   const body = [question];
   const desc = contact.description ?? null;
@@ -43,11 +47,12 @@ export function openDecide(contact, action, run, { initialChoice = null } = {}) 
 
   if (validRec) {
     const recBar = el("div", "decide-rec");
-    const recInfo = el("div", "decide-rec-info");
-    recInfo.append(
-      el("span", "decide-rec-kicker", "Recommended"),
-      el("span", "decide-rec-val", validRec)
-    );
+    // With options the recommended one carries a badge in the list; only a free-text answer needs it spelled out.
+    if (!options.length) {
+      const recInfo = el("div", "decide-rec-info");
+      recInfo.append(el("span", "decide-rec-kicker", "Recommended"), el("span", "decide-rec-val", validRec));
+      recBar.append(recInfo);
+    }
     recBtn = el("button", "btn small decide-rec-btn");
     recBtn.type = "button";
     recBtn.append(icon("sparkles", { size: 13 }), document.createTextNode("Pick recommended"));
@@ -57,7 +62,7 @@ export function openDecide(contact, action, run, { initialChoice = null } = {}) 
       recBtn.setAttribute("aria-pressed", String(currentVal === validRec));
     };
 
-    recBar.append(recInfo, recBtn);
+    recBar.append(recBtn);
     body.push(recBar);
   }
 
@@ -71,7 +76,7 @@ export function openDecide(contact, action, run, { initialChoice = null } = {}) 
 
     const select = (value) => {
       choice = value;
-      err.hidden = true;
+      choiceErr.hidden = true;
       for (const r of radios) r.checked = r.value === value;
       updateRecBtn?.(value);
     };
@@ -129,16 +134,16 @@ export function openDecide(contact, action, run, { initialChoice = null } = {}) 
       });
     }
 
-    body.push(list);
+    body.push(list, choiceErr);
   } else {
     free = textField({ label: "Decision", placeholder: "What was decided, in a line", spellcheck: true });
     free.input.value = current ?? (initialChoice ?? "");
     const wrap = el("label", "modal-field");
     wrap.append(el("span", "modal-label", "Decision"), free.root);
-    body.push(wrap);
+    body.push(wrap, choiceErr);
 
     free.input.addEventListener("input", () => {
-      err.hidden = true;
+      choiceErr.hidden = true;
       updateRecBtn?.(free.input.value.trim());
     });
 
@@ -193,8 +198,7 @@ export function openDecide(contact, action, run, { initialChoice = null } = {}) 
     if (submitting) return;
     const value = free ? free.input.value.trim() : choice;
     if (!value) {
-      err.hidden = false;
-      err.textContent = free ? "Write what was decided." : "Choose an option.";
+      choiceErr.hidden = false;
       return;
     }
     submitting = true;
@@ -216,7 +220,7 @@ export function openDecide(contact, action, run, { initialChoice = null } = {}) 
       setDisabled(false);
       submitting = false;
       err.hidden = false;
-      err.textContent = error instanceof Error ? error.message : String(error);
+      err.textContent = errorText(error);
     }
   });
 

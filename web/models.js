@@ -1,7 +1,7 @@
 // Model catalog cache and searchable model dropdown component.
 // Fetches GET /api/models on-demand via injected api port, caching in memory.
 import { dropdown, el } from "./components.js";
-import { fetchJson } from "./ui.js";
+import { errorText, fetchJson } from "./ui.js";
 
 let catalogCache = null;
 let catalogPromise = null;
@@ -30,7 +30,7 @@ export async function getModelCatalog(api, { refresh = false, includeUsage = fal
       if (includeUsage) usageAt = catalogAt;
       return data;
     } catch (err) {
-      return { models: [], error: err instanceof Error ? err.message : String(err) };
+      return { models: [], error: errorText(err) };
     } finally {
       if (includeUsage) usagePromise = null;
       else catalogPromise = null;
@@ -116,7 +116,7 @@ export function subscriptionPanel(api, onCatalog) {
         result.append(card);
       }
     } catch (error) {
-      result.textContent = error instanceof Error ? error.message : String(error);
+      result.textContent = errorText(error);
     } finally {
       load.textContent = "Refresh subscription quotas";
       load.disabled = false;
@@ -222,7 +222,7 @@ export function modelDropdown({
     searchPlaceholder: "Search models…",
     maxOptions: 60,
     onOpen: loadCatalog,
-    footers: [{ label: "Refresh subscription quotas", onPick: () => loadCatalog(true) }],
+    footers: [{ label: "Refresh subscription quotas", icon: "rotate-cw", onPick: () => loadCatalog(true) }],
     onChange,
   });
 

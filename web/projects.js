@@ -4,7 +4,7 @@ import { el, textField } from "./components.js";
 import { field } from "./fields.js";
 import { icon } from "./icons.js";
 import { projectFields } from "./projectform.js";
-import { fetchJson, storeErrorText } from "./ui.js";
+import { fetchJson, needsYou, storeErrorText } from "./ui.js";
 
 function opChip(o, ctx) {
   const b = el("button", "proj-chip");
@@ -12,7 +12,7 @@ function opChip(o, ctx) {
   b.dataset.key = `projects/op/${o.id}`;
   b.title = `Open ${o.name}`;
   b.append(el("span", "", o.name));
-  if (o.attention) b.append(el("span", "proj-chip-need", `${o.attention} need you`));
+  if (o.attention) b.append(el("span", "proj-chip-need", needsYou(o.attention)));
   b.addEventListener("click", (e) => {
     e.stopPropagation();
     ctx.openOperation(o.id);
@@ -122,7 +122,7 @@ export function renderProjects(root, projects, operations, ctx) {
     const top = el("div", "proj-card-head");
     top.append(icon("folder", { size: 14 }), el("span", "proj-card-name", pr.name));
     const need = pr.operations.reduce((n, o) => n + (byId.get(o.id)?.attention ?? 0), 0);
-    if (need) top.append(el("span", "proj-chip-need", `${need} need you`));
+    if (need) top.append(el("span", "proj-chip-need", needsYou(need)));
     card.append(top, el("div", "mono set-note", `${pr.repo} · ${pr.base}`));
     const chips = el("div", "proj-chips");
     if (!pr.operations.length) chips.append(el("span", "set-note", "No open operations"));

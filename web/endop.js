@@ -128,7 +128,9 @@ export function endSection(projection, ctx) {
   abort.addEventListener("click", () => abortOperation(op, ctx));
 
   row.append(close, abort);
-  box.append(row, el("div", "set-note", "Both archive the operation. Abort also closes running mission panes and deletes their worktrees."));
+  // Touch screens never see a disabled button's tooltip, so the reason is written out too.
+  const why = all ? "" : "Close is available once every contact has landed. ";
+  box.append(row, el("div", "set-note", `${why}Both archive the operation. Abort also closes running mission panes and deletes their worktrees.`));
   return box;
 }
 

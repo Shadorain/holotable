@@ -3,7 +3,7 @@
 // a name, Create. The board opens the pane (POST /api/drafts) and you review its seed here;
 // nothing is created until Create.
 import { dropdown, el, switcher, textField } from "./components.js";
-import { fetchJson, slug, storeErrorText } from "./ui.js";
+import { errorText, fetchJson, slug, storeErrorText } from "./ui.js";
 import { field } from "./fields.js";
 import { icon } from "./icons.js";
 import { renderMarkdown } from "./markdown.js";
@@ -21,6 +21,44 @@ function section(title, note) {
   if (note) box.append(el("div", "set-note sec-note", note));
   return box;
 }
+
+/** Edit | Preview pair; `onMode(mode)` runs when the pressed one changes. */
+function editPreviewToggle(className, onMode) {
+  const box = el("div", className);
+  box.setAttribute("role", "group");
+  box.setAttribute("aria-label", "Brief view");
+  const buttons = [["edit", "Edit"], ["preview", "Preview"]].map(([mode, label]) => {
+    const b = el("button", "btn small", label);
+    b.type = "button";
+    b.dataset.mode = mode;
+    return b;
+  });
+  const paint = (mode) => {
+    for (const b of buttons) {
+      b.classList.toggle("active", b.dataset.mode === mode);
+      b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+    }
+  };
+  let current = "edit";
+  paint(current);
+  for (const b of buttons) {
+    b.addEventListener("click", () => {
+      if (b.dataset.mode === current) return;
+      current = b.dataset.mode;
+      paint(current);
+      onMode(current);
+    });
+  }
+  box.append(...buttons);
+  return box;
+}
+
+// One listener for the page: the form re-renders with each region rebuild, so the latest
+// render registers how to resume its draft polling when the tab comes back.
+let resumeDraft = null;
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") resumeDraft?.();
+});
 
 /** ctx: { api, toast, defaults, projects, project?, draftText?, created(id), cancel() } */
 export function renderNewOperation(root, ctx) {
@@ -95,10 +133,13 @@ export function renderNewOperation(root, ctx) {
   const grid = el("div", "set-grid");
   const name = textField({ label: "Name", placeholder: "filled by the draft, or type one", spellcheck: false });
   const nameF = field(grid, "Name *", name.root, {});
-  const idNote = el("span", "mono");
-  nameF.row.append(el("div", "set-note", "Id: "), idNote);
+  const idNote = el("div", "set-note");
+  idNote.hidden = true;
+  nameF.row.append(idNote);
   const syncId = () => {
-    idNote.textContent = slug(name.input.value) || "—";
+    const id = slug(name.input.value);
+    idNote.hidden = !id;
+    idNote.replaceChildren("Id: ", el("span", "mono", id));
   };
   name.input.addEventListener("input", syncId);
   const recover = switcher({ label: "Keep missions running", checked: true });
@@ -143,26 +184,13 @@ export function renderNewOperation(root, ctx) {
       if (!focusedBriefEdited) mArea.value = brief.value;
       if (mMode === "preview") mPreview.replaceChildren(renderMarkdown(mArea.value || "*Nothing to preview*"));
     };
-    const mToggle = el("div", "btn-group brief-modal-toggle");
-    const mEdit = el("button", "btn small", "Edit");
-    const mPrev = el("button", "btn small", "Preview");
-    mEdit.type = "button"; mPrev.type = "button";
-    mEdit.classList.add("active");
-    mEdit.addEventListener("click", () => {
-      if (mMode === "edit") return;
-      mMode = "edit";
-      mEdit.classList.add("active"); mPrev.classList.remove("active");
-      mArea.hidden = false; mPreview.hidden = true;
-      mArea.focus();
+    const mToggle = editPreviewToggle("brief-modal-toggle", (mode) => {
+      mMode = mode;
+      mArea.hidden = mode !== "edit";
+      mPreview.hidden = mode !== "preview";
+      if (mode === "edit") mArea.focus();
+      else mPreview.replaceChildren(renderMarkdown(mArea.value || "*Nothing to preview*"));
     });
-    mPrev.addEventListener("click", () => {
-      if (mMode === "preview") return;
-      mMode = "preview";
-      mPrev.classList.add("active"); mEdit.classList.remove("active");
-      mPreview.replaceChildren(renderMarkdown(mArea.value || "*Nothing to preview*"));
-      mPreview.hidden = false; mArea.hidden = true;
-    });
-    mToggle.append(mEdit, mPrev);
     mBody.append(mToggle, mArea, mPreview);
 
     const mSave = el("button", "btn primary", "Save and close");
@@ -182,25 +210,11 @@ export function renderNewOperation(root, ctx) {
   });
 
   const briefToolbar = el("div", "brief-toolbar");
-  const briefToggle = el("div", "btn-group brief-toggle");
-  const bEdit = el("button", "btn small", "Edit");
-  const bPrev = el("button", "btn small", "Preview");
-  bEdit.type = "button"; bPrev.type = "button";
-  bEdit.classList.add("active");
-  bEdit.addEventListener("click", () => {
-    if (briefMode === "edit") return;
-    briefMode = "edit";
-    bEdit.classList.add("active"); bPrev.classList.remove("active");
+  const briefToggle = editPreviewToggle("brief-toggle", (mode) => {
+    briefMode = mode;
     syncBriefUI();
-    brief.focus();
+    if (mode === "edit") brief.focus();
   });
-  bPrev.addEventListener("click", () => {
-    if (briefMode === "preview") return;
-    briefMode = "preview";
-    bPrev.classList.add("active"); bEdit.classList.remove("active");
-    syncBriefUI();
-  });
-  briefToggle.append(bEdit, bPrev);
   briefToolbar.append(briefToggle, focusBtn);
 
   briefWrap.append(briefToolbar, brief, briefPreview);
@@ -239,7 +253,7 @@ export function renderNewOperation(root, ctx) {
       return JSON.parse(text);
     } catch (error) {
       seedErr.hidden = false;
-      seedErr.textContent = error instanceof Error ? error.message : String(error);
+      seedErr.textContent = errorText(error);
       seedDetails.open = true;
       return undefined;
     }
@@ -370,12 +384,12 @@ export function renderNewOperation(root, ctx) {
       pollingDraft = false;
     }
   }
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && draftId && !pollingDraft) {
+  resumeDraft = () => {
+    if (draftId && !pollingDraft) {
       clearTimeout(timer);
       timer = setTimeout(pollDraft, 500);
     }
-  });
+  };
   async function startDraft() {
     const text = draftText.value.trim();
     if (!text) {

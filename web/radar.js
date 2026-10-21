@@ -2,7 +2,7 @@
 // rings are lifecycle stages from outside in: queue, planning, active, complete. Landed contacts
 // leave the scope and only count in the hub. One canvas; the static well is prerendered offscreen
 // on resize or layout change, then each frame blits it and draws sweep + blips.
-import { stateLabel } from "./ui.js";
+import { needsYou, stateLabel } from "./ui.js";
 
 /** Hub radius as a share of R; contacts never sit inside 0.17 R. */
 const HUB = 0.15;
@@ -107,7 +107,7 @@ export function createRadar(stage, opts) {
     }
     canvas.setAttribute(
       "aria-label",
-      `Radar: ${liveN} started, ${queueN} queued, ${needsN} need you, ${landedN} landed.`,
+      `Radar: ${liveN} started, ${queueN} queued, ${needsYou(needsN)}, ${landedN} landed.`,
     );
     if (R < 24) return;
     const zones = P.operation.zones;
@@ -531,7 +531,7 @@ export function createRadar(stage, opts) {
     const lines = [
       [`${liveN} started`, pal["--text"], 600],
       [`${queueN} queued`, pal["--muted"], 500],
-      needsN ? [`${needsN} need you`, pal["--warn"], 600] : [`${landedN} landed`, pal["--dim"], 500],
+      needsN ? [needsYou(needsN), pal["--warn"], 600] : [`${landedN} landed`, pal["--dim"], 500],
     ];
     const size = clamp(R * 0.042, 10, 15);
     const lineH = size * 1.25;

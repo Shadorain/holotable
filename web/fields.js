@@ -4,6 +4,7 @@
 // a null one flashes a "Saved" mark beside the title.
 import { dropdown, el, numberField, switcher, textField } from "./components.js";
 import { icon } from "./icons.js";
+import { storeErrorText } from "./ui.js";
 
 const SAVED_MS = 2000;
 // A save usually re-renders its page before it reports back, so the row that shows the
@@ -51,8 +52,7 @@ export function field(parent, title, control, { note = null, restart = false, ke
     row,
     setError(error) {
       err.hidden = !error;
-      // Store errors name the file ("Invalid settings at /x/settings.json: …"); the row only needs the reason.
-      err.textContent = error ? error.message.replace(/^Invalid \w+ at [^:]+: /, "") : "";
+      err.textContent = storeErrorText(error);
       if (error) {
         clearTimeout(timer);
         mark.hidden = true;

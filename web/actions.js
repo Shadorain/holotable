@@ -1,7 +1,7 @@
 import { clearCardDecision, clearDecideModel, clearLaunchModel, getCardDecision, getDecideModel, getLaunchModel } from "./card.js";
 import { openDecide } from "./decide.js";
 import { openModelRecovery } from "./model-recovery.js";
-import { CONFIRM } from "./ui.js";
+import { CONFIRM, errorText } from "./ui.js";
 
 const PAST = {
   launch: "launched", land: "landed", "land-anyway": "landed past failing checks", approve: "approved", continue: "continued", review: "sent to review",
@@ -41,7 +41,7 @@ export function createActions({ state, api, toast, render, pollFresh }) {
         toast(`${ticket} ${PAST[action] ?? action}`, "ok");
       }
     } catch (error) {
-      outcome = { ok: false, error: error instanceof Error ? error.message : String(error) };
+      outcome = { ok: false, error: errorText(error) };
       toast(`${action} failed: ${outcome.error}`, "error");
     } finally {
       try {

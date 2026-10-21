@@ -3,8 +3,8 @@
 import { el } from "./components.js";
 import { enumRow, switchRow, textRow } from "./fields.js";
 import { icon } from "./icons.js";
+import { needsYou, titleCase } from "./ui.js";
 
-const titleCase = (kind) => `${kind[0].toUpperCase()}${kind.slice(1)}`;
 const WORKSPACE_SOURCE = {
   "orca-project": "from the Orca project",
   operation: "set on the operation",
@@ -44,7 +44,7 @@ export function renderProject(root, cfg, operations, ctx) {
     b.type = "button";
     b.dataset.key = `proj-op/${o.id}`;
     b.title = `Open ${o.name}`;
-    b.append(el("span", "proj-op-name", o.name), el("span", "set-note", `${o.live} live · ${o.queued} queued${o.attention ? ` · ${o.attention} need you` : ""}`));
+    b.append(el("span", "proj-op-name", o.name), el("span", "set-note", `${o.live} live · ${o.queued} queued${o.attention ? ` · ${needsYou(o.attention)}` : ""}`));
     b.addEventListener("click", () => ctx.openOperation(o.id));
     list.append(b);
   }
