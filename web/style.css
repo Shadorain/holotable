@@ -682,7 +682,7 @@ textarea.plan-edit.seed-edit { width: 100%; background: var(--well); border: 1px
 .facts-group > .kicker { margin-bottom: 6px; }
 .facts dd .none { color: var(--dim); font-style: italic; }
 .facts-group .facts { margin: 0; }
-.closer-brief, .closer-report { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.closer-brief { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
 
 /* ---- archive, end-of-operation, modal ---- */
 .archive-table { grid-template-columns: minmax(0, 2fr) auto auto auto minmax(0, 1fr); }
