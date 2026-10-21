@@ -347,8 +347,8 @@ function throughputNote(e) {
   if (e.throughputPerHour == null) return "No operation time recorded";
   if (!e.deliveredWork) return "None delivered yet";
   const elapsedMs = e.deliveredWork * 3_600_000 / e.throughputPerHour;
-  if (elapsedMs < 3_600_000) return `In ${duration(elapsedMs)} of operation time`;
-  return `${decimal(e.throughputPerHour)}/h over ${duration(elapsedMs)}`;
+  if (elapsedMs < 3_600_000) return `In ${duration(elapsedMs)} since the operation was created`;
+  return `${decimal(e.throughputPerHour)}/h over ${duration(elapsedMs)} since creation`;
 }
 function renderSnapshot(snapshot, source) {
   const root = $("dashboard");
@@ -365,7 +365,7 @@ function renderSnapshot(snapshot, source) {
   headlines.setAttribute("aria-label", "At a glance");
   headlines.append(
     headline("Delivered work", number(e.deliveredWork), throughputNote(e)),
-    headline("Median delivery", duration(e.delivery.medianMs), `${e.delivery.n} delivered measurements`),
+    headline("Median launch → land", duration(e.delivery.medianMs), `${e.delivery.n} delivered measurements`),
     headline("Recorded check failures", number(e.quality?.recordedFailed), e.quality ? "Producer-reported, not external judgment" : "No quality instrumentation recorded"),
     headline("Known spend", money(e.usage.knownCostUsd), e.usage.knownCostUsd == null ? "No usage cost recorded" : e.usage.partial ? "Partial coverage" : e.usage.coordinatorSessionAssociated ? "Session-associated estimate" : "Observed estimate"),
   );

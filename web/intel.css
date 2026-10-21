@@ -1,11 +1,10 @@
 .intel-body { height: auto; min-height: 100%; overflow: auto; }
 .intel-body [hidden] { display: none !important; }
-.intel-header { display: flex; align-items: center; gap: 30px; padding: 20px 32px; border-bottom: 1px solid var(--line); }
-.intel-brand { font-size: 12px; letter-spacing: .16em; color: var(--muted); }
-.intel-brand b { color: var(--accent); font-weight: 600; }
-.intel-readonly { margin-left: auto; color: var(--muted); font-size: 12px; }
+.intel-header { margin: 10px; }
+.intel-header a.crumb { text-decoration: none; }
+.intel-readonly { color: var(--muted); font-size: 12px; }
 .intel-main { display: block; width: 100%; max-width: 1200px; padding: 28px 32px; margin: auto; }
-.intel-intro h1 { font-size: clamp(25px, 3vw, 34px); font-weight: 500; letter-spacing: -.035em; margin: 9px 0 10px; line-height: 1.2; }
+.intel-intro h1 { font-size: clamp(20px, 2.4vw, 26px); font-weight: 650; letter-spacing: -.02em; margin: 9px 0 10px; line-height: 1.25; }
 .intel-eyebrow { margin: 0; font-size: 11px; letter-spacing: .15em; color: var(--accent); }
 .intel-muted { color: var(--muted); font-size: 13px; line-height: 1.6; }
 .intel-toolbar { display: flex; align-items: end; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
@@ -37,7 +36,6 @@
 .intel-empty { padding: 32px 0; }
 .intel-body :focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 @media (max-width: 740px) {
-  .intel-header { gap: 15px; padding: 16px 18px; flex-wrap: wrap; }
   .intel-readonly { display: none; }
   .intel-main { padding: 28px 18px; }
   .intel-source { min-width: 0; flex: 1 1 250px; }
