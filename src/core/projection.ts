@@ -425,3 +425,18 @@ export function project(input: ProjectionInput): Projection {
     log,
   };
 }
+
+/** The contact named `ticket` in an operation or a projection, if any. */
+export function contactOf<C extends { ticket: string }>(holder: { contacts: readonly C[] }, ticket: string): C | undefined {
+  return holder.contacts.find((c) => c.ticket === ticket);
+}
+
+/** The action `id` a contact view offers, enabled or not. */
+export function actionOf(view: ContactView | undefined, id: string): ContactView["actions"][number] | undefined {
+  return view?.actions.find((a) => a.id === id);
+}
+
+/** Whether a contact view offers action `id` enabled. */
+export function canDo(view: ContactView, id: string): boolean {
+  return view.actions.some((a) => a.id === id && a.enabled);
+}

@@ -1,6 +1,7 @@
 import type { ActionRequest } from "../board.ts";
 import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
 import { foldEvents } from "../core/fold.ts";
+import { canDo, contactOf } from "../core/projection.ts";
 import type { ContactStatus, ContactView, Event, Projection, RecoveryWait, Settings } from "../core/types.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { listOperations } from "../store/operations.ts";
@@ -98,8 +99,7 @@ export function relaunchesPending(projection: Projection, extras: Required<Proje
     .filter((c) => {
       if (!deadPane(c, extras.statuses[c.ticket] ?? null, extras, folded.contacts[c.ticket]?.reaped === true)) return false;
       const state = recovery(events, c.ticket, now);
-      return state.relaunches < MAX_RELAUNCHES && !(state.refusal && now - state.refusal.at < REFUSAL_RETRY_MS) &&
-        c.actions.some((a) => a.id === "relaunch" && a.enabled);
+      return state.relaunches < MAX_RELAUNCHES && !(state.refusal && now - state.refusal.at < REFUSAL_RETRY_MS) && canDo(c, "relaunch");
     })
     .map((c) => c.ticket);
 }
@@ -126,7 +126,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
       const extras = deps.extras(opId);
       const projection = await loadProjection(deps.home, opId, await deps.settings(), deps.now().getTime(), extras);
       const folded = foldEvents(await readEvents(deps.home, opId));
-      const contact = projection.contacts.find(c => c.ticket === ticket);
+      const contact = contactOf(projection, ticket);
       if (!projection.operation.recover || folded.closed || folded.contacts[ticket]?.reaped ||
           contact?.state !== "offline" || !contact.lane?.terminal || extras.statuses[ticket]?.hold === "quota" || extras.statuses[ticket]?.hold === "question") return;
       if (projection.header.open >= projection.header.cap) {
@@ -138,7 +138,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
         defer(opId, ticket, { kind: "memory", detail: `Waiting for memory · ${memory}` });
         return;
       }
-      if (!contact.actions.some(a => a.id === "relaunch" && a.enabled)) return;
+      if (!canDo(contact, "relaunch")) return;
       await act(opId, ticket, "relaunch");
       if (deps.extras(opId).owners[ticket] === "live") delete deferred.get(opId)?.[ticket];
     }).catch(error => deps.warn(`recover ${opId}: ${error instanceof Error ? error.message : String(error)}`))
@@ -226,9 +226,9 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
           defer(opId, contact.ticket, { kind: "memory", detail: `Waiting for memory · ${memory}` });
           continue;
         }
-        if (!contact.actions.some(a => a.id === "relaunch" && a.enabled)) continue;
+        if (!canDo(contact, "relaunch")) continue;
         enqueueRelaunch(opId, contact.ticket);
-      } else if (!state.gaveUp && contact.actions.some(a => a.id === "relaunch" && a.enabled)) {
+      } else if (!state.gaveUp && canDo(contact, "relaunch")) {
         // Crash-loop: record the give-up once; an operator Relaunch resets the count.
         await appendEvent(deps.home, opId, {
           v: 1,

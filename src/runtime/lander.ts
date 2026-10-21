@@ -1,12 +1,12 @@
 import type { Contact, ContactStatus, Operation } from "../core/types.ts";
 import { normalizeTicket } from "../core/validate-operation.ts";
 import { PortError, type Run } from "../ports.ts";
-import { loadProjection } from "../snapshot.ts";
 import { appendEvent } from "../store/events.ts";
-import { mutateOperation, readOperation } from "../store/operations.ts";
+import { mutateOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
 import { cleanupAfterLand } from "./cleanup.ts";
 import { launchContact, type LauncherDeps } from "./launcher.ts";
+import { offered } from "./offer.ts";
 
 export interface LanderDeps extends LauncherDeps {
   run: Run;
@@ -25,14 +25,10 @@ export function newestConflict(operation: Operation, ticket: string): Contact | 
  * that already holds the markers; the original contact stays and Land waits for that mission.
  */
 export async function landContact(deps: LanderDeps, opId: string, ticket: string, options: { anyway?: boolean } = {}): Promise<void> {
-  const settings = await deps.settings();
-  const projection = await loadProjection(deps.home, opId, settings, deps.now().getTime(), deps.extras(opId));
   const action = options.anyway ? "land-anyway" : "land";
-  const offered = projection.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === action);
-  if (!offered?.enabled) throw new ActionError(409, "refused", offered?.reason ?? `${ticket} cannot be landed in its current state`);
-
-  const operation = await readOperation(deps.home, opId);
-  const contact = operation.contacts.find((c) => c.ticket === ticket) as Contact;
+  const offer = await offered(deps, opId, ticket, action, `${ticket} cannot be landed in its current state`);
+  const { settings, operation } = offer;
+  const contact = offer.contact as Contact;
   const ports = deps.portsFor(operation, settings);
   const resolution = newestConflict(operation, ticket);
   const sourceBranch = resolution?.lane?.branch ?? contact.lane?.branch;

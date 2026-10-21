@@ -28,6 +28,16 @@ export async function cleanupAfterLand(deps: CleanupDeps, opId: string, ticket: 
   const derived = foldEvents(await readEvents(deps.home, opId));
   const ports = deps.portsFor(operation, settings);
   const at = () => deps.now().toISOString();
+  const failed = (contact: string, error: unknown) =>
+    appendEvent(deps.home, opId, {
+      v: 1,
+      at: at(),
+      kind: "operator",
+      contact,
+      op: "cleanup",
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
 
   for (const target of targets) {
     const lane = target.lane;
@@ -42,16 +52,7 @@ export async function cleanupAfterLand(deps: CleanupDeps, opId: string, ticket: 
         if (error instanceof PortError && error.code === "terminal-missing") {
           await appendEvent(deps.home, opId, { v: 1, at: at(), kind: "reaped", contact: target.ticket });
         } else {
-          const reason = error instanceof Error ? error.message : String(error);
-          await appendEvent(deps.home, opId, {
-            v: 1,
-            at: at(),
-            kind: "operator",
-            contact: target.ticket,
-            op: "cleanup",
-            ok: false,
-            error: reason,
-          });
+          await failed(target.ticket, error);
         }
       }
     }
@@ -70,28 +71,10 @@ export async function cleanupAfterLand(deps: CleanupDeps, opId: string, ticket: 
             worktree: lane.worktree,
           });
         } else {
-          const errorMsg = gitStatus.code !== 0 ? gitStatus.stderr.trim() || `git exit ${gitStatus.code}` : "worktree is dirty";
-          await appendEvent(deps.home, opId, {
-            v: 1,
-            at: at(),
-            kind: "operator",
-            contact: target.ticket,
-            op: "cleanup",
-            ok: false,
-            error: errorMsg,
-          });
+          await failed(target.ticket, gitStatus.code !== 0 ? gitStatus.stderr.trim() || `git exit ${gitStatus.code}` : "worktree is dirty");
         }
       } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        await appendEvent(deps.home, opId, {
-            v: 1,
-            at: at(),
-            kind: "operator",
-            contact: target.ticket,
-            op: "cleanup",
-            ok: false,
-            error: reason,
-        });
+        await failed(target.ticket, error);
       }
     }
   }

@@ -1,8 +1,8 @@
-import { readEvents } from "../store/events.ts";
+import { actionOf, canDo, contactOf } from "../core/projection.ts";
 import type { ActionRequest } from "../board.ts";
 import type { ContactView, Event, Operation, Settings } from "../core/types.ts";
 import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
-import { appendEvent } from "../store/events.ts";
+import { appendEvent, readEvents } from "../store/events.ts";
 import { listOperations, mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
 import { PortError } from "../ports.ts";
@@ -165,7 +165,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
         const status = deps.extras(opId).statuses[contact.ticket];
         return status?.problem?.source === "repair-budget" && status.problem.kind === "error" &&
           status.verify === "passed" && status.mode !== "pause" && contact.owner === "live" &&
-          contact.actions.some(action => action.id === "review" && action.enabled) &&
+          canDo(contact, "review") &&
           !events.some(event => event.kind === "operator" && event.contact === contact.ticket &&
             event.op === "review" && event.by === "auto" && event.args?.repairBudgetOnly === true);
       });
@@ -178,7 +178,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
     if (auto.land && !auto.capacityWait) {
       // `land-anyway` is offered exactly when failing checks block Land and ignoreChecks is off.
       const target = projection.contacts.find((c) => c.state === "complete" && c.owner === "live" &&
-        c.actions.some((a) => a.id === "land-anyway") && c.actions.some((a) => a.id === "check" && a.enabled) &&
+        actionOf(c, "land-anyway") !== undefined && canDo(c, "check") &&
         allowed(c.ticket, "check") && autoCheckDue(events, c, now));
       if (target) await attempt({ contact: target.ticket, action: "check", args: {} });
     }
@@ -187,20 +187,18 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
       const target = projection.contacts.find((c) => {
         if (c.state !== "complete") return false;
         if ((unmerged.get(`${opId}/${c.ticket}`) ?? 0) > deps.now().getTime()) return false;
-        if (c.actions.some((a) => a.id === "land" && a.enabled)) return allowed(c.ticket, "land");
-        return (c.kind === "audit" || c.kind === "conflict") && c.actions.some((a) => a.id === "done" && a.enabled) &&
-          allowed(c.ticket, "done");
+        if (canDo(c, "land")) return allowed(c.ticket, "land");
+        return (c.kind === "audit" || c.kind === "conflict") && canDo(c, "done") && allowed(c.ticket, "done");
       });
       if (!target) landingWaits.delete(opId);
       if (target) {
-        const landable = target.actions.some((a) => a.id === "land" && a.enabled);
+        const landable = canDo(target, "land");
         const wait = landingWaits.get(opId);
         if (!landable || !wait || deps.now().getTime() >= wait.retryAt) {
           try {
             if (landable) {
               const operation = await readOperation(deps.home, opId);
-              const branch = newestConflict(operation, target.ticket)?.lane?.branch
-                ?? operation.contacts.find((c) => c.ticket === target.ticket)?.lane?.branch;
+              const branch = newestConflict(operation, target.ticket)?.lane?.branch ?? contactOf(operation, target.ticket)?.lane?.branch;
               if (branch) await deps.integrationReady(operation, branch);
             }
             landingWaits.delete(opId);
@@ -263,7 +261,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
         for (const b of c.blockedBy) if (!b.landed) unblocks.set(b.ticket, (unblocks.get(b.ticket) ?? 0) + 1);
       }
       const next = projection.contacts.reduce<typeof projection.contacts[number] | undefined>((best, c) => {
-        if (c.group !== "queue" || c.state !== "ready" || !c.actions.some((a) => a.id === "launch" && a.enabled)) return best;
+        if (c.group !== "queue" || c.state !== "ready" || !canDo(c, "launch")) return best;
         if (!allowed(c.ticket, "launch")) return best;
         if (!best || (unblocks.get(c.ticket) ?? 0) > (unblocks.get(best.ticket) ?? 0)) return c;
         return best;

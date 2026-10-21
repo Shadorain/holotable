@@ -4,7 +4,7 @@ import type { Contact, ControlOp, OperatorOp } from "../core/types.ts";
 import { askAnswers } from "../core/ask.ts";
 import { PortError } from "../ports.ts";
 import { foldEvents } from "../core/fold.ts";
-import { loadProjection } from "../snapshot.ts";
+import { contactOf } from "../core/projection.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { readBrief } from "../store/brief.ts";
 import { decisionPrompt, decisionSessionsDir, readDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
@@ -15,6 +15,7 @@ import { ActionError } from "./errors.ts";
 import { landContact, type LanderDeps } from "./lander.ts";
 import { launchContact, relaunchContact } from "./launcher.ts";
 import { autoChecksSinceBase, MAX_AUTO_CHECKS, reviewsRequested } from "./auto.ts";
+import { offered } from "./offer.ts";
 
 /** Port failures an operator can act on, or wait out, are conflicts (409); anything else is an upstream failure (502). */
 const CONFLICT_CODES = ["owner-offline", "stale", "busy", "rejected", "no-session", "terminal-missing", "checks-pending", "branch-updated"];
@@ -23,6 +24,13 @@ function asActionError(error: unknown): ActionError {
   if (error instanceof ActionError) return error;
   if (error instanceof PortError) return new ActionError(CONFLICT_CODES.includes(error.code) ? 409 : 502, error.code, error.message);
   return new ActionError(500, "internal", error instanceof Error ? error.message : String(error));
+}
+
+/** An optional `model` override: a string, null for the default, or absent. */
+function modelArg(args: Record<string, unknown>): string | null | undefined {
+  const model = args.model;
+  if (model === undefined || model === null || typeof model === "string") return model;
+  throw new ActionError(400, "bad-request", "model must be a string or null");
 }
 
 /**
@@ -35,22 +43,17 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
   const inFlight = deps.inFlight ?? new Map<string, string>();
   /** Marking done is what unblocks dependents: only the `landed` event does, never a mission's own `complete`. */
   async function done(opId: string, ticket: string, args: Record<string, unknown>): Promise<void> {
-    const projection = await loadProjection(deps.home, opId, await deps.settings(), deps.now().getTime(), deps.extras(opId));
-    const view = projection.contacts.find((c) => c.ticket === ticket);
-    const offered = view?.actions.find((a) => a.id === "done");
-    if (!offered?.enabled) throw new ActionError(409, "refused", offered?.reason ?? `${ticket} cannot be marked done in its current state`);
-    const operation = await readOperation(deps.home, opId);
-    const contact = operation.contacts.find((x) => x.ticket === ticket);
+    const { settings, view, operation, contact } = await offered(deps, opId, ticket, "done", `${ticket} cannot be marked done in its current state`);
     // Done is bookkeeping that unblocks dependents and removes the worktree. Code-carrying contacts must really
     // be in the base first; a decision or a conflict mission lands through another contact's merge.
     const branch = contact?.lane?.branch;
     if (contact && branch && contact.kind !== "decision" && contact.kind !== "conflict") {
-      const delivery = deps.portsFor(operation, await deps.settings()).delivery;
-      const verdict = await delivery.verifyMerged({ operation, contact, branch, url: view?.delivery?.url });
+      const delivery = deps.portsFor(operation, settings).delivery;
+      const verdict = await delivery.verifyMerged({ operation, contact, branch, url: view.delivery?.url });
       if (!verdict.merged) {
         // An audit that committed code delivers no PR; without one, Mark done could only refuse forever.
         // Open the review it never opened, and Land takes over once the probe sees it.
-        if (contact.kind === "audit" && delivery.publish && !view?.delivery?.url && !deps.extras(opId).probes?.[ticket]) {
+        if (contact.kind === "audit" && delivery.publish && !view.delivery?.url && !deps.extras(opId).probes?.[ticket]) {
           const { url } = await delivery.publish({ operation, contact, branch });
           throw new ActionError(409, "pr-opened", `${ticket}'s commits are not in ${operation.base}; opened ${url} for them. Land it once its checks pass`);
         }
@@ -87,11 +90,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
 
   /** A landed decision can be overturned: a new `decided` replaces it, dependents stay unblocked. */
   async function redecide(opId: string, ticket: string, args: Record<string, unknown>): Promise<void> {
-    const projection = await loadProjection(deps.home, opId, await deps.settings(), deps.now().getTime(), deps.extras(opId));
-    const offered = projection.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === "redecide");
-    if (!offered?.enabled) throw new ActionError(409, "refused", offered?.reason ?? `${ticket} cannot be redecided in its current state`);
-    const operation = await readOperation(deps.home, opId);
-    const contact = operation.contacts.find((x) => x.ticket === ticket);
+    const { contact } = await offered(deps, opId, ticket, "redecide", `${ticket} cannot be redecided in its current state`);
     if (!contact) throw new ActionError(404, "not-found", `No contact ${ticket} in ${opId}`);
     const decision = decideArgs("redecide", contact, args);
     await appendEvent(deps.home, opId, { v: 1, at: deps.now().toISOString(), kind: "decided", contact: ticket, by: "operator", ...decision });
@@ -102,12 +101,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
    * decisions/<ticket>.json; the watcher lands it (or records why it could not).
    */
   async function decideAgent(opId: string, ticket: string, modelOverride?: string | null): Promise<void> {
-    const settings = await deps.settings();
-    const projection = await loadProjection(deps.home, opId, settings, deps.now().getTime(), deps.extras(opId));
-    const offered = projection.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === "decide-agent");
-    if (!offered?.enabled) throw new ActionError(409, "refused", offered?.reason ?? `${ticket} cannot ask an agent in its current state`);
-    const operation = await readOperation(deps.home, opId);
-    const contact = operation.contacts.find((x) => x.ticket === ticket);
+    const { settings, projection, operation, contact } = await offered(deps, opId, ticket, "decide-agent", `${ticket} cannot ask an agent in its current state`);
     if (!contact) throw new ActionError(404, "not-found", `No contact ${ticket} in ${opId}`);
     if (await readDecisionPane(deps.home, opId, ticket))
       throw new ActionError(409, "refused", `${ticket} is already asking an agent`);
@@ -143,10 +137,10 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     await writeDecisionPane(deps.home, opId, ticket, { terminal, startedAt: deps.now().toISOString() });
   }
 
-
   async function reap(opId: string, ticket: string): Promise<void> {
     const operation = await readOperation(deps.home, opId);
-    const contact=operation.contacts.find(c=>c.ticket===ticket),lane=contact?.lane;
+    const contact = contactOf(operation, ticket);
+    const lane = contact?.lane;
     if (!lane?.terminal) throw new ActionError(409, "refused", "no terminal recorded");
     const derived = foldEvents(await readEvents(deps.home, opId));
     if (derived.contacts[ticket]?.reaped) throw new ActionError(409, "refused", "already reaped");
@@ -180,7 +174,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       if (reviewsRequested(await readEvents(deps.home, opId), ticket))
         throw new ActionError(409, "refused", "Automatic review request already sent; the mission's mode is yours");
     }
-    const lane = operation.contacts.find((c) => c.ticket === ticket)?.lane;
+    const lane = contactOf(operation, ticket)?.lane;
     if (!lane) throw new ActionError(409, "refused", `${ticket} has no lane`);
     const fleet = deps.portsFor(operation, await deps.settings()).fleet;
     const status = await fleet.read({ worktree: lane.worktree });
@@ -210,16 +204,13 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
 
   /** Same legality the board enforces: the Relaunch button exists and is enabled on a fresh projection. */
   async function relaunch(opId: string, ticket: string, recovering: boolean): Promise<void> {
-    const projection = await loadProjection(deps.home, opId, await deps.settings(), deps.now().getTime(), deps.extras(opId));
-    const offered = projection.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === "relaunch");
-    if (!offered?.enabled)
-      throw new ActionError(409, "refused", offered?.reason ?? `${ticket} cannot be relaunched in its current state`);
+    await offered(deps, opId, ticket, "relaunch", `${ticket} cannot be relaunched in its current state`);
     await relaunchContact(deps, opId, ticket, recovering);
   }
 
   async function focus(opId: string, ticket: string, purpose?: string): Promise<void> {
     const operation = await readOperation(deps.home, opId);
-    const lane = operation.contacts.find((c) => c.ticket === ticket)?.lane;
+    const lane = contactOf(operation, ticket)?.lane;
     if (!lane?.terminal) throw new ActionError(409, "refused", "no terminal recorded");
     await deps.portsFor(operation, await deps.settings()).frontend.focus(lane.terminal, lane.worktree, purpose);
   }
@@ -227,7 +218,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
   /** Answer the mission's open `ask` through its socket; the mission settles the pane's dialog as if answered there. */
   async function answer(opId: string, ticket: string, id: string, raw: unknown): Promise<void> {
     const operation = await readOperation(deps.home, opId);
-    const lane = operation.contacts.find((c) => c.ticket === ticket)?.lane;
+    const lane = contactOf(operation, ticket)?.lane;
     if (!lane) throw new ActionError(409, "refused", `${ticket} has no lane`);
     const fleet = deps.portsFor(operation, await deps.settings()).fleet;
     const status = await fleet.read({ worktree: lane.worktree });
@@ -327,10 +318,8 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         run = () => redecide(req.op, req.contact, req.args);
         break;
       case "decide-agent": {
-        if (req.args.model !== undefined && req.args.model !== null && typeof req.args.model !== "string")
-          throw new ActionError(400, "bad-request", "model must be a string or null");
-        const modelArg = req.args.model === null ? null : (typeof req.args.model === "string" ? req.args.model : undefined);
-        run = () => decideAgent(req.op, req.contact, modelArg);
+        const model = modelArg(req.args);
+        run = () => decideAgent(req.op, req.contact, model);
         break;
       }
       case "land":
@@ -341,13 +330,11 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         run = () => landContact(deps, req.op, req.contact, { anyway: true });
         break;
       case "launch": {
-        if (req.args.model !== undefined && req.args.model !== null && typeof req.args.model !== "string")
-          throw new ActionError(400, "bad-request", "model must be a string or null");
-        const modelArg = req.args.model === null ? null : (typeof req.args.model === "string" ? req.args.model : undefined);
+        const model = modelArg(req.args);
         run = () =>
           launchContact(deps, req.op, req.contact, {
             ...(req.args.conflictPaths ? { conflictPaths: req.args.conflictPaths as string[] } : {}),
-            ...(req.args.model !== undefined ? { model: modelArg } : {}),
+            ...(model !== undefined ? { model } : {}),
           });
         break;
       }

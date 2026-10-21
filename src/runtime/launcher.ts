@@ -2,11 +2,13 @@ import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Contact, LaunchStep, Operation, Settings, TerminalRef } from "../core/types.ts";
 import { PortError, type FleetPort, type Ports } from "../ports.ts";
-import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
+import type { ProjectionExtras } from "../snapshot.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { ensureLaunchOverlay } from "../store/launch.ts";
 import { mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
+import { offered } from "./offer.ts";
+import { contactOf } from "../core/projection.ts";
 import { hasRecentUncontrolledStatus, memoryLaunchRefusal } from "../core/policy.ts";
 
 export interface LauncherDeps {
@@ -81,18 +83,14 @@ export async function launchContact(
   ticket: string,
   extra: { conflictPaths?: string[]; model?: string | null } = {},
 ): Promise<void> {
-  const settings = await deps.settings();
-  const projection = await loadProjection(deps.home, opId, settings, deps.now().getTime(), deps.extras(opId));
-  const offered = projection.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === "launch");
-  if (!offered) throw new ActionError(409, "refused", `${ticket} cannot be launched in its current state`);
-  if (!offered.enabled) throw new ActionError(409, "refused", offered.reason ?? "launch refused");
+  const offer = await offered(deps, opId, ticket, "launch", `${ticket} cannot be launched in its current state`);
+  const { settings, projection, operation } = offer;
+  const contact = offer.contact as Contact;
   // Watcher load misses in-flight launches; count them so overlapping launches can't pass cap together.
   const inflightLaunches = [...(deps.inFlight?.values() ?? [])].filter((a) => a === "launch" || a === "relaunch").length - (deps.inFlight?.get(`${opId}/${ticket}`) === "launch" ? 1 : 0);
   if (inflightLaunches > 0 && projection.header.open + inflightLaunches >= projection.header.cap)
     throw new ActionError(409, "refused", `cap ${projection.header.open + inflightLaunches}/${projection.header.cap} omp`);
 
-  const operation = await readOperation(deps.home, opId);
-  const contact = operation.contacts.find((c) => c.ticket === ticket) as Contact;
   if (!contact.lane?.terminal) {
     const memory = memoryLaunchRefusal(deps.availableMemory?.() ?? null, Math.max(0, inflightLaunches));
     if (memory) throw new ActionError(409, "memory-pressure", memory);
@@ -217,7 +215,7 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
   const operation = await readOperation(deps.home, opId);
   if (recovering && !operation.recover)
     throw new ActionError(409, "refused", "Recovery is disabled for this operation");
-  const contact = operation.contacts.find((c) => c.ticket === ticket) as Contact;
+  const contact = contactOf(operation, ticket) as Contact;
   const lane = contact.lane as NonNullable<Contact["lane"]>;
   const terminal = lane.terminal as TerminalRef;
   const ports = deps.portsFor(operation, settings);
