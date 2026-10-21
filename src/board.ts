@@ -55,7 +55,7 @@ import { readEvents } from "./store/events.ts";
 import { displaySettingsPath, RESTART_KEYS, setSettingKey } from "./settings.ts";
 import { readBoardInfo } from "./store/board.ts";
 import { mutateSettings, readSettings } from "./store/settings.ts";
-import { readNotes, writeNotes } from "./store/notes.ts";
+import { readNotes, StaleRevisionError, writeNotes } from "./store/notes.ts";
 import { createProject, listProjects, mutateProject, readProject, removeProjectDir } from "./store/projects.ts";
 import { loadProjection, type ProjectionExtras } from "./snapshot.ts";
 import { listOperations, mutateOperation, operationsUsingProject, readOperation, readOperationDoc } from "./store/operations.ts";
@@ -728,9 +728,8 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       try {
         return await writeNotes(home, opId, text, base);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.startsWith("stale(")) throw new HttpError(409, "stale: the notes changed since you loaded them");
-        throw new HttpError(400, message);
+        if (error instanceof StaleRevisionError) throw new HttpError(409, "stale: the notes changed since you loaded them");
+        throw new HttpError(400, error instanceof Error ? error.message : String(error));
       }
     },
     async createDraft(input) {

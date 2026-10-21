@@ -37,10 +37,15 @@ export async function notesExists(home: string, id: string): Promise<boolean> {
   }
 }
 
-/**
- * Compare-and-swap write: `base` must be the revision the edit was made against.
- * A mismatch throws `stale(<current revision>)`; the API maps that to 409.
- */
+/** The edit was made against a notes revision that is no longer current; the API maps it to 409. */
+export class StaleRevisionError extends Error {
+  constructor(current: string) {
+    super(`stale(${current})`);
+    this.name = "StaleRevisionError";
+  }
+}
+
+/** Compare-and-swap write: `base` must be the revision the edit was made against. */
 export async function writeNotes(
   home: string,
   id: string,
@@ -55,7 +60,7 @@ export async function writeNotes(
   const release = await lock(join(dir, "notes.md"), { realpath: false, stale: 10_000, retries: { retries: 5, minTimeout: 50 } });
   try {
     const current = await readNotes(home, id);
-    if (base !== current.revision) throw new Error(`stale(${current.revision})`);
+    if (base !== current.revision) throw new StaleRevisionError(current.revision);
     await writeFileAtomic(notesFile(home, id), text);
     return { text, revision: notesRevision(text) };
   } finally {

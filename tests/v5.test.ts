@@ -10,7 +10,7 @@ import { writeSettings } from "../src/store/settings.ts";
 import { appendEvent, readEvents } from "../src/store/events.ts";
 import { readDraftUsage, recordDraftUsage, removeDraft } from "../src/store/drafts.ts";
 import { migrateHome } from "../src/store/migrate.ts";
-import { readNotes, writeNotes } from "../src/store/notes.ts";
+import { readNotes, StaleRevisionError, writeNotes } from "../src/store/notes.ts";
 import { createOperation, readOperationDoc } from "../src/store/operations.ts";
 import { createProject, listProjects } from "../src/store/projects.ts";
 import { contact, fakePorts, lane, operation, removeAll, seedOperation, status, tempDir, T0 } from "./helpers.ts";
@@ -154,6 +154,16 @@ test("notes write with a stale base is a 409; the current revision succeeds", as
   expect(second.revision).not.toBe(first.revision);
   const p = await svc.projection("a");
   expect(p.notes).toEqual({ done: 1, total: 2 });
+});
+
+test("a stale notes base is a typed error, whatever its wording", async () => {
+  const dir = home();
+  await createOperation(dir, operation({ id: "a" }));
+  await expect(writeNotes(dir, "a", "# Notes\n", "bogus")).rejects.toBeInstanceOf(StaleRevisionError);
+  // Only the stale case is a 409: other write failures stay a 400.
+  const svc = createBoardService(dir);
+  const empty = await svc.notes("a");
+  await expect(svc.setNotes("a", "x".repeat(256 * 1024 + 1), empty.revision)).rejects.toMatchObject({ status: 400 });
 });
 
 // ---- B5: drafts ----
