@@ -111,6 +111,15 @@ describe("githubPrDelivery.probe", () => {
     expect(probe).toMatchObject({ mergeable: "unknown", checks: "pending" });
   });
 
+  test("a queued check gh reports with an empty conclusion is pending, not passing", async () => {
+    // gh prints conclusion "" (not null) until a check run completes; reading that as done let Land merge
+    // PR #313 while its CI was still queued.
+    const home = tempDir();
+    const rollup = [{ status: "COMPLETED", conclusion: "SUCCESS" }, { status: "QUEUED", conclusion: "" }, { status: "IN_PROGRESS", conclusion: "" }];
+    const { run } = fakeRun({ stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE", url: null, statusCheckRollup: rollup }), stderr: "", code: 0 });
+    expect((await githubPrDelivery(run).probe({ operation: makeOperation(home), contact: makeContact("b"), status: makeStatus(null) }))?.checks).toBe("pending");
+  });
+
   test("a failing check maps to fail", async () => {
     const home = tempDir();
     const { run } = fakeRun({ stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE", url: null, statusCheckRollup: [{ status: "COMPLETED", conclusion: "FAILURE" }] }), stderr: "", code: 0 });

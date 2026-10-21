@@ -24,7 +24,9 @@ function checksFrom(rollup: unknown): DeliveryProbe["checks"] {
       continue;
     }
     if (typeof item.conclusion === "string" && FAILED.has(item.conclusion)) return "fail";
-    if (item.conclusion == null && item.status !== "COMPLETED") sawPending = true;
+    // gh reports conclusion "" (not null) until a run completes, so the status decides; without one, a conclusion does.
+    const done = typeof item.status === "string" ? item.status === "COMPLETED" : typeof item.conclusion === "string" && item.conclusion !== "";
+    if (!done) sawPending = true;
   }
   return sawPending ? "pending" : "pass";
 }
