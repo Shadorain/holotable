@@ -130,9 +130,11 @@ export function startTour() {
   });
   if (!steps.length) return;
   let i = 0;
+  const returnFocus = document.activeElement;
   const ring = el("div", "tour-ring");
   const card = el("div", "tour-card");
   card.setAttribute("role", "dialog");
+  card.setAttribute("aria-modal", "true");
   card.setAttribute("aria-live", "polite");
   document.body.append(ring, card);
   const end = () => {
@@ -141,6 +143,7 @@ export function startTour() {
     removeEventListener("resize", place);
     document.removeEventListener("keydown", onKey, true);
     activeEnd = null;
+    if (returnFocus instanceof HTMLElement && returnFocus.isConnected) returnFocus.focus();
   };
   activeEnd = end;
   function place() {
@@ -178,7 +181,12 @@ export function startTour() {
     if (e.key === "Escape") end();
     else if (e.key === "ArrowRight") go(1);
     else if (e.key === "ArrowLeft") go(-1);
-    else return;
+    else if (e.key === "Tab") {
+      // Modal: Tab cycles the card's own buttons instead of wandering into the page behind it.
+      const stops = [...card.querySelectorAll("button:not(:disabled)")];
+      const at = stops.indexOf(document.activeElement);
+      stops[(at + (e.shiftKey ? -1 : 1) + stops.length) % stops.length]?.focus();
+    } else return;
     e.preventDefault();
   }
   addEventListener("resize", place);
