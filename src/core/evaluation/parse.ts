@@ -1,13 +1,20 @@
-import { MODES, type MeasurementConfig, type Measurements, type UsageEvidence, type UsageSource } from "../types.ts";
+import { HOLDS, KINDS, MODES, type MeasurementConfig, type Measurements, type UsageEvidence, type UsageSource } from "../types.ts";
 import { isRecord } from "../validate.ts";
 import { HISTORICAL_COUNTS, isCount, isNonnegative, isTimestamp, MEASUREMENT_COUNTS, SEVERITIES, TOKEN_KEYS } from "./shared.ts";
-import type { Evaluation } from "./types.ts";
+import type { ContactFinalState, Evaluation, WaitKind } from "./types.ts";
 
 const MAX_WORKERS = 64;
 const MAX_USAGE_SOURCES = 3;
 const MAX_SOURCE_ID = 128;
 const MAX_RECOMMENDATIONS = 6;
 const MAX_EVIDENCE_ROWS = 3;
+const MAX_SERIES_BUCKETS = 168;
+const MAX_ROUNDS = 10;
+const MAX_CONTACT_PATHS = 10;
+const MAX_TOP_PATHS = 10;
+const MAX_TOP_CONTACTS = 5;
+const WAIT_KINDS: readonly string[] = ["launch", "decision", "plan-approval", "gate", "question", "resume", "land"] satisfies WaitKind[];
+const FINAL_STATES: readonly string[] = ["unqueued", "queued", "blocked", "running", "hold", "offline", "complete", "landed", "reaped", "removed", "closed"] satisfies ContactFinalState[];
 
 export function parseMeasurementConfig(value: unknown): MeasurementConfig | null {
   if (!isRecord(value)) return null;
@@ -92,13 +99,72 @@ function isUsageEvaluation(usage: unknown): boolean {
   if (usage.byPhase !== undefined && (!isRecord(usage.byPhase) || !Object.values(usage.byPhase).every(row => isRecord(row) && isNonnegative(row.tokens) && isNullableNumber(row.costUsd)))) return false;
   const pane = usage.pane;
   if (pane !== undefined && pane !== null && (!isRecord(pane) || !isNonnegative(pane.tokens) || !isNullableNumber(pane.costUsd) || !isNonnegative(pane.sessions))) return false;
+  const spend = usage.spend;
+  if (spend !== undefined && (!isRecord(spend) || !isCount(spend.landedPriced) ||
+    !fieldsAre(spend, ["landedUsd", "perLandedUsd", "supportUsd", "openUsd", "abandonedUsd", "paneUsd", "wastedUsd", "knownShare", "pricedShare"], isNullableNumber))) return false;
   return true;
+}
+
+const isStringList = (value: unknown, max: number): boolean =>
+  Array.isArray(value) && value.length <= max && value.every(item => typeof item === "string");
+const isNumberRecord = (value: unknown): boolean => isRecord(value) && Object.values(value).every(isNonnegative);
+const WAIT_FIELDS = ["operatorMs", "automationMs", "pendingMs", "waits"];
+
+function isOperatorWait(value: unknown): boolean {
+  if (!isRecord(value) || !fieldsAre(value, [...WAIT_FIELDS, "missionMs"], isNonnegative) || !isRecord(value.byKind)) return false;
+  return Object.entries(value.byKind).every(([kind, totals]) => WAIT_KINDS.includes(kind) && fieldsAre(totals, WAIT_FIELDS, isNonnegative));
+}
+
+function isSeries(value: unknown): boolean {
+  if (!isRecord(value) || !isNonnegative(value.bucketMs) || typeof value.truncated !== "boolean") return false;
+  const { buckets } = value;
+  return Array.isArray(buckets) && buckets.length <= MAX_SERIES_BUCKETS &&
+    buckets.every(bucket => fieldsAre(bucket, ["at", "launches", "deliveries", "landAttempts", "conflicts", "reviewFailures"], isNonnegative));
+}
+
+function isStalls(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.caveat !== "string" || !isNullableNumber(value.reviewFailures)) return false;
+  return fieldsAre(value.quota, ["ms", "episodes"], isNonnegative) && fieldsAre(value.offline, ["ms", "episodes"], isNonnegative) &&
+    fieldsAre(value.launchRefusals, ["memory", "sessionCap", "refused", "gaveUp"], isCount);
+}
+
+function isConflicts(value: unknown): boolean {
+  if (!isRecord(value) || !isNullableNumber(value.rate) || !isCount(value.unpathed) || typeof value.truncated !== "boolean") return false;
+  const { paths, contacts } = value;
+  if (!Array.isArray(paths) || paths.length > MAX_TOP_PATHS) return false;
+  if (!paths.every(row => isRecord(row) && typeof row.path === "string" && isCount(row.conflicts) && isStringList(row.contacts, MAX_EVIDENCE_ROWS))) return false;
+  return Array.isArray(contacts) && contacts.length <= MAX_TOP_CONTACTS &&
+    contacts.every(row => isRecord(row) && typeof row.ticket === "string" && fieldsAre(row, ["conflicts", "landAttempts"], isCount));
+}
+
+function isReview(value: unknown): boolean {
+  if (value === null) return true;
+  if (!isRecord(value) || !fieldsAre(value, ["rounds", "findings", "failures"], isCount)) return false;
+  const { perRound } = value;
+  return Array.isArray(perRound) && perRound.length <= MAX_ROUNDS &&
+    perRound.every(round => fieldsAre(round, ["at", "rounds", "findings", "actionable", "rejected"], isNonnegative));
+}
+
+function isContactReport(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.ticket !== "string") return false;
+  if (typeof value.state !== "string" || !FINAL_STATES.includes(value.state) || typeof value.outcome !== "string" || !["landed", "abandoned", "open"].includes(value.outcome)) return false;
+  if (!KINDS.includes(value.kind as never)) return false;
+  if (!(value.phase === null || typeof value.phase === "string") || !(value.hold === null || HOLDS.includes(value.hold as never))) return false;
+  if (!fieldsAre(value, ["queuedAt", "launchedAt", "landedAt", "endedAt", "leadMs"], isNullableNumber) || !fieldsAre(value, ["activeMs", "offlineMs"], isNonnegative)) return false;
+  const { blockedMs, conflicts, spend } = value;
+  if (!isRecord(blockedMs) || !fieldsAre(blockedMs, ["beforeLaunch", "afterLaunch"], isNonnegative) || !isNumberRecord(blockedMs.by)) return false;
+  if (!isNumberRecord(value.phaseMs) || !fieldsAre(value.waitMs, ["operator", "automation", "pending"], isNonnegative) || !isReview(value.review)) return false;
+  if (!fieldsAre(value.relaunches, ["total", "operator", "recovery", "auto", "other"], isCount) || !isCount(value.launchFailures)) return false;
+  if (!isRecord(conflicts) || !fieldsAre(conflicts, ["count", "landAttempts"], isCount) || !isStringList(conflicts.paths, MAX_CONTACT_PATHS)) return false;
+  return isRecord(spend) && fieldsAre(spend, ["tokens", "costUsd"], isNullableNumber) && typeof spend.complete === "boolean";
 }
 
 function isRecommendation(value: unknown): boolean {
   if (!isRecord(value) || value.ruleVersion !== 1) return false;
   if (typeof value.id !== "string" || typeof value.message !== "string" || typeof value.caveat !== "string") return false;
   if (typeof value.level !== "string" || !["info", "warning"].includes(value.level)) return false;
+  const impact = value.impact;
+  if (impact !== undefined && (!isRecord(impact) || !fieldsAre(impact, ["ms", "usd"], isNullableNumber) || !isNonnegative(impact.scoreMs))) return false;
   const evidence = value.evidence;
   if (!isRecord(evidence) || !isNonnegative(evidence.numerator) || !isNullableNumber(evidence.denominator) || !isNullableNumber(evidence.observedMs)) return false;
   const { contacts, eventIndexes } = evidence;
@@ -128,5 +194,13 @@ export function parseEvaluation(value: unknown): Evaluation | null {
   const quality = value.quality;
   if (quality !== null && (!isRecord(quality) || !isTimestamp(quality.since) || !fieldsAre(quality, [...HISTORICAL_COUNTS, "latestActionable", "latestRejected"], isCount) || !fieldsAre(quality.severity, SEVERITIES, isCount))) return null;
   if (!Array.isArray(value.recommendations) || value.recommendations.length > MAX_RECOMMENDATIONS || !value.recommendations.every(isRecommendation)) return null;
+  // Fields added after evaluation v1 shipped: absent on older archives, validated when present.
+  if (value.contacts !== undefined && (!Array.isArray(value.contacts) || !value.contacts.every(isContactReport))) return null;
+  if (value.operatorWait !== undefined && !isOperatorWait(value.operatorWait)) return null;
+  const activity = value.activity;
+  if (activity !== undefined && (!isRecord(activity) || !fieldsAre(activity, ["activeMs", "idleMs"], isNonnegative) || !isNullableNumber(activity.deliveriesPerActiveHour))) return null;
+  if (value.series !== undefined && !isSeries(value.series)) return null;
+  if (value.stalls !== undefined && !isStalls(value.stalls)) return null;
+  if (value.conflicts !== undefined && !isConflicts(value.conflicts)) return null;
   return value as unknown as Evaluation;
 }

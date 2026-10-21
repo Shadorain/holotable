@@ -65,7 +65,7 @@ function payload() {
   const open = evaluateOperation(operation, derived, T0 + 90 * MIN);
   const closedEvents = [...events, ev(80 * MIN, null, "closed", { outcome: "abandoned" })];
   const closed = evaluateOperation(operation, foldEvents(closedEvents), T0 + 200 * MIN);
-  // Without churn and accounting gaps, the rules capped out above (approval, delivery, dependency, phase cost) fire.
+  // Without churn and accounting gaps, only the waiting and phase-cost rules fire (approval, delivery, dependency, phase cost).
   const noisy: Record<string, true> = { "land-attempt": true, reaped: true, "launch-failed": true, "pane-usage": true };
   const quietEvents = events
     .filter(e => !noisy[e.kind] && !(e.kind === "sample" && e.usageEvidence === null))

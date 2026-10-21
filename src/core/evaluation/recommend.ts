@@ -47,27 +47,23 @@ function contactEvidence(contact: Contact, state: ContactEvaluation | undefined,
 export function evaluationEvidence(operation: Operation, derived: Derived, now: number): EvaluationEvidence {
   const fold = derived.evaluation ?? createFoldEvaluation();
   const clock = fold.closed ?? Math.max(now, fold.clock ?? now);
-  const usageEvents: EventRef[] = [];
-  const contacts = operation.contacts.map(contact => {
-    const state = fold.contacts[contact.ticket];
-    // Prefer citing samples from contacts whose accounting is incomplete.
-    if (state && state.usageRef !== null && (state.partial || state.unknown || !state.scoped) && usageEvents.length < MAX_CITED)
-      usageEvents.push({ contact: contact.ticket, index: state.usageRef });
-    return contactEvidence(contact, state, clock);
-  });
-  if (!usageEvents.length) {
-    for (const contact of operation.contacts) {
-      const index = fold.contacts[contact.ticket]?.usageRef;
-      if (index !== null && index !== undefined && usageEvents.length < MAX_CITED) usageEvents.push({ contact: contact.ticket, index });
-    }
-  }
-  return { runs: [...fold.runs.values()], contacts, conflictEvents: fold.conflicts, usageEvents };
+  const contacts = operation.contacts.map(contact => contactEvidence(contact, fold.contacts[contact.ticket], clock));
+  // Cite the newest samples, preferring contacts whose accounting is incomplete.
+  const sampled = operation.contacts
+    .map(contact => ({ contact: contact.ticket, state: fold.contacts[contact.ticket] }))
+    .filter(row => row.state !== undefined && row.state.usageRef !== null)
+    .sort((a, b) => b.state!.usageRef! - a.state!.usageRef!);
+  const incomplete = sampled.filter(({ state }) => state!.partial || state!.unknown || !state!.scoped);
+  const usageEvents = (incomplete.length ? incomplete : sampled).slice(0, MAX_CITED).map(row => ({ contact: row.contact, index: row.state!.usageRef! }));
+  return { runs: [...fold.runs.values()], contacts, conflictEvents: [...fold.conflicts].reverse(), usageEvents };
 }
 
-function recommendation(id: string, level: Recommendation["level"], message: string, numerator: number, denominator: number | null, observedMs: number | null, rows: EventRef[], caveat: string): Recommendation {
+type Stake = NonNullable<Recommendation["impact"]>;
+
+function recommendation(id: string, level: Recommendation["level"], message: string, numerator: number, denominator: number | null, observedMs: number | null, rows: EventRef[], caveat: string, impact: Stake): Recommendation {
   const contacts = [...new Set(rows.map(row => row.contact))].slice(0, MAX_CITED);
   const eventIndexes = rows.slice(0, MAX_CITED).map(row => row.index);
-  return { id, ruleVersion: 1, level, message, evidence: { numerator, denominator, observedMs, contacts, eventIndexes }, caveat };
+  return { id, ruleVersion: 1, level, message, evidence: { numerator, denominator, observedMs, contacts, eventIndexes }, caveat, impact };
 }
 
 /** Cites each contact's newest event first, highest score first, then their older events. */
@@ -89,36 +85,58 @@ function worstRun(runs: RunEvidence[], field: "repeatedFailedRevision" | "review
   return worst;
 }
 
-const runRefs = (run: RunEvidence): EventRef[] => run.eventIndexes.map(index => ({ contact: run.contact, index }));
+/** Newest first: the run ring keeps its latest indexes oldest-first. */
+const runRefs = (run: RunEvidence): EventRef[] => run.eventIndexes.map(index => ({ contact: run.contact, index })).reverse();
 
-/** Ordered rules; evaluation stops once MAX_RECOMMENDATIONS have fired. */
+/** A nullable sum: null when no term is known. */
+function sumKnown(values: Array<number | null>): number | null {
+  let total: number | null = null;
+  for (const value of values) if (value !== null) total = (total ?? 0) + value;
+  return total;
+}
+
+/**
+ * Every rule is a threshold check; those that fire are ranked by what they put at stake (time, or known spend
+ * converted to time at the operation's spend per active hour), ties in rule order, and the top MAX_RECOMMENDATIONS kept.
+ */
 export function recommendEvaluation(evaluation: Evaluation, proof: EvaluationEvidence, opts: { autoLand?: boolean } = {}): Recommendation[] {
   const { attempts, coverage, usage } = evaluation;
   const timed = proof.contacts.filter(contact => contact.lifetimeMs !== null);
   const lifetimeMs = timed.reduce((total, contact) => total + contact.lifetimeMs!, 0);
+  const reports = evaluation.contacts ?? [];
+  const activeMs = evaluation.activity?.activeMs ?? 0;
+  const usdPerMs = usage.knownCostUsd !== null && usage.knownCostUsd > 0 && activeMs > 0 ? usage.knownCostUsd / activeMs : null;
+  const stake = (ms: number | null, usd: number | null): Stake => ({
+    ms, usd, scoreMs: Math.max(ms ?? 0, usd !== null && usdPerMs !== null ? usd / usdPerMs : 0),
+  });
 
   const usageCoverage = (): Recommendation | null => {
     if (!coverage.launched || !(usage.partial || coverage.legacyUsage || usage.backlogBytes)) return null;
     return recommendation("usage-coverage", "info", "Inspect accounting coverage before comparing costs.", coverage.usageReported, coverage.launched, null, proof.usageEvents,
-      `${usage.missingSources} missing, ${usage.unsupportedWorkers} unsupported; ${usage.unpricedMessages ?? "unknown"} unpriced messages; ${usage.malformedLines} malformed lines; ${usage.resets + coverage.counterResets} reset observations; ${usage.backlogBytes} backlog bytes. Historical gaps and associated sessions prevent exclusive mission billing.`);
+      `${usage.missingSources} missing, ${usage.unsupportedWorkers} unsupported; ${usage.unpricedMessages ?? "unknown"} unpriced messages; ${usage.malformedLines} malformed lines; ${usage.resets + coverage.counterResets} reset observations; ${usage.backlogBytes} backlog bytes. Historical gaps and associated sessions prevent exclusive mission billing.`,
+      stake(null, null));
   };
   const repeatVerification = (): Recommendation | null => {
     const run = worstRun(proof.runs, "repeatedFailedRevision");
     if (!run || run.measurements.repeatedFailedRevision < RULES.repeatVerification.minRepeats) return null;
+    const contact = reports.find(row => row.ticket === run.contact);
     return recommendation("repeat-verification", "warning", "Inspect repeated verification evidence and repair scope.", run.measurements.repeatedFailedRevision, run.measurements.recordedFailed, null, runRefs(run),
-      "Consecutive failed records share a fingerprint, not necessarily a root cause.");
+      "Consecutive failed records share a fingerprint, not necessarily a root cause.", stake(contact?.activeMs ?? null, contact?.spend.costUsd ?? null));
   };
   const reviewRetries = (): Recommendation | null => {
     const run = worstRun(proof.runs, "reviewFailures");
     if (!run || run.measurements.reviewFailures < RULES.reviewRetries.minFailures) return null;
+    const reviewMs = reports.find(row => row.ticket === run.contact)?.phaseMs.review ?? null;
     return recommendation("review-retries", "warning", "Inspect reviewer failure evidence, provider capacity and revision churn.", run.measurements.reviewFailures, null, null, runRefs(run),
-      "Failed review operations are not completed rounds or proof of defects.");
+      "Failed review operations are not completed rounds or proof of defects.", stake(reviewMs, null));
   };
   const integrationConflicts = (): Recommendation | null => {
     const rule = RULES.integrationConflicts;
     if (attempts.landAttempts < rule.minLandAttempts || attempts.conflicts < rule.minConflicts || attempts.conflicts / attempts.landAttempts < rule.minShare) return null;
+    const helpers = reports.filter(contact => contact.kind === "conflict");
     return recommendation("integration-conflicts", "warning", "Inspect shared paths and delivery ordering before increasing parallelism.", attempts.conflicts, attempts.landAttempts, null, proof.conflictEvents,
-      "Observed conflicts do not establish concurrency as their cause.");
+      "Observed conflicts do not establish concurrency as their cause.",
+      stake(sumKnown(helpers.map(contact => contact.activeMs)), sumKnown(helpers.map(contact => contact.spend.costUsd))));
   };
   const relaunchChurn = (): Recommendation | null => {
     const rule = RULES.relaunchChurn;
@@ -126,7 +144,8 @@ export function recommendEvaluation(evaluation: Evaluation, proof: EvaluationEvi
     const launches = (contact: ContactEvidence) => contact.launches ?? contact.launchEventIndexes.length;
     const relaunched = proof.contacts.filter(contact => launches(contact) > 1);
     return recommendation("relaunch-churn", "warning", "Inspect relaunch causes before assuming restarts are routine.", attempts.relaunches, attempts.launches, null, rankContacts(relaunched, launches, contact => contact.launchEventIndexes),
-      "Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution.");
+      "Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution.",
+      stake(sumKnown(reports.filter(contact => contact.relaunches.total > 0).map(contact => contact.offlineMs)), null));
   };
   const approvalWait = (): Recommendation | null => {
     const rule = RULES.approvalWait;
@@ -134,7 +153,7 @@ export function recommendEvaluation(evaluation: Evaluation, proof: EvaluationEvi
     const gateMs = gated.reduce((total, contact) => total + contact.gateHoldMs!, 0);
     if (gated.length < rule.minContacts || gateMs < rule.minHoldMs || lifetimeMs <= 0 || gateMs / lifetimeMs < rule.minShareOfLifetime) return null;
     return recommendation("approval-wait", "info", "Review approval availability and batching without bypassing gates.", gated.length, timed.length, gateMs, rankContacts(gated, contact => contact.gateHoldMs!, contact => contact.gateEventIndexes),
-      "Observed hold time overlaps phase time and is not exclusive human response time.");
+      "Observed hold time overlaps phase time and is not exclusive human response time.", stake(gateMs, null));
   };
   const deliveryWait = (): Recommendation | null => {
     const ready = proof.contacts.filter(contact => contact.finalReadyMs !== null);
@@ -144,29 +163,25 @@ export function recommendEvaluation(evaluation: Evaluation, proof: EvaluationEvi
       ? "Ready work is waiting on an operator Land click; enable auto.land or inspect delivery checks."
       : "Inspect delivery checks and integration availability.";
     return recommendation("delivery-wait", "info", message, ready.length, evaluation.deliveredWork, medianMs, rankContacts(ready, contact => contact.finalReadyMs!, contact => contact.deliveryEventIndexes),
-      "Observed ready-to-land delay does not establish which delivery dependency caused it.");
+      "Observed ready-to-land delay does not establish which delivery dependency caused it.", stake(ready.reduce((total, contact) => total + contact.finalReadyMs!, 0), null));
   };
   const dependencyWait = (): Recommendation | null => {
     const waitMs = evaluation.dependencyWaitMs;
     if (waitMs === null || waitMs < RULES.dependencyWait.minBlockedMs || lifetimeMs <= 0 || waitMs < RULES.dependencyWait.minShareOfLifetime * lifetimeMs) return null;
     const blocked = proof.contacts.filter(contact => contact.blockedMs !== null && contact.blockedMs > 0);
     return recommendation("dependency-wait", "info", "Inspect the blocking chain and launch order before widening the fleet.", waitMs, lifetimeMs, waitMs, rankContacts(blocked, contact => contact.blockedMs!, contact => contact.blockedEventIndexes),
-      "Blocked time before launch can exceed launched lifetime and overlaps queue wait; it does not identify which predecessor should have run first.");
+      "Blocked time before launch can exceed launched lifetime and overlaps queue wait; it does not identify which predecessor should have run first.", stake(waitMs, null));
   };
   const phaseCost = (): Recommendation | null => {
     const review = usage.byPhase?.review;
     const attributed = usage.byPhase ? Object.values(usage.byPhase).reduce((total, row) => total + row.tokens, 0) : 0;
     if (review === undefined || attributed < RULES.phaseCost.minAttributedTokens || review.tokens / attributed < RULES.phaseCost.minReviewShare) return null;
     return recommendation("phase-cost", "info", "Inspect review-phase token share; narrow review scope or model tier if review dominates attributed spend.", review.tokens, attributed, null, proof.usageEvents,
-      "Review-phase tokens include coordinator-session spend during review and are not exclusively reviewer cost.");
+      "Review-phase tokens include coordinator-session spend during review and are not exclusively reviewer cost.", stake(null, review.costUsd));
   };
 
   const rules = [usageCoverage, repeatVerification, reviewRetries, integrationConflicts, relaunchChurn, approvalWait, deliveryWait, dependencyWait, phaseCost];
-  const out: Recommendation[] = [];
-  for (const rule of rules) {
-    if (out.length === MAX_RECOMMENDATIONS) break;
-    const fired = rule();
-    if (fired) out.push(fired);
-  }
-  return out;
+  const fired = rules.map(rule => rule()).filter((rule): rule is Recommendation => rule !== null);
+  // Array sort is stable: equal stakes keep rule order.
+  return fired.sort((a, b) => b.impact!.scoreMs - a.impact!.scoreMs).slice(0, MAX_RECOMMENDATIONS);
 }

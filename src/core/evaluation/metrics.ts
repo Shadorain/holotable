@@ -1,13 +1,10 @@
-import { HOLDS, type Contact, type Derived, type Operation } from "../types.ts";
+import { HOLDS, type Derived, type Operation } from "../types.ts";
+import { evaluateContacts } from "./contacts.ts";
 import { accrue, createFoldEvaluation } from "./fold.ts";
 import { evaluationEvidence, recommendEvaluation } from "./recommend.ts";
-import { addAge, DECISION_PHASE, distribution, emptyAge, emptySeverity, emptyTokens, HISTORICAL_COUNTS, isNonnegative, isWork, SEVERITIES, TOKEN_KEYS } from "./shared.ts";
-import type { ContactEvaluation, Evaluation, FoldEvaluation, UsageEvaluation } from "./types.ts";
-
-const MS_PER_HOUR = 3_600_000;
-
-/** A declared contact with its fold state accrued up to the evaluation clock. */
-interface Timeline { contact: Contact; state: ContactEvaluation }
+import { addAge, DECISION_PHASE, distribution, emptyAge, emptySeverity, emptyTokens, HISTORICAL_COUNTS, isNonnegative, isWork, MS_PER_HOUR, SEVERITIES, TOKEN_KEYS } from "./shared.ts";
+import { evaluateActivity, evaluateConflicts, evaluateSeries, evaluateStalls } from "./trends.ts";
+import type { Evaluation, FoldEvaluation, Timeline, UsageEvaluation } from "./types.ts";
 
 function emptyEvaluation(fold: FoldEvaluation, clock: number): Evaluation {
   return {
@@ -193,14 +190,15 @@ function evaluateQuality(result: Evaluation, fold: FoldEvaluation): void {
 export function evaluateOperation(operation: Operation, derived: Derived, now: number): Evaluation {
   const fold = derived.evaluation ?? createFoldEvaluation();
   const clock = fold.closed ?? Math.max(now, fold.clock ?? now);
-  const elapsed = Math.max(0, clock - Date.parse(operation.createdAt));
+  const createdAt = Date.parse(operation.createdAt);
+  const elapsed = Math.max(0, clock - createdAt);
   const result = emptyEvaluation(fold, clock);
   const timelines: Timeline[] = [];
   for (const contact of operation.contacts) {
     const original = fold.contacts[contact.ticket];
     if (!original) continue;
     // Accrue on a copy: the fold state must stay valid for the next event.
-    const state = { ...original, phaseMs: { ...original.phaseMs }, holdMs: { ...original.holdMs } };
+    const state = { ...original, phaseMs: { ...original.phaseMs }, holdMs: { ...original.holdMs }, blockedByMs: Object.assign(Object.create(null), original.blockedByMs) };
     accrue(state, clock);
     timelines.push({ contact, state });
   }
@@ -209,6 +207,11 @@ export function evaluateOperation(operation: Operation, derived: Derived, now: n
   evaluateAttempts(result, timelines);
   evaluateUsage(result, timelines, fold, operation.contacts);
   evaluateQuality(result, fold);
+  evaluateContacts(result, timelines, fold);
+  evaluateActivity(result, timelines, clock, elapsed);
+  evaluateSeries(result, timelines, fold, createdAt, clock);
+  evaluateStalls(result, timelines);
+  evaluateConflicts(result, timelines, fold);
   const autoLand = operation.auto?.enabled === true && operation.auto.land === true;
   result.recommendations = recommendEvaluation(result, evaluationEvidence(operation, derived, clock), { autoLand });
   return result;

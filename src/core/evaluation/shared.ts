@@ -6,6 +6,7 @@ export const MEASUREMENT_COUNTS = ["recordedPassed", "recordedFailed", "repeated
 /** Producer counters that only grow within a run; the rest describe the latest round. */
 export const HISTORICAL_COUNTS = ["recordedPassed", "recordedFailed", "repeatedFailedRevision", "mergePreflightFailures", "boundaryFailures", "reviewFailures", "acceptedRepairs", "completedRounds", "invalidatedRounds", "findingOccurrences"] as const;
 export const SEVERITIES = ["critical", "high", "medium", "low"] as const;
+export const MS_PER_HOUR = 3_600_000;
 
 export const isNonnegative = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 export const isCount = (value: unknown): value is number => isNonnegative(value) && Number.isSafeInteger(value);

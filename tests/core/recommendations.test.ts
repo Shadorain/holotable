@@ -67,16 +67,19 @@ test("delivery delay requires three measured work deliveries and uses the final 
  expect(auto?.message).not.toContain("auto.land");
 });
 
-test("rule ordering is bounded, selects strongest run evidence and points to the threshold checkpoint",()=>{
+test("rules rank by stake with ties in rule order, select strongest run evidence and cite its newest checkpoints",()=>{
  const contacts=[makeContact("a"),makeContact("z")];
  const events:Event[]=[launch("a"),launch("z"),sample(1,"a","none",false,makeMeasurements({recordedFailed:3,repeatedFailedRevision:2,reviewFailures:3}))];
  for(let i=0;i<5;i++)events.push(sample(2+i,"z","none",false,makeMeasurements({recordedFailed:i+1,repeatedFailedRevision:i,reviewFailures:i})));
  events.push(ev(10,"z","sample",{usageEvidence:{...makeUsageEvidence(0),missing:1,partial:true}}));
  events.push(...Array.from({length:5},(_,i)=>ev(20+i,"a","land-attempt",{outcome:i<2?"conflict":"clean"})));
- const e=facts(events,contacts),repeat=e.recommendations[1]!;
- expect(e.recommendations.map(r=>r.id)).toEqual(["usage-coverage","repeat-verification","review-retries","integration-conflicts"]);
+ const e=facts(events,contacts),repeat=e.recommendations[0]!;
+ // Only repeat-verification puts time at stake (z live for the whole 1,000,000 ms; a first observed the shared
+ // source, so z owns no spend); the zero-stake rest keep rule order.
+ expect(e.recommendations.map(r=>r.id)).toEqual(["repeat-verification","usage-coverage","review-retries","integration-conflicts"]);
+ expect(repeat.impact).toEqual({ms:1_000_000,usd:null,scoreMs:1_000_000});
  expect(repeat.evidence.contacts).toEqual(["z"]);expect(repeat.evidence.numerator).toBe(4);
- expect(repeat.evidence.eventIndexes).toContain(7);
+ expect(repeat.evidence.eventIndexes).toEqual([7,6,5]);
  for(const r of e.recommendations){
   expect(r.ruleVersion).toBe(1);expect(r.evidence.contacts.length).toBeLessThanOrEqual(3);expect(r.evidence.eventIndexes.length).toBeLessThanOrEqual(3);
   for(const index of r.evidence.eventIndexes)expect(index).toBeLessThan(events.length);

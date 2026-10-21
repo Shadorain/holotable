@@ -11,13 +11,17 @@
  *   → `evaluateAttempts`
  * - spend & usage — tokens, cost, byPhase, pane, cost per delivered, accounting gaps → `evaluateUsage`
  * - rework & review — quality counters and fleet dispatch from producer measurements → `evaluateQuality`
- * - recommendations — threshold rules over the above with cited events → evaluation/recommend.ts
+ * - per contact, operator wait, spend split — contacts, operatorWait, usage.spend → `evaluateContacts`
+ *   (evaluation/contacts.ts)
+ * - trends — activity (active-hour throughput), series, stalls, conflict detail → evaluation/trends.ts
+ * - recommendations — threshold rules over the above, ranked by stake, with cited events → evaluation/recommend.ts
  *
  * Distribution and age helpers live in evaluation/shared.ts; payload validation in evaluation/parse.ts.
  */
 export type {
-  AgeSummary, ContactEvaluation, Distribution, Evaluation, EvaluationEvidence, FoldEvaluation,
-  QualityEvaluation, Recommendation, UsageEvaluation,
+  ActivityEvaluation, AgeSummary, ConflictEvaluation, ContactEvaluation, ContactReport, Distribution, Evaluation,
+  EvaluationEvidence, FoldEvaluation, OperatorWaitEvaluation, QualityEvaluation, Recommendation, SeriesEvaluation,
+  SpendEvaluation, StallEvaluation, UsageEvaluation, WaitKind,
 } from "./evaluation/types.ts";
 export { MEASUREMENT_COUNTS, distribution } from "./evaluation/shared.ts";
 export { parseEvaluation, parseMeasurementConfig, parseMeasurements, parseUsageEvidence } from "./evaluation/parse.ts";

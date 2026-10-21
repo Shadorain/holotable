@@ -107,6 +107,18 @@
     "tokens": 20,
     "costUsd": 0.25,
     "sessions": 2
+   },
+   "spend": {
+    "landedUsd": 2500000,
+    "landedPriced": 1,
+    "perLandedUsd": 2500000,
+    "supportUsd": 0,
+    "openUsd": 2,
+    "abandonedUsd": 0,
+    "paneUsd": 0.25,
+    "wastedUsd": 0.25,
+    "knownShare": 0,
+    "pricedShare": null
    }
   },
   "quality": {
@@ -151,24 +163,29 @@
   },
   "recommendations": [
    {
-    "id": "usage-coverage",
+    "id": "dependency-wait",
     "ruleVersion": 1,
     "level": "info",
-    "message": "Inspect accounting coverage before comparing costs.",
+    "message": "Inspect the blocking chain and launch order before widening the fleet.",
     "evidence": {
-     "numerator": 6,
-     "denominator": 6,
-     "observedMs": null,
+     "numerator": 8999998,
+     "denominator": 16200000,
+     "observedMs": 8999998,
      "contacts": [
-      "a",
+      "g",
       "f"
      ],
      "eventIndexes": [
-      114,
-      109
+      3,
+      4
      ]
     },
-    "caveat": "0 missing, 0 unsupported; unknown unpriced messages; 1 malformed lines; 0 reset observations; 0 backlog bytes. Historical gaps and associated sessions prevent exclusive mission billing."
+    "caveat": "Blocked time before launch can exceed launched lifetime and overlaps queue wait; it does not identify which predecessor should have run first.",
+    "impact": {
+     "ms": 8999998,
+     "usd": null,
+     "scoreMs": 8999998
+    }
    },
    {
     "id": "repeat-verification",
@@ -186,67 +203,12 @@
       32
      ]
     },
-    "caveat": "Consecutive failed records share a fingerprint, not necessarily a root cause."
-   },
-   {
-    "id": "review-retries",
-    "ruleVersion": 1,
-    "level": "warning",
-    "message": "Inspect reviewer failure evidence, provider capacity and revision churn.",
-    "evidence": {
-     "numerator": 4,
-     "denominator": null,
-     "observedMs": null,
-     "contacts": [
-      "e"
-     ],
-     "eventIndexes": [
-      32
-     ]
-    },
-    "caveat": "Failed review operations are not completed rounds or proof of defects."
-   },
-   {
-    "id": "integration-conflicts",
-    "ruleVersion": 1,
-    "level": "warning",
-    "message": "Inspect shared paths and delivery ordering before increasing parallelism.",
-    "evidence": {
-     "numerator": 3,
-     "denominator": 10,
-     "observedMs": null,
-     "contacts": [
-      "a",
-      "b",
-      "c"
-     ],
-     "eventIndexes": [
-      74,
-      76,
-      78
-     ]
-    },
-    "caveat": "Observed conflicts do not establish concurrency as their cause."
-   },
-   {
-    "id": "relaunch-churn",
-    "ruleVersion": 1,
-    "level": "warning",
-    "message": "Inspect relaunch causes before assuming restarts are routine.",
-    "evidence": {
-     "numerator": 6,
-     "denominator": 12,
-     "observedMs": null,
-     "contacts": [
-      "e"
-     ],
-     "eventIndexes": [
-      104,
-      98,
-      101
-     ]
-    },
-    "caveat": "Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution."
+    "caveat": "Consecutive failed records share a fingerprint, not necessarily a root cause.",
+    "impact": {
+     "ms": 4860000,
+     "usd": null,
+     "scoreMs": 4860000
+    }
    },
    {
     "id": "delivery-wait",
@@ -268,9 +230,638 @@
       86
      ]
     },
-    "caveat": "Observed ready-to-land delay does not establish which delivery dependency caused it."
+    "caveat": "Observed ready-to-land delay does not establish which delivery dependency caused it.",
+    "impact": {
+     "ms": 3600000,
+     "usd": null,
+     "scoreMs": 3600000
+    }
+   },
+   {
+    "id": "phase-cost",
+    "ruleVersion": 1,
+    "level": "info",
+    "message": "Inspect review-phase token share; narrow review scope or model tier if review dominates attributed spend.",
+    "evidence": {
+     "numerator": 160000000,
+     "denominator": 200000220,
+     "observedMs": null,
+     "contacts": [
+      "a",
+      "f"
+     ],
+     "eventIndexes": [
+      114,
+      109
+     ]
+    },
+    "caveat": "Review-phase tokens include coordinator-session spend during review and are not exclusively reviewer cost.",
+    "impact": {
+     "ms": null,
+     "usd": 1600000,
+     "scoreMs": 3455996.8896027994
+    }
+   },
+   {
+    "id": "review-retries",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect reviewer failure evidence, provider capacity and revision churn.",
+    "evidence": {
+     "numerator": 4,
+     "denominator": null,
+     "observedMs": null,
+     "contacts": [
+      "e"
+     ],
+     "eventIndexes": [
+      32
+     ]
+    },
+    "caveat": "Failed review operations are not completed rounds or proof of defects.",
+    "impact": {
+     "ms": 540000,
+     "usd": null,
+     "scoreMs": 540000
+    }
+   },
+   {
+    "id": "relaunch-churn",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect relaunch causes before assuming restarts are routine.",
+    "evidence": {
+     "numerator": 6,
+     "denominator": 12,
+     "observedMs": null,
+     "contacts": [
+      "e"
+     ],
+     "eventIndexes": [
+      104,
+      98,
+      101
+     ]
+    },
+    "caveat": "Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution.",
+    "impact": {
+     "ms": 120000,
+     "usd": null,
+     "scoreMs": 120000
+    }
    }
-  ]
+  ],
+  "contacts": [
+   {
+    "ticket": "a",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600000,
+    "launchedAt": 1767225900000,
+    "landedAt": 1767228300000,
+    "endedAt": 1767228300000,
+    "leadMs": 2700000,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2099998,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": {
+     "rounds": 0,
+     "findings": 0,
+     "failures": 0,
+     "perRound": []
+    },
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 1,
+     "landAttempts": 2,
+     "paths": []
+    },
+    "spend": {
+     "tokens": 250000000,
+     "costUsd": 2500000,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "b",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600001,
+    "launchedAt": 1767225960000,
+    "landedAt": 1767228360000,
+    "endedAt": 1767228360000,
+    "leadMs": 2759999,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2159997,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": {
+     "rounds": 0,
+     "findings": 0,
+     "failures": 1,
+     "perRound": []
+    },
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 1,
+     "landAttempts": 2,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "c",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600002,
+    "launchedAt": 1767226020000,
+    "landedAt": 1767228420000,
+    "endedAt": 1767228420000,
+    "leadMs": 2819998,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2219996,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": {
+     "rounds": 0,
+     "findings": 0,
+     "failures": 2,
+     "perRound": []
+    },
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 1,
+     "landAttempts": 2,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "d",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600003,
+    "launchedAt": 1767226080000,
+    "landedAt": 1767228480000,
+    "endedAt": 1767228480000,
+    "leadMs": 2879997,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2279995,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": {
+     "rounds": 0,
+     "findings": 0,
+     "failures": 3,
+     "perRound": []
+    },
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 2,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "e",
+    "kind": "implement",
+    "state": "complete",
+    "outcome": "open",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600004,
+    "launchedAt": 1767226140000,
+    "landedAt": null,
+    "endedAt": null,
+    "leadMs": null,
+    "activeMs": 4860000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 3360000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2399999,
+     "automation": 0,
+     "pending": 2399995
+    },
+    "review": {
+     "rounds": 0,
+     "findings": 0,
+     "failures": 4,
+     "perRound": []
+    },
+    "relaunches": {
+     "total": 6,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 6
+    },
+    "launchFailures": 6,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 2,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "f",
+    "kind": "implement",
+    "state": "running",
+    "outcome": "open",
+    "phase": null,
+    "hold": null,
+    "queuedAt": 1767225600005,
+    "launchedAt": 1767229260000,
+    "landedAt": null,
+    "endedAt": null,
+    "leadMs": null,
+    "activeMs": 1740000,
+    "blockedMs": {
+     "beforeLaunch": 3599999,
+     "afterLaunch": 0,
+     "by": {
+      "a": 3599999
+     }
+    },
+    "phaseMs": {},
+    "offlineMs": 0,
+    "waitMs": {
+     "operator": 60000,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": 303,
+     "costUsd": 2,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "g",
+    "kind": "audit",
+    "state": "blocked",
+    "outcome": "open",
+    "phase": null,
+    "hold": null,
+    "queuedAt": 1767225600000,
+    "launchedAt": null,
+    "landedAt": null,
+    "endedAt": null,
+    "leadMs": null,
+    "activeMs": 0,
+    "blockedMs": {
+     "beforeLaunch": 5399999,
+     "afterLaunch": 0,
+     "by": {
+      "a": 5399999
+     }
+    },
+    "phaseMs": {},
+    "offlineMs": 0,
+    "waitMs": {
+     "operator": 1,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "decide",
+    "kind": "decision",
+    "state": "unqueued",
+    "outcome": "open",
+    "phase": null,
+    "hold": null,
+    "queuedAt": null,
+    "launchedAt": null,
+    "landedAt": null,
+    "endedAt": null,
+    "leadMs": null,
+    "activeMs": 0,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {},
+    "offlineMs": 0,
+    "waitMs": {
+     "operator": 0,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": 10,
+     "costUsd": 0.25,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "fix",
+    "kind": "conflict",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": null,
+    "hold": null,
+    "queuedAt": null,
+    "launchedAt": null,
+    "landedAt": 1767229620000,
+    "endedAt": 1767229620000,
+    "leadMs": null,
+    "activeMs": 0,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {},
+    "offlineMs": 0,
+    "waitMs": {
+     "operator": 0,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   }
+  ],
+  "operatorWait": {
+   "operatorMs": 11219986,
+   "automationMs": 0,
+   "pendingMs": 2399995,
+   "waits": 23,
+   "missionMs": 4740010,
+   "byKind": {
+    "launch": {
+     "operatorMs": 2159991,
+     "automationMs": 0,
+     "pendingMs": 0,
+     "waits": 7
+    },
+    "gate": {
+     "operatorMs": 4499990,
+     "automationMs": 0,
+     "pendingMs": 0,
+     "waits": 5
+    },
+    "land": {
+     "operatorMs": 4560005,
+     "automationMs": 0,
+     "pendingMs": 2399995,
+     "waits": 11
+    }
+   }
+  },
+  "activity": {
+   "activeMs": 5400000,
+   "idleMs": 0,
+   "deliveriesPerActiveHour": 2.6666666666666665
+  },
+  "series": {
+   "bucketMs": 3600000,
+   "truncated": false,
+   "buckets": [
+    {
+     "at": 1767225600000,
+     "launches": 11,
+     "deliveries": 4,
+     "landAttempts": 10,
+     "conflicts": 3,
+     "reviewFailures": 10
+    },
+    {
+     "at": 1767229200000,
+     "launches": 1,
+     "deliveries": 0,
+     "landAttempts": 0,
+     "conflicts": 0,
+     "reviewFailures": 0
+    }
+   ]
+  },
+  "stalls": {
+   "quota": {
+    "ms": 0,
+    "episodes": 0
+   },
+   "offline": {
+    "ms": 600000,
+    "episodes": 5
+   },
+   "launchRefusals": {
+    "memory": 0,
+    "sessionCap": 0,
+    "refused": 0,
+    "gaveUp": 0
+   },
+   "reviewFailures": 10,
+   "caveat": "Quota time is the mission's quota hold, which the producer also uses for provider rate limits. Events record neither the problem kind nor retryAt, and board capacity waits (auto mode waiting for provider capacity, recovery deferring a relaunch for memory or session slots) are never appended, so their duration is unmeasured; launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline and quota time can overlap."
+  },
+  "conflicts": {
+   "rate": 0.3,
+   "unpathed": 3,
+   "paths": [],
+   "contacts": [
+    {
+     "ticket": "a",
+     "conflicts": 1,
+     "landAttempts": 2
+    },
+    {
+     "ticket": "b",
+     "conflicts": 1,
+     "landAttempts": 2
+    },
+    {
+     "ticket": "c",
+     "conflicts": 1,
+     "landAttempts": 2
+    }
+   ],
+   "truncated": false
+  }
  },
  "evidence": {
   "runs": [
@@ -634,16 +1225,16 @@
   ],
   "conflictEvents": [
    {
-    "contact": "a",
-    "index": 74
+    "contact": "c",
+    "index": 78
    },
    {
     "contact": "b",
     "index": 76
    },
    {
-    "contact": "c",
-    "index": 78
+    "contact": "a",
+    "index": 74
    }
   ],
   "usageEvents": [
@@ -765,6 +1356,18 @@
     "tokens": 20,
     "costUsd": 0.25,
     "sessions": 2
+   },
+   "spend": {
+    "landedUsd": 2500000,
+    "landedPriced": 1,
+    "perLandedUsd": 2500000,
+    "supportUsd": 0,
+    "openUsd": 0,
+    "abandonedUsd": 2,
+    "paneUsd": 0.25,
+    "wastedUsd": 2.25,
+    "knownShare": 0,
+    "pricedShare": null
    }
   },
   "quality": {
@@ -809,24 +1412,29 @@
   },
   "recommendations": [
    {
-    "id": "usage-coverage",
+    "id": "dependency-wait",
     "ruleVersion": 1,
     "level": "info",
-    "message": "Inspect accounting coverage before comparing costs.",
+    "message": "Inspect the blocking chain and launch order before widening the fleet.",
     "evidence": {
-     "numerator": 6,
-     "denominator": 6,
-     "observedMs": null,
+     "numerator": 8399998,
+     "denominator": 15000000,
+     "observedMs": 8399998,
      "contacts": [
-      "a",
+      "g",
       "f"
      ],
      "eventIndexes": [
-      114,
-      109
+      3,
+      4
      ]
     },
-    "caveat": "0 missing, 0 unsupported; unknown unpriced messages; 1 malformed lines; 0 reset observations; 0 backlog bytes. Historical gaps and associated sessions prevent exclusive mission billing."
+    "caveat": "Blocked time before launch can exceed launched lifetime and overlaps queue wait; it does not identify which predecessor should have run first.",
+    "impact": {
+     "ms": 8399998,
+     "usd": null,
+     "scoreMs": 8399998
+    }
    },
    {
     "id": "repeat-verification",
@@ -844,67 +1452,12 @@
       32
      ]
     },
-    "caveat": "Consecutive failed records share a fingerprint, not necessarily a root cause."
-   },
-   {
-    "id": "review-retries",
-    "ruleVersion": 1,
-    "level": "warning",
-    "message": "Inspect reviewer failure evidence, provider capacity and revision churn.",
-    "evidence": {
-     "numerator": 4,
-     "denominator": null,
-     "observedMs": null,
-     "contacts": [
-      "e"
-     ],
-     "eventIndexes": [
-      32
-     ]
-    },
-    "caveat": "Failed review operations are not completed rounds or proof of defects."
-   },
-   {
-    "id": "integration-conflicts",
-    "ruleVersion": 1,
-    "level": "warning",
-    "message": "Inspect shared paths and delivery ordering before increasing parallelism.",
-    "evidence": {
-     "numerator": 3,
-     "denominator": 10,
-     "observedMs": null,
-     "contacts": [
-      "a",
-      "b",
-      "c"
-     ],
-     "eventIndexes": [
-      74,
-      76,
-      78
-     ]
-    },
-    "caveat": "Observed conflicts do not establish concurrency as their cause."
-   },
-   {
-    "id": "relaunch-churn",
-    "ruleVersion": 1,
-    "level": "warning",
-    "message": "Inspect relaunch causes before assuming restarts are routine.",
-    "evidence": {
-     "numerator": 6,
-     "denominator": 12,
-     "observedMs": null,
-     "contacts": [
-      "e"
-     ],
-     "eventIndexes": [
-      104,
-      98,
-      101
-     ]
-    },
-    "caveat": "Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution."
+    "caveat": "Consecutive failed records share a fingerprint, not necessarily a root cause.",
+    "impact": {
+     "ms": 4260000,
+     "usd": null,
+     "scoreMs": 4260000
+    }
    },
    {
     "id": "delivery-wait",
@@ -926,9 +1479,638 @@
       86
      ]
     },
-    "caveat": "Observed ready-to-land delay does not establish which delivery dependency caused it."
+    "caveat": "Observed ready-to-land delay does not establish which delivery dependency caused it.",
+    "impact": {
+     "ms": 3600000,
+     "usd": null,
+     "scoreMs": 3600000
+    }
+   },
+   {
+    "id": "phase-cost",
+    "ruleVersion": 1,
+    "level": "info",
+    "message": "Inspect review-phase token share; narrow review scope or model tier if review dominates attributed spend.",
+    "evidence": {
+     "numerator": 160000000,
+     "denominator": 200000220,
+     "observedMs": null,
+     "contacts": [
+      "a",
+      "f"
+     ],
+     "eventIndexes": [
+      114,
+      109
+     ]
+    },
+    "caveat": "Review-phase tokens include coordinator-session spend during review and are not exclusively reviewer cost.",
+    "impact": {
+     "ms": null,
+     "usd": 1600000,
+     "scoreMs": 3071997.2352024885
+    }
+   },
+   {
+    "id": "review-retries",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect reviewer failure evidence, provider capacity and revision churn.",
+    "evidence": {
+     "numerator": 4,
+     "denominator": null,
+     "observedMs": null,
+     "contacts": [
+      "e"
+     ],
+     "eventIndexes": [
+      32
+     ]
+    },
+    "caveat": "Failed review operations are not completed rounds or proof of defects.",
+    "impact": {
+     "ms": 540000,
+     "usd": null,
+     "scoreMs": 540000
+    }
+   },
+   {
+    "id": "relaunch-churn",
+    "ruleVersion": 1,
+    "level": "warning",
+    "message": "Inspect relaunch causes before assuming restarts are routine.",
+    "evidence": {
+     "numerator": 6,
+     "denominator": 12,
+     "observedMs": null,
+     "contacts": [
+      "e"
+     ],
+     "eventIndexes": [
+      104,
+      98,
+      101
+     ]
+    },
+    "caveat": "Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution.",
+    "impact": {
+     "ms": 120000,
+     "usd": null,
+     "scoreMs": 120000
+    }
    }
-  ]
+  ],
+  "contacts": [
+   {
+    "ticket": "a",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600000,
+    "launchedAt": 1767225900000,
+    "landedAt": 1767228300000,
+    "endedAt": 1767228300000,
+    "leadMs": 2700000,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2099998,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": {
+     "rounds": 0,
+     "findings": 0,
+     "failures": 0,
+     "perRound": []
+    },
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 1,
+     "landAttempts": 2,
+     "paths": []
+    },
+    "spend": {
+     "tokens": 250000000,
+     "costUsd": 2500000,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "b",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600001,
+    "launchedAt": 1767225960000,
+    "landedAt": 1767228360000,
+    "endedAt": 1767228360000,
+    "leadMs": 2759999,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2159997,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": {
+     "rounds": 0,
+     "findings": 0,
+     "failures": 1,
+     "perRound": []
+    },
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 1,
+     "landAttempts": 2,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "c",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600002,
+    "launchedAt": 1767226020000,
+    "landedAt": 1767228420000,
+    "endedAt": 1767228420000,
+    "leadMs": 2819998,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2219996,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": {
+     "rounds": 0,
+     "findings": 0,
+     "failures": 2,
+     "perRound": []
+    },
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 1,
+     "landAttempts": 2,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "d",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600003,
+    "launchedAt": 1767226080000,
+    "landedAt": 1767228480000,
+    "endedAt": 1767228480000,
+    "leadMs": 2879997,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2279995,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": {
+     "rounds": 0,
+     "findings": 0,
+     "failures": 3,
+     "perRound": []
+    },
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 2,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "e",
+    "kind": "implement",
+    "state": "closed",
+    "outcome": "abandoned",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600004,
+    "launchedAt": 1767226140000,
+    "landedAt": null,
+    "endedAt": 1767230400000,
+    "leadMs": null,
+    "activeMs": 4260000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 2760000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 4199994,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": {
+     "rounds": 0,
+     "findings": 0,
+     "failures": 4,
+     "perRound": []
+    },
+    "relaunches": {
+     "total": 6,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 6
+    },
+    "launchFailures": 6,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 2,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "f",
+    "kind": "implement",
+    "state": "closed",
+    "outcome": "abandoned",
+    "phase": null,
+    "hold": null,
+    "queuedAt": 1767225600005,
+    "launchedAt": 1767229260000,
+    "landedAt": null,
+    "endedAt": 1767230400000,
+    "leadMs": null,
+    "activeMs": 1140000,
+    "blockedMs": {
+     "beforeLaunch": 3599999,
+     "afterLaunch": 0,
+     "by": {
+      "a": 3599999
+     }
+    },
+    "phaseMs": {},
+    "offlineMs": 0,
+    "waitMs": {
+     "operator": 60000,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": 303,
+     "costUsd": 2,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "g",
+    "kind": "audit",
+    "state": "closed",
+    "outcome": "abandoned",
+    "phase": null,
+    "hold": null,
+    "queuedAt": 1767225600000,
+    "launchedAt": null,
+    "landedAt": null,
+    "endedAt": 1767230400000,
+    "leadMs": null,
+    "activeMs": 0,
+    "blockedMs": {
+     "beforeLaunch": 4799999,
+     "afterLaunch": 0,
+     "by": {
+      "a": 4799999
+     }
+    },
+    "phaseMs": {},
+    "offlineMs": 0,
+    "waitMs": {
+     "operator": 1,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "decide",
+    "kind": "decision",
+    "state": "closed",
+    "outcome": "abandoned",
+    "phase": null,
+    "hold": null,
+    "queuedAt": null,
+    "launchedAt": null,
+    "landedAt": null,
+    "endedAt": 1767230400000,
+    "leadMs": null,
+    "activeMs": 0,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {},
+    "offlineMs": 0,
+    "waitMs": {
+     "operator": 0,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": 10,
+     "costUsd": 0.25,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "fix",
+    "kind": "conflict",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": null,
+    "hold": null,
+    "queuedAt": null,
+    "launchedAt": null,
+    "landedAt": 1767229620000,
+    "endedAt": 1767229620000,
+    "leadMs": null,
+    "activeMs": 0,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {},
+    "offlineMs": 0,
+    "waitMs": {
+     "operator": 0,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   }
+  ],
+  "operatorWait": {
+   "operatorMs": 13019981,
+   "automationMs": 0,
+   "pendingMs": 0,
+   "waits": 23,
+   "missionMs": 4140010,
+   "byKind": {
+    "launch": {
+     "operatorMs": 2159991,
+     "automationMs": 0,
+     "pendingMs": 0,
+     "waits": 7
+    },
+    "gate": {
+     "operatorMs": 4499990,
+     "automationMs": 0,
+     "pendingMs": 0,
+     "waits": 5
+    },
+    "land": {
+     "operatorMs": 6360000,
+     "automationMs": 0,
+     "pendingMs": 0,
+     "waits": 11
+    }
+   }
+  },
+  "activity": {
+   "activeMs": 4800000,
+   "idleMs": 0,
+   "deliveriesPerActiveHour": 3
+  },
+  "series": {
+   "bucketMs": 3600000,
+   "truncated": false,
+   "buckets": [
+    {
+     "at": 1767225600000,
+     "launches": 11,
+     "deliveries": 4,
+     "landAttempts": 10,
+     "conflicts": 3,
+     "reviewFailures": 10
+    },
+    {
+     "at": 1767229200000,
+     "launches": 1,
+     "deliveries": 0,
+     "landAttempts": 0,
+     "conflicts": 0,
+     "reviewFailures": 0
+    }
+   ]
+  },
+  "stalls": {
+   "quota": {
+    "ms": 0,
+    "episodes": 0
+   },
+   "offline": {
+    "ms": 600000,
+    "episodes": 5
+   },
+   "launchRefusals": {
+    "memory": 0,
+    "sessionCap": 0,
+    "refused": 0,
+    "gaveUp": 0
+   },
+   "reviewFailures": 10,
+   "caveat": "Quota time is the mission's quota hold, which the producer also uses for provider rate limits. Events record neither the problem kind nor retryAt, and board capacity waits (auto mode waiting for provider capacity, recovery deferring a relaunch for memory or session slots) are never appended, so their duration is unmeasured; launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline and quota time can overlap."
+  },
+  "conflicts": {
+   "rate": 0.3,
+   "unpathed": 3,
+   "paths": [],
+   "contacts": [
+    {
+     "ticket": "a",
+     "conflicts": 1,
+     "landAttempts": 2
+    },
+    {
+     "ticket": "b",
+     "conflicts": 1,
+     "landAttempts": 2
+    },
+    {
+     "ticket": "c",
+     "conflicts": 1,
+     "landAttempts": 2
+    }
+   ],
+   "truncated": false
+  }
  },
  "quiet": {
   "v": 1,
@@ -1025,6 +2207,18 @@
      "tokens": 160000000,
      "costUsd": 1600000
     }
+   },
+   "spend": {
+    "landedUsd": 2500000,
+    "landedPriced": 1,
+    "perLandedUsd": 2500000,
+    "supportUsd": 0,
+    "openUsd": 0,
+    "abandonedUsd": 0,
+    "paneUsd": 0,
+    "wastedUsd": 0,
+    "knownShare": 0.2,
+    "pricedShare": 1
    }
   },
   "quality": null,
@@ -1042,6 +2236,31 @@
    "counterResets": 0
   },
   "recommendations": [
+   {
+    "id": "dependency-wait",
+    "ruleVersion": 1,
+    "level": "info",
+    "message": "Inspect the blocking chain and launch order before widening the fleet.",
+    "evidence": {
+     "numerator": 8999998,
+     "denominator": 14460000,
+     "observedMs": 8999998,
+     "contacts": [
+      "g",
+      "f"
+     ],
+     "eventIndexes": [
+      3,
+      4
+     ]
+    },
+    "caveat": "Blocked time before launch can exceed launched lifetime and overlaps queue wait; it does not identify which predecessor should have run first.",
+    "impact": {
+     "ms": 8999998,
+     "usd": null,
+     "scoreMs": 8999998
+    }
+   },
    {
     "id": "approval-wait",
     "ruleVersion": 1,
@@ -1062,7 +2281,12 @@
       41
      ]
     },
-    "caveat": "Observed hold time overlaps phase time and is not exclusive human response time."
+    "caveat": "Observed hold time overlaps phase time and is not exclusive human response time.",
+    "impact": {
+     "ms": 4499990,
+     "usd": null,
+     "scoreMs": 4499990
+    }
    },
    {
     "id": "delivery-wait",
@@ -1084,27 +2308,12 @@
       76
      ]
     },
-    "caveat": "Observed ready-to-land delay does not establish which delivery dependency caused it."
-   },
-   {
-    "id": "dependency-wait",
-    "ruleVersion": 1,
-    "level": "info",
-    "message": "Inspect the blocking chain and launch order before widening the fleet.",
-    "evidence": {
-     "numerator": 8999998,
-     "denominator": 14460000,
-     "observedMs": 8999998,
-     "contacts": [
-      "g",
-      "f"
-     ],
-     "eventIndexes": [
-      3,
-      4
-     ]
-    },
-    "caveat": "Blocked time before launch can exceed launched lifetime and overlaps queue wait; it does not identify which predecessor should have run first."
+    "caveat": "Observed ready-to-land delay does not establish which delivery dependency caused it.",
+    "impact": {
+     "ms": 3600000,
+     "usd": null,
+     "scoreMs": 3600000
+    }
    },
    {
     "id": "phase-cost",
@@ -1116,18 +2325,488 @@
      "denominator": 200000000,
      "observedMs": null,
      "contacts": [
-      "a",
-      "b",
+      "e",
+      "d",
       "c"
      ],
      "eventIndexes": [
-      61,
-      65,
+      73,
+      71,
       68
      ]
     },
-    "caveat": "Review-phase tokens include coordinator-session spend during review and are not exclusively reviewer cost."
+    "caveat": "Review-phase tokens include coordinator-session spend during review and are not exclusively reviewer cost.",
+    "impact": {
+     "ms": null,
+     "usd": 1600000,
+     "scoreMs": 3456000
+    }
    }
-  ]
+  ],
+  "contacts": [
+   {
+    "ticket": "a",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600000,
+    "launchedAt": 1767225900000,
+    "landedAt": 1767228300000,
+    "endedAt": 1767228300000,
+    "leadMs": 2700000,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2099998,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": 250000000,
+     "costUsd": 2500000,
+     "complete": true
+    }
+   },
+   {
+    "ticket": "b",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600001,
+    "launchedAt": 1767225960000,
+    "landedAt": 1767228360000,
+    "endedAt": 1767228360000,
+    "leadMs": 2759999,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2159997,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "c",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600002,
+    "launchedAt": 1767226020000,
+    "landedAt": 1767228420000,
+    "endedAt": 1767228420000,
+    "leadMs": 2819998,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2219996,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "d",
+    "kind": "implement",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600003,
+    "launchedAt": 1767226080000,
+    "landedAt": 1767228480000,
+    "endedAt": 1767228480000,
+    "leadMs": 2879997,
+    "activeMs": 2400000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 900000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 2279995,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "e",
+    "kind": "implement",
+    "state": "complete",
+    "outcome": "open",
+    "phase": "complete",
+    "hold": "none",
+    "queuedAt": 1767225600004,
+    "launchedAt": 1767226140000,
+    "landedAt": null,
+    "endedAt": null,
+    "leadMs": null,
+    "activeMs": 4860000,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {
+     "plan": 959999,
+     "review": 540000,
+     "complete": 3360000
+    },
+    "offlineMs": 120000,
+    "waitMs": {
+     "operator": 1439994,
+     "automation": 0,
+     "pending": 3360000
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "f",
+    "kind": "implement",
+    "state": "queued",
+    "outcome": "open",
+    "phase": null,
+    "hold": null,
+    "queuedAt": 1767225600005,
+    "launchedAt": null,
+    "landedAt": null,
+    "endedAt": null,
+    "leadMs": null,
+    "activeMs": 0,
+    "blockedMs": {
+     "beforeLaunch": 3599999,
+     "afterLaunch": 0,
+     "by": {
+      "a": 3599999
+     }
+    },
+    "phaseMs": {},
+    "offlineMs": 0,
+    "waitMs": {
+     "operator": 0,
+     "automation": 0,
+     "pending": 1800000
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "g",
+    "kind": "audit",
+    "state": "blocked",
+    "outcome": "open",
+    "phase": null,
+    "hold": null,
+    "queuedAt": 1767225600000,
+    "launchedAt": null,
+    "landedAt": null,
+    "endedAt": null,
+    "leadMs": null,
+    "activeMs": 0,
+    "blockedMs": {
+     "beforeLaunch": 5399999,
+     "afterLaunch": 0,
+     "by": {
+      "a": 5399999
+     }
+    },
+    "phaseMs": {},
+    "offlineMs": 0,
+    "waitMs": {
+     "operator": 1,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   },
+   {
+    "ticket": "fix",
+    "kind": "conflict",
+    "state": "landed",
+    "outcome": "landed",
+    "phase": null,
+    "hold": null,
+    "queuedAt": null,
+    "launchedAt": null,
+    "landedAt": 1767229620000,
+    "endedAt": 1767229620000,
+    "leadMs": null,
+    "activeMs": 0,
+    "blockedMs": {
+     "beforeLaunch": 0,
+     "afterLaunch": 0,
+     "by": {}
+    },
+    "phaseMs": {},
+    "offlineMs": 0,
+    "waitMs": {
+     "operator": 0,
+     "automation": 0,
+     "pending": 0
+    },
+    "review": null,
+    "relaunches": {
+     "total": 0,
+     "operator": 0,
+     "recovery": 0,
+     "auto": 0,
+     "other": 0
+    },
+    "launchFailures": 0,
+    "conflicts": {
+     "count": 0,
+     "landAttempts": 0,
+     "paths": []
+    },
+    "spend": {
+     "tokens": null,
+     "costUsd": null,
+     "complete": false
+    }
+   }
+  ],
+  "operatorWait": {
+   "operatorMs": 10199981,
+   "automationMs": 0,
+   "pendingMs": 5160000,
+   "waits": 17,
+   "missionMs": 3000010,
+   "byKind": {
+    "launch": {
+     "operatorMs": 2099991,
+     "automationMs": 0,
+     "pendingMs": 1800000,
+     "waits": 7
+    },
+    "gate": {
+     "operatorMs": 4499990,
+     "automationMs": 0,
+     "pendingMs": 0,
+     "waits": 5
+    },
+    "land": {
+     "operatorMs": 3600000,
+     "automationMs": 0,
+     "pendingMs": 3360000,
+     "waits": 5
+    }
+   }
+  },
+  "activity": {
+   "activeMs": 5400000,
+   "idleMs": 0,
+   "deliveriesPerActiveHour": 2.6666666666666665
+  },
+  "series": {
+   "bucketMs": 3600000,
+   "truncated": false,
+   "buckets": [
+    {
+     "at": 1767225600000,
+     "launches": 5,
+     "deliveries": 4,
+     "landAttempts": 0,
+     "conflicts": 0,
+     "reviewFailures": 0
+    },
+    {
+     "at": 1767229200000,
+     "launches": 0,
+     "deliveries": 0,
+     "landAttempts": 0,
+     "conflicts": 0,
+     "reviewFailures": 0
+    }
+   ]
+  },
+  "stalls": {
+   "quota": {
+    "ms": 0,
+    "episodes": 0
+   },
+   "offline": {
+    "ms": 600000,
+    "episodes": 5
+   },
+   "launchRefusals": {
+    "memory": 0,
+    "sessionCap": 0,
+    "refused": 0,
+    "gaveUp": 0
+   },
+   "reviewFailures": null,
+   "caveat": "Quota time is the mission's quota hold, which the producer also uses for provider rate limits. Events record neither the problem kind nor retryAt, and board capacity waits (auto mode waiting for provider capacity, recovery deferring a relaunch for memory or session slots) are never appended, so their duration is unmeasured; launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline and quota time can overlap."
+  },
+  "conflicts": {
+   "rate": null,
+   "unpathed": 0,
+   "paths": [],
+   "contacts": [],
+   "truncated": false
+  }
  }
 }
