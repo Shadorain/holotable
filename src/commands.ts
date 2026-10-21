@@ -272,8 +272,10 @@ export async function createFromSpec(
     ...(auto !== undefined ? { auto } : {}),
     recover: spec.recover === true,
     createdAt: now.toISOString(),
-  } as unknown as Operation;
-  const created = await createOperation(home, operation);
+  } satisfies Omit<Operation, "ignoreChecks" | "zones" | "contacts" | "auto"> & { zones: unknown[]; contacts: unknown[]; auto?: unknown };
+  // Seed zones, contacts and auto are unchecked JSON, and ignoreChecks is left to inherit or default:
+  // createOperation validates the whole document before anything is written.
+  const created = await createOperation(home, operation as unknown as Operation);
   if (spec.seed !== undefined) {
     await writeSeed(home, created.id, spec.seed);
     await seedBriefFromJson(home, created.id, spec.seed);
