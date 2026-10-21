@@ -358,8 +358,9 @@ function contactView(
     recommended: contact.recommended,
     decision: d.decision,
     decisionPane: decisionPaneOpen,
-    // A decision an agent is working on is not waiting on the operator, nor is anything automation owns.
-    attention: hands === null && ((ATTENTION_STATES.includes(state) && !(state === "decision" && decisionPaneOpen) &&
+    // A decision an agent is working on is not waiting on the operator, nor is anything automation owns,
+    // nor a conflict mission the operator reaped (abandoned; the next Land opens a fresh one).
+    attention: hands === null && !(contact.kind === "conflict" && d.reaped) && ((ATTENTION_STATES.includes(state) && !(state === "decision" && decisionPaneOpen) &&
       (state !== "review" || status?.actions.includes("review") === true || reviewStale)) ||
       (state === "complete" && contact.kind !== "conflict")),
     handsOff: hands,

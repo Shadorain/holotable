@@ -73,6 +73,7 @@ test("a reaped conflict mission is abandoned: the contact is landable again inst
   const reaped = viewOf(op, "a", { ...(over as object), events: [ev(0, "a-conflict-1", "reaped")] } as never);
   expect(reaped.state).toBe("complete");
   expect(reaped.actions.find((x) => x.id === "land")).toMatchObject({ enabled: true });
+  expect(viewOf(op, "a-conflict-1", { ...(over as object), events: [ev(0, "a-conflict-1", "reaped")] } as never).attention).toBe(false);
 });
 
 describe("project: state table", () => {
