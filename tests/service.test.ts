@@ -7,7 +7,8 @@ import { installService, ServiceError, startBoard, uninstallService } from "../s
 import { DEFAULT_SETTINGS } from "../src/settings.ts";
 import { writeSettings } from "../src/store/settings.ts";
 import { boardIsLocked, readBoardInfo, readToken } from "../src/store/board.ts";
-import { createOperation } from "../src/store/operations.ts";
+import { createOperation, mutateOperation } from "../src/store/operations.ts";
+import type { Ports } from "../src/ports.ts";
 import { serviceHealth, stopService } from "../src/plugin/client.ts";
 import { fakePorts, noRun, operation } from "./helpers.ts";
 
@@ -97,17 +98,18 @@ test("copied discovery cannot control another home; symlink aliases still reach 
 test("shutdown finishes an in-flight response before releasing ownership", async () => {
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  const settings = { ...DEFAULT_SETTINGS, access: "local" as const, port: 0, pollMs: 60_000, sampleMs: 60_000 };
-  let block = false;
-  const { home, board } = await boot({ settings: async () => {
-    if (block) {
-      entered.resolve();
-      await release.promise;
-    }
-    return settings;
-  } });
-  block = true;
-  const response = api(board.url, "/api/settings").then(async (res) => {
+  // Block a route only the HTTP request reaches: a settings hook also stalls the watcher's own pass,
+  // which let close() start before the request had even connected.
+  const fake = fakePorts();
+  const search: Ports["tracker"]["search"] = async () => {
+    entered.resolve();
+    await release.promise;
+    return [];
+  };
+  const ports = { ...fake.ports, tracker: { ...fake.ports.tracker, search } };
+  const { home, board } = await boot({ portsFor: () => ports });
+  await mutateOperation(home, "lab", (op) => ({ ...op, tracker: "linear" }));
+  const response = api(board.url, "/api/tracker/search?op=lab&q=ab").then(async (res) => {
     await res.arrayBuffer();
     return res.status;
   }, () => 0);

@@ -273,7 +273,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         clearTimeout(pushTimer);
       });
       // Long-lived: closeAllConnections does not reap streaming responses, so the
-      // server tracks and destroys them itself on close and rebind.
+      // server tracks and ends them itself on close and rebind.
       streams.add(res);
       res.once("close", () => streams.delete(res));
     },
@@ -616,13 +616,17 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
     pending.add(task);
     void task.then(() => pending.delete(task), () => pending.delete(task));
   }
+  // end(), not destroy(): an aborted chunked body can hand the client a stray chunk instead of EOF.
+  function endStreams(): void {
+    for (const res of streams) res.end();
+  }
 
   async function doRebind(newSettings: { access: Access; port: number }): Promise<{ url: string; urls: string[] }> {
     currentAccess = newSettings.access;
     bindHost = currentAccess === "local" ? "127.0.0.1" : "0.0.0.0";
 
     const oldServer = currentServer;
-    for (const res of streams) res.destroy();
+    endStreams();
     oldServer.close();
 
     const newServer = createServer(trackRequest);
@@ -656,14 +660,16 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
     get urls() {
       return currentUrls;
     },
-    close: () => {
-      const { promise, resolve, reject } = Promise.withResolvers<void>();
-      for (const res of streams) res.destroy();
-      currentServer.close((error) => (error ? reject(error) : resolve()));
+    close: async () => {
+      endStreams();
+      const closed = Promise.withResolvers<Error | undefined>();
+      currentServer.close(closed.resolve);
+      currentServer.closeIdleConnections();
+      // In-flight responses keep their sockets until they are written; only then cut what is left.
+      await Promise.allSettled(pending);
       currentServer.closeAllConnections();
-      return promise.then(async () => {
-        await Promise.allSettled(pending);
-      });
+      const error = await closed.promise;
+      if (error) throw error;
     },
     rebind: doRebind,
   };
