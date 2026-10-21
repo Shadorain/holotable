@@ -236,6 +236,8 @@ describe("githubPrDelivery.land", () => {
     const { run } = realRun((args) => {
       ghCalls.push(args);
       if (args[1] === "view") return { stdout: prJson(), stderr: "", code: 0 };
+      if (args[0] === "run" && args[1] === "list" && args.includes("--branch"))
+        return { stdout: JSON.stringify([{ databaseId: 11, status: "queued" }, { databaseId: 12, status: "completed" }]), stderr: "", code: 0 };
       return { stdout: "", stderr: "", code: 0 };
     });
     const { repo } = await prSetup(run);
@@ -248,6 +250,8 @@ describe("githubPrDelivery.land", () => {
     expect(result).toEqual({ outcome: "landed", via: "pr" });
     const merges = ghCalls.filter((a) => a[1] === "merge");
     expect(merges).toEqual([["pr", "merge", "7", "--merge"]]);
+    // The merged head's queued CI no longer matters; finished runs are left alone.
+    expect(ghCalls.filter((a) => a[1] === "cancel")).toEqual([["run", "cancel", "11"]]);
     const dirty = await git(run, repo, "status", "--porcelain");
     expect(dirty.stdout.trim()).toBe("");
   });
@@ -426,6 +430,29 @@ describe("githubPrDelivery.land", () => {
     expect(ghCalls.some((a) => a[1] === "merge")).toBe(false);
     const dirty = await git(run, repo, "status", "--porcelain");
     expect(dirty.stdout.trim()).toBe("");
+  });
+
+  test("a conflicting PR goes to the conflict path even with red CI, and a stale verdict still gates on checks", async () => {
+    const red = [{ name: "Check changed files", status: "COMPLETED", conclusion: "CANCELLED" }];
+    const ghCalls: string[][] = [];
+    const { run } = realRun((args) => {
+      ghCalls.push(args);
+      return { stdout: prJson({ mergeable: "CONFLICTING", statusCheckRollup: red }), stderr: "", code: 0 };
+    });
+    const { repo } = await prSetup(run);
+    // GitHub says conflicting but the merge is clean here: CI must still pass.
+    await expect(githubPrDelivery(run).land({ operation: makeOperation(repo), contact, sourceBranch: "feat", status }))
+      .rejects.toMatchObject({ code: "checks-failing" });
+    await git(run, repo, "checkout", "-qb", "conflict-branch", "feat");
+    writeFileSync(join(repo, "f.txt"), "conflict\n");
+    await git(run, repo, "commit", "-qam", "conflict");
+    await git(run, repo, "push", "-q", "origin", "conflict-branch:feat", "conflict-branch:refs/pull/7/head");
+    await git(run, repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "f.txt"), "ours\n");
+    await git(run, repo, "commit", "-qam", "ours");
+    const result = await githubPrDelivery(run).land({ operation: makeOperation(repo), contact, sourceBranch: "feat", status });
+    expect(result).toMatchObject({ outcome: "conflict", paths: ["f.txt"] });
+    expect(ghCalls.some((a) => a[1] === "merge")).toBe(false);
   });
 
   test("resolution branch pushes to headRefName without force", async () => {

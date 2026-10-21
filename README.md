@@ -449,6 +449,10 @@ When the mission advertises `check`, a finished contact also offers **Check PR**
 
 A conflict aborts the merge, so integration stays clean, and opens **one new conflict contact** (`<ticket>-conflict-<n>`): a worktree at the delivered commit with the conflict markers already in place, and a local-graph `/mission` told to edit only those files and not to merge, push or open a PR. The original contact stays; Land is disabled with `conflict mission <ticket> open` until the conflict mission completes, then it lands the conflict mission's branch. The scoping to those files is by prompt only.
 
+A PR that GitHub reports as conflicting skips the checks gate, because CI on code that cannot merge settles nothing. Land is enabled whatever its checks say, and auto mode presses it, so the conflict mission opens instead of the contact waiting on red or stuck CI. If the merge turns out clean against the fetched base, GitHub's verdict was stale, and the checks gate applies as usual.
+
+After a PR merges, Land cancels that branch's workflow runs that are still queued or running, so the self-hosted runners stop spending time on code that has already landed.
+
 After a clean land (or **Mark done** on a contact with a lane) the board cleans up: it closes the terminal and, when the worktree has no uncommitted changes, removes it — `reaped` then `removed` events, and the terminal stops counting against `cap`. A dirty worktree is left in place and a failed cleanup is recorded as an `operator` event, never a failed land. `settings.cleanup = false` disables this; Reap stays available either way.
 
 ## Decisions

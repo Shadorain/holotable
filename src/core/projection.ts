@@ -311,6 +311,7 @@ function contactView(
   if (state === "complete") {
     const next = actions.find(action => action.primary);
     detail = next?.reason ? `Mission complete; ${next.reason}`
+      : next?.id === "land" && probe?.mergeable === "conflict" ? `Mission complete; its PR conflicts with ${op.base}, so Land opens a conflict mission`
       : next?.id === "land" ? "Mission complete; awaiting landing"
       : next?.label === "Mark merged" ? "Merged; record landing"
       : contact.conflictOf ? `Conflicts resolved: land ${contact.conflictOf}` : "Mission complete; ready to mark done";

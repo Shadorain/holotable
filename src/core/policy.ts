@@ -254,11 +254,13 @@ export function actionsFor(i: PolicyInput): ActionView[] {
         else if (i.conflictOpen !== null)
           reason = `conflict mission ${i.conflictOpen} open`;
         else if (probe?.state === "closed") reason = "pull request closed";
-        const failingChecks = reason === null && probe?.checks === "fail" && !operation.ignoreChecks;
+        // A PR that conflicts with the base gets no meaningful CI: Land opens the conflict mission instead of merging.
+        const conflicting = probe?.mergeable === "conflict";
+        const failingChecks = reason === null && !conflicting && probe?.checks === "fail" && !operation.ignoreChecks;
         if (failingChecks)
           reason = probe.failing?.length ? `failing check: ${probe.failing.join(", ")}` : "a required check failed";
         // A rerun turns red checks pending; landing then would merge before CI has said anything.
-        else if (reason === null && probe?.checks === "pending" && !operation.ignoreChecks) reason = "checks still running";
+        else if (reason === null && !conflicting && probe?.checks === "pending" && !operation.ignoreChecks) reason = "checks still running";
         actions.push(view("land", "Land", true, reason === null, reason));
         // The operator can still land past red CI for this one PR; auto mode only looks at `land`.
         if (failingChecks) actions.push(view("land-anyway", "Land anyway", false, true));

@@ -151,11 +151,17 @@ export function githubPrDelivery(run: Run): DeliveryPort {
           `PR base is ${String(pr.baseRefName)}, expected ${operation.base}`,
         );
       const checks = i.ignoreChecks === true ? "pass" : checksFrom(pr.statusCheckRollup);
-      if (checks === "fail") {
-        const failing = failedChecks(pr.statusCheckRollup);
-        throw new PortError("checks-failing", failing.length ? `failing check: ${failing.join(", ")}` : "a required check failed");
-      }
-      if (checks === "pending") throw new PortError("checks-pending", "checks still running");
+      const gateChecks = () => {
+        if (checks === "fail") {
+          const failing = failedChecks(pr.statusCheckRollup);
+          throw new PortError("checks-failing", failing.length ? `failing check: ${failing.join(", ")}` : "a required check failed");
+        }
+        if (checks === "pending") throw new PortError("checks-pending", "checks still running");
+      };
+      // CI on a PR that conflicts with the base says nothing: the conflict probe below decides, and only a clean
+      // merge here sends it back through the checks gate.
+      const conflicting = pr.mergeable === "CONFLICTING";
+      if (!conflicting) gateChecks();
       if (typeof pr.headRefName !== "string" || pr.headRefName.length === 0)
         throw new PortError("pr-view-failed", "gh pr view omitted headRefName");
       const url = typeof pr.url === "string" ? pr.url : "";
@@ -233,7 +239,8 @@ export function githubPrDelivery(run: Run): DeliveryPort {
           deliveredSha,
           baseSha: probeResult.baseSha,
         };
-
+      // GitHub's conflict verdict was stale: the merge is clean here, so CI must pass like any other PR.
+      if (conflicting) gateChecks();
       // Green CI on a PR built against an older base says nothing about the merge: two green PRs can combine into a red base.
       // A PR behind the base gets the base merged in on GitHub, which reruns its checks; Land waits for them.
       if (i.ignoreChecks !== true && syncBase.code === 0 && deliveredSha) {
@@ -294,6 +301,15 @@ export function githubPrDelivery(run: Run): DeliveryPort {
           );
       } catch {
         // logged by the caller's event stream; nothing to do here
+      }
+      // Runs still queued for the merged head would hold the self-hosted runners for nothing. Best effort.
+      const leftover = await run("gh", ["run", "list", "--branch", pr.headRefName, "--limit", "50", "--json", "databaseId,status"], integration);
+      if (leftover.code === 0) {
+        let rows: Array<{ databaseId?: number; status?: string }> = [];
+        try { rows = JSON.parse(leftover.stdout); } catch { /* nothing to cancel */ }
+        for (const row of rows)
+          if (row.status !== "completed" && typeof row.databaseId === "number")
+            await run("gh", ["run", "cancel", String(row.databaseId)], integration);
       }
       return { outcome: "landed", via: "pr" };
     },

@@ -239,6 +239,9 @@ describe("actionsFor", () => {
     // A closed PR is not something Land anyway can fix.
     const closed = actionsFor(policy(op, "a", { state: "complete", status, probe: { ...probe, state: "closed" } }));
     expect(closed.some((a) => a.id === "land-anyway")).toBe(false);
+    // A PR that conflicts with the base: Land opens the conflict mission whatever its CI says.
+    const conflicting = actionsFor(policy(op, "a", { state: "complete", status, probe: { ...probe, mergeable: "conflict" as const } }));
+    expect(conflicting.find((a) => a.id === "land")).toMatchObject({ enabled: true, reason: null });
   });
 
   test("conflict: land disabled with open conflict reason", () => {
