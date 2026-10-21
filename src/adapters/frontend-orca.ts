@@ -59,9 +59,8 @@ function shellCommand(i: TerminalCommand): string {
   return `${envPrefix ? `${envPrefix} ` : ""}${i.argv.map(shellQuote).join(" ")}`;
 }
 
-export function orcaFrontend(run: Run): FrontendPort {
-  const cwd = process.cwd(); // orca commands do not depend on the caller cwd
-
+/** `cwd` only gives the spawns a directory: orca commands do not depend on it. */
+export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
   async function terminalRows(): Promise<OrcaTerminalRow[]> {
     return parseTerminalList(decode(await run("orca", ["terminal", "list", "--json"], cwd)));
   }
