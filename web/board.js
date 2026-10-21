@@ -71,7 +71,7 @@ export function renderOps(root, projection, ctx) {
   root.append(progress);
 
   const n = projection.notes;
-  const notes = foldable("notes", "Notes", n?.total ? `${n.done}/${n.total}` : "");
+  const notes = foldable("notes", "Notes", n?.total ? `${n.done}/${n.total} tasks done` : "");
   notes.append(notesPanel(op.id, ctx, { compact: true }));
   root.append(notes);
 

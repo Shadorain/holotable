@@ -161,7 +161,7 @@ export function renderMap(root, projection, selected, focus, onAdd = null) {
   );
   const needs = count((c) => c.attention);
   if (needs) summary.append(el("span", "warn", `${needs} need you`));
-  if (projection.notes?.total) summary.append(el("span", "", `notes ${projection.notes.done}/${projection.notes.total} done`));
+  if (projection.notes?.total) summary.append(el("span", "", `${projection.notes.done}/${projection.notes.total} tasks done`));
   summary.append(el("span", "map-legend", "arrows: waits for → · green: landed · red dashed: conflict"));
   if (onAdd) summary.append(addContactButton(onAdd));
   root.append(summary);
