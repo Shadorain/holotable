@@ -888,7 +888,27 @@ button.zone-chip[aria-pressed="true"] {
 .kind-pill.k-decision { --s: var(--warn); }
 .kind-pill.k-conflict { --s: var(--bad); }
 
-.recovery-missions { display: grid; gap: 10px; }
-.recovery-mission { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
-.recovery-mission > div { min-width: 0; overflow-wrap: anywhere; }
+.recovery-missions { display: grid; gap: 8px; margin-bottom: 14px; }
+.recovery-mission { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.recovery-mission.is-off { opacity: 0.65; }
 .recovery-mission input { flex: none; margin-top: 3px; accent-color: var(--accent); }
+.recovery-info { min-width: 0; flex: 1; display: grid; gap: 6px; overflow-wrap: anywhere; }
+.recovery-head { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.recovery-title { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recovery-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+.recovery-chip { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.recovery-chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.recovery-detail summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.recovery-detail pre { white-space: pre-wrap; font-size: 11.5px; margin: 6px 0 0; max-height: 140px; overflow: auto; }
+.recovery-hint { display: flex; align-items: center; gap: 4px; margin: 4px 0 0; }
+.recovery-note { margin-top: 12px; font-size: 12px; }
+.recovery-strip {
+  display: flex; align-items: center; gap: 8px; width: 100%; margin-bottom: 10px; padding: 8px 10px;
+  border-radius: 8px; border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; text-align: left;
+}
+.recovery-strip > svg { color: var(--warn); flex: none; }
+.recovery-strip > span:first-of-type { flex: 1; min-width: 0; }
+.recovery-strip-cta { color: var(--warn); font-weight: 600; white-space: nowrap; }
+.recovery-strip:hover { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.recovery-strip:disabled { opacity: 0.6; cursor: default; }

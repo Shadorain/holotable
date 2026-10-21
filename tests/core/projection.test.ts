@@ -208,6 +208,14 @@ describe("project: state table", () => {
     expect(dead.actions.filter(a => ["resend", "release", "mode"].includes(a.id)).every(a => !a.enabled)).toBe(true);
   });
 
+  test("an exhausted quota leads with Switch model; Continue stays as the second choice", () => {
+    const op = makeOp([makeContact("a", { lane: live() })]);
+    const exhausted = makeStatus({ hold: "quota", actions: ["continue", "retry-model"], next: "Provider quota exhausted" });
+    const view = viewOf(op, "a", { statuses: { a: exhausted }, owners: { a: "live" } });
+    expect(view.actions.filter(a => a.primary && a.enabled).map(a => a.id)).toEqual(["retry-model"]);
+    expect(view.actions.find(a => a.id === "continue")).toMatchObject({ enabled: true, primary: false });
+  });
+
   test("offline: lane without terminal and no status", () => {
     const op = makeOp([makeContact("a", { lane: live(false) })]);
     expect(viewOf(op, "a").state).toBe("offline");

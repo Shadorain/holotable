@@ -14,7 +14,8 @@ export interface ModelCatalog {
 }
 
 const DEFAULT_TTL_MS = 30_000;
-const DEFAULT_TIMEOUT_MS = 10_000;
+// `omp models` costs about a CPU-second at startup; under the board's CPUQuota=25% that is 5 s alone, more under load.
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export function createModelCatalog(run: Run, options: ModelCatalogOptions = {}): ModelCatalog {
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
@@ -29,14 +30,18 @@ export function createModelCatalog(run: Run, options: ModelCatalogOptions = {}):
   let lastUsage: { timestamp: number; payload?: unknown; error?: string } | null = null;
 
   function getCatalog(refresh: boolean): Promise<ModelsResult> {
-    if (catalogFlight) return catalogFlight;
-    if (!refresh && catalog && now() - catalog.timestamp < ttlMs) return Promise.resolve(catalog.result);
-    catalogFlight = fetchModels().then(result => {
-      catalog = { timestamp: now(), result };
-      cached = null;
-      return result;
+    const good = catalog !== null && !catalog.result.error ? catalog : null;
+    if (!refresh && good && now() - good.timestamp < ttlMs) return Promise.resolve(good.result);
+    catalogFlight ??= fetchModels().then(result => {
+      // A failed refresh keeps the last good list: what a provider offers rarely changes between pickers.
+      if (!result.error || catalog === null || catalog.result.error) {
+        catalog = { timestamp: now(), result };
+        cached = null;
+      }
+      return catalog.result;
     }).finally(() => { catalogFlight = null; });
-    return catalogFlight;
+    // Stale-while-revalidate: the last good list answers now; the refresh serves the next picker.
+    return good ? Promise.resolve(good.result) : catalogFlight;
   }
 
   async function fetchModels(): Promise<ModelsResult> {

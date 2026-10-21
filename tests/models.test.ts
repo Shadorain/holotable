@@ -15,6 +15,25 @@ test("quota failures leave the catalog searchable with explicitly unknown capaci
   expect(JSON.stringify(result)).not.toContain("private provider details");
 });
 
+test("a refresh answers from the last good list at once, and a failed refresh never replaces it", async () => {
+  const held = Promise.withResolvers<CommandResult>();
+  let calls = 0;
+  const run: Run = async (_command, args) => {
+    if (args[0] !== "models") return { code: 1, stdout: "", stderr: "" };
+    calls += 1;
+    return calls === 1 ? ok(models) : held.promise;
+  };
+  const catalog = createModelCatalog(run, { now: () => now });
+  expect((await catalog.getModels()).models).toHaveLength(1);
+  // The slow refresh is still running: the picker gets the list it had, not a wait or a timeout.
+  expect((await catalog.getModels(true)).models).toHaveLength(1);
+  held.resolve({ code: 1, stdout: "", stderr: "omp crashed" });
+  await Bun.sleep(0);
+  const after = await catalog.getModels(true);
+  expect(after.models).toHaveLength(1);
+  expect(after.error).toBeUndefined();
+});
+
 test("explicit refresh replaces exhausted capacity and concurrent requests share the refreshed snapshot", async () => {
   let remaining = 0;
   let pending: Promise<CommandResult> | undefined;

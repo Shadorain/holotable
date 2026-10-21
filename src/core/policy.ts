@@ -83,7 +83,7 @@ export function launchRefusal(i: PolicyInput): string | null {
 const FLEET_OPS = ["approve", "continue", "review", "dispatch", "resend", "release", "plan-approve", "retry-model", "check"] as const;
 const FLEET_OP_LABELS: Record<string, string> = {
   check: "Check PR",
-  "retry-model": "Switch model & retry",
+  "retry-model": "Switch model",
   "plan-approve": "Approve plan",
   approve: "Approve",
   continue: "Continue",
@@ -153,7 +153,10 @@ export function actionsFor(i: PolicyInput): ActionView[] {
     // Recovery handles plain resume holds; quota retries always require an operator.
     const recoverable = operation.recover === true && status.ctl !== null && status.verify !== "failed";
     const continueNeeded = status.hold === "quota" || (status.hold === "resume" && !recoverable) || status.verify === "failed";
+    // Continue on an exhausted subscription only fails again; switching the model is the way forward.
+    const quota = status.hold === "quota" || missionProblem(status)?.kind === "quota";
     const primary = status.actions.includes("approve") ? "approve"
+      : quota && status.actions.includes("retry-model") ? "retry-model"
       : status.actions.includes("continue") && continueNeeded ? "continue"
       : status.actions.includes("resend") ? "resend"
       : status.actions.includes("release") ? "release"

@@ -61,7 +61,7 @@ interface SimMission {
   resumeHold: boolean;
   /** Control-socket generation: a new session of the same mission gets a new one. */
   gen: number;
-  /** Provider quota park: the error text, until Continue or Switch model & retry clears it. */
+  /** Provider quota park: the error text, until Continue or Switch model clears it. */
   quota: string | null;
   model: string | null;
   /** Latest operator-requested PR check, set by the sim's `check` op. */

@@ -2,6 +2,7 @@
 import { addContactButton } from "./addcontact.js";
 import { allLanded, doneBanner } from "./endop.js";
 import { actionButton, el, primaryAction, statePill } from "./ui.js";
+import { icon } from "./icons.js";
 import { modelRecoveryCandidate, openModelRecovery } from "./model-recovery.js";
 
 const ATTENTION_ORDER = ["hold", "review", "complete", "decision", "offline"];
@@ -70,9 +71,15 @@ function item(contact, selected, ctx) {
 export function renderList(root, projection, selected, ctx) {
   root.replaceChildren();
   const failures = projection.contacts.filter(modelRecoveryCandidate);
-  if (failures.length) {
-    const recover = el("button", "btn small", `Switch failed models (${failures.length})`);
+  // Only when one of them can take a new model now; the others explain themselves on their cards.
+  if (failures.some((c) => c.actions.some((a) => a.id === "retry-model" && a.enabled))) {
+    const recover = el("button", "recovery-strip");
     recover.type = "button";
+    recover.append(
+      icon("rotate-cw", { size: 13 }),
+      el("span", "", failures.length === 1 ? `${failures[0].ticket} stopped on its model` : `${failures.length} missions stopped on their model`),
+      el("span", "recovery-strip-cta", "Switch model…"),
+    );
     recover.disabled = failures.every(contact => ctx.busy.has(`${contact.ticket}/*`));
     recover.dataset.key = "model-recovery";
     recover.addEventListener("click", () => openModelRecovery(failures, ctx));

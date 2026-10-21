@@ -68,6 +68,21 @@ function capacityHint(capacity) {
     capacity.checkedAt ? `Reported ${dateTime.format(capacity.checkedAt)}` : ""].filter(Boolean).join(" · ");
 }
 
+/**
+ * The model to offer first when a mission's model failed: the same model (selector after the provider) on another
+ * subscription with reported capacity, most remaining first. Null otherwise: a different model is the operator's call,
+ * and unknown capacity is no promise.
+ */
+export function suggestModel(catalog, failedSelectors = []) {
+  const failed = failedSelectors.filter(Boolean);
+  if (!failed.length) return null;
+  const idOf = (selector) => String(selector).slice(String(selector).indexOf("/") + 1);
+  const ids = new Set(failed.map(idOf));
+  return (catalog?.models ?? [])
+    .filter((m) => m.capacity?.state === "available" && !failed.includes(m.selector) && ids.has(idOf(m.selector)))
+    .sort((a, b) => (b.capacity.remainingFraction ?? 0) - (a.capacity.remainingFraction ?? 0))[0] ?? null;
+}
+
 export function subscriptionPanel(api, onCatalog) {
   const root = el("div", "subscription-panel");
   const tools = el("div", "subscription-tools");

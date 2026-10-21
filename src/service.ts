@@ -169,8 +169,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
   let bootSettings: Settings;
   try {
     bootSettings = await settingsFn();
-    server = await startServer({
-      service: createBoardService(home, {
+    const board = createBoardService(home, {
         extras: watcher.extras,
         recoveryWaits: (id) => recover.deferred(id),
         autoLandWait: (id) => auto.landingWait(id),
@@ -209,7 +208,11 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
         },
         run,
         urls: () => server?.urls ?? [],
-      }),
+      });
+    // Model pickers answer from memory: `omp models` is slow under the service's CPU quota.
+    void board.models();
+    server = await startServer({
+      service: board,
       onShutdown: close,
       settings: {
         access: options.access ?? bootSettings.access,
