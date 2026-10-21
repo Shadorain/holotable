@@ -86,7 +86,7 @@ export function suggestModel(catalog, failedSelectors = []) {
 export function subscriptionPanel(api, onCatalog) {
   const root = el("div", "subscription-panel");
   const tools = el("div", "subscription-tools");
-  const load = el("button", "", "Load subscription quotas");
+  const load = el("button", "btn small", "Load subscription quotas");
   load.type = "button";
   const result = el("div", "subscription-results");
   result.setAttribute("aria-live", "polite");

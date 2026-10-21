@@ -659,10 +659,9 @@ function decisionBox(contact, opId) {
     updatePick(value);
   };
 
+  // The option itself carries the "recommended" tag; the bar only offers the one-click pick.
   if (validRec) {
-    const recBar = el("div", "decide-rec");
-    const recInfo = el("div", "decide-rec-info");
-    recInfo.append(el("span", "decide-rec-kicker", "Recommended"), el("span", "decide-rec-val", validRec));
+    const recBar = el("div", "decide-rec-row");
     pickBtn = el("button", "btn small decide-rec-btn");
     pickBtn.type = "button";
     pickBtn.append(icon("sparkles", { size: 13 }), document.createTextNode("Pick recommended"));
@@ -671,7 +670,7 @@ function decisionBox(contact, opId) {
       radios[options.indexOf(validRec)]?.focus();
       select(validRec);
     });
-    recBar.append(recInfo, pickBtn);
+    recBar.append(pickBtn);
     box.append(recBar);
   }
 

@@ -144,7 +144,7 @@ export function openAddContact(projection, ctx) {
     row("Zone", zone.root),
     row("Kind", kind.root),
   );
-  const descRow = row("Description", description, "Full task scope, acceptance criteria, or context.");
+  const descRow = row("Description", description);
   const waits = row("Waits for", chips, "It stays queued until these land.");
   decideBox.append(row("Options", optionsText, "Two or more, for a pick-one decision."), row("Recommended", recommended.root, "Auto mode takes it when deciding is automated."));
 

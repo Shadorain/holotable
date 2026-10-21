@@ -277,9 +277,10 @@ function autoSection(p, ctx) {
       note: "Merge contacts when they complete.",
     });
     {
-      const nf = numberField({ label: "Max live", value: auto.maxLive, min: 1, max: 8 });
+      // The board cap bounds it in practice; the operation file allows up to 64.
+      const nf = numberField({ label: "Max live", value: auto.maxLive, min: 1, max: Math.min(64, Math.max(p.header?.cap ?? 64, auto.maxLive)) });
       const f = field(sub, "Max live in this operation", nf.root, {
-        note: "Below the board-wide cap.",
+        note: `Up to the board-wide cap${p.header?.cap ? ` (${p.header.cap})` : ""}.`,
       });
       nf.input.addEventListener("change", () => {
         f.setError(null);

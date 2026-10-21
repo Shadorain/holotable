@@ -18,7 +18,7 @@
   --line-2: #2c414b;
   --text: #dfe9ee;
   --muted: #7f97a3;
-  --dim: #566c77;
+  --dim: #6c838e;
   --accent: #5fd0e8;
   --accent-ink: #062530;
   --ok: #5bc48d;
@@ -53,7 +53,7 @@
   --line-2: #2d2640;
   --text: #f4f0ff;
   --muted: #a29ab6;
-  --dim: #777087;
+  --dim: #8a839c;
   --accent: #a78bfa;
   --accent-ink: #1e1333;
   --ok: #87e4c0;
@@ -89,7 +89,7 @@
   --line-2: #3d4550;
   --text: #e6edf3;
   --muted: #8b949e;
-  --dim: #6e7681;
+  --dim: #7d8590;
   --accent: #4c9aff;
   --accent-ink: #06121f;
   --ok: #3fb950;
@@ -179,7 +179,7 @@ main { min-height: 0; display: grid; gap: 10px; }
 [hidden] { display: none !important; }
 .blank h2 { color: var(--text); margin: 0 0 6px; }
 
-body[data-view="board"] main { grid-template-columns: 320px minmax(0, 1fr) 340px; grid-template-areas: "list card ops"; }
+body[data-view="board"] main { grid-template-columns: clamp(320px, 26vw, 420px) minmax(0, 1fr) 340px; grid-template-areas: "list card ops"; }
 body[data-view="table"] main { grid-template-columns: minmax(0, 1fr) 400px; grid-template-areas: "stage card"; }
 body[data-view="plan"] main { grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: auto 1fr; grid-template-areas: "tabs history" "map history"; }
 /* Each view shows only its own panels. */
@@ -207,7 +207,6 @@ body[data-view="table"] .list, body[data-view="plan"] .list, body[data-view="pla
   .stage { aspect-ratio: 1; max-height: 80vh; overflow: hidden; }
   .plan-map { overflow: auto; max-height: 75vh; }
 }
-@media (max-width: 1180px) { .brand > span { display: none; } }
 @media (max-width: 760px) {
   body { overflow-x: hidden; }
   .top { gap: 10px; }
@@ -757,6 +756,7 @@ textarea.plan-edit.seed-edit { width: 100%; background: var(--well); border: 1px
 /* ---- decisions ---- */
 .decide-q { font-weight: 600; margin: 0 0 10px; }
 .decide-rec { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; margin-bottom: 12px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--decide) 40%, var(--line-2)); background: color-mix(in srgb, var(--decide) 8%, var(--panel)); }
+.decide-rec-row { display: flex; justify-content: flex-end; margin-bottom: 8px; }
 .decide-rec-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .decide-rec-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--decide); font-weight: 600; }
 .decide-rec-val { font-size: 13.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

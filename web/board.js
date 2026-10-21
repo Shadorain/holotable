@@ -64,7 +64,7 @@ export function renderOps(root, projection, ctx) {
     kv([
       ["Started", String(contacts.filter((c) => c.group === "live" && c.state !== "landed").length), "Launched and not landed yet"],
       ["Queued", String(contacts.filter((c) => c.group === "queue").length), "Waiting to launch (blocked, ready or decisions)"],
-      ["Need you", String(contacts.filter((c) => c.attention).length), "Waiting on an operator click or a decision"],
+      ["Needs you", String(contacts.filter((c) => c.attention).length), "Waiting on an operator click or a decision"],
       ["Auto mode", op.auto?.enabled ? "on" : "off", "Open the Operation page to change it", ctx.openOperationPage],
     ]),
   );

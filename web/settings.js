@@ -1,7 +1,7 @@
 // Settings drawer: gear in the header opens a right-side panel over a scrim. It holds
 // only board-wide settings — the operation's own fields live on the operation page
 // (Plan view → Operation). Every control saves on change/blur through PUT /api/settings;
-// a 400 shows its message under the field, a save toasts.
+// a 400 shows its message under the field, a save updates the footer.
 import { closePopoversWithin, dropdown, el, numberField, segmented, textField } from "./components.js";
 import { enumRow, field, numberRow, switchRow, textRow } from "./fields.js";
 import { icon } from "./icons.js";
@@ -49,9 +49,9 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
       const data = await fetchJson(res);
       settings = data;
       settingsChanged?.(data.settings);
+      // The footer confirms the save; a toast per field was noise.
       foot.textContent = `Saved to ${settings.path}`;
       if (key === "theme") applyTheme(settings.settings.theme);
-      toast("Saved", "ok");
       done?.(null);
     } catch (error) {
       done?.(error);
@@ -178,9 +178,7 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
 
     // ---- AI & Models ----
     sec = section("AI & Models");
-    sec.append(el("div", "set-note sec-note", "Controls apply to new agent panes; existing sessions keep their model."));
-    sec.append(el("div", "set-note sec-note", "Search OMP's model catalog; a provider may still need sign-in. Prices are input/output dollars per million tokens, not spend limits. Plan refinement uses the model already running in its mission pane."));
-    sec.append(el("div", "set-note sec-note", "Reported quota ranks model choices. Exhausted subscriptions are unavailable; 10% or less is near limit. Unknown quota is not a recommendation. Remaining capacity does not guarantee model access. OMP still owns account routing and fallback."));
+    sec.append(el("div", "set-note sec-note", "Applies to new agent panes; running sessions keep their model. Pickers rank models by reported quota (exhausted ones are off; unknown quota is no promise) and show $/M tokens in/out. OMP still owns routing and fallback."));
     const modelPickers = [];
     sec.append(subscriptionPanel(api, catalog => modelPickers.forEach(picker => picker.setCatalog(catalog))));
 

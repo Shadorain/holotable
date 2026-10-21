@@ -120,7 +120,7 @@ export function stateLabel(contact) {
   if (problem?.kind === "quota") return "Quota exhausted";
   if (contact.review && Date.parse(contact.review.deadlineAt) <= Date.now()) return "Review stalled";
   if (problem?.kind === "rate-limit") return "Rate limited";
-  if (problem && state === "waiting") return "Retry waiting";
+  if (problem && state === "waiting") return "Retry scheduled";
   if (state === "hold" && hold === "plan-approval") return "Plan";
   if (state === "hold" && phase === "verify") return "Verify";
   if (problem && state === "hold") return "Failed";

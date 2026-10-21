@@ -162,7 +162,7 @@ export function openDecide(contact, action, run, { initialChoice = null } = {}) 
 
   const why = el("textarea", "plan-edit decide-why");
   why.rows = 4;
-  why.placeholder = "Why (optional): kept with the decision for whoever reads it later";
+  why.placeholder = "Optional: kept with the decision for whoever reads it later";
   why.setAttribute("aria-label", "Reasoning");
   if (changing && contact.decision?.rationale) {
     why.value = contact.decision.rationale;

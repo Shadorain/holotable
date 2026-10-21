@@ -77,7 +77,7 @@ export function renderList(root, projection, selected, ctx) {
     recover.type = "button";
     recover.append(
       icon("rotate-cw", { size: 13 }),
-      el("span", "", failures.length === 1 ? `${failures[0].ticket} stopped on its model` : `${failures.length} missions stopped on their model`),
+      el("span", "", failures.length === 1 ? `${failures[0].ticket} stopped on its model` : `${failures.length} stopped on their model`),
       el("span", "recovery-strip-cta", "Switch model…"),
     );
     recover.disabled = failures.every(contact => ctx.busy.has(`${contact.ticket}/*`));
