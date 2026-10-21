@@ -307,8 +307,11 @@ function renderHeader() {
   $("autoInd").hidden = !auto?.enabled;
   $("autoText").textContent = auto?.enabled ? (auto.launch || auto.land ? "Auto" : "Auto (manual land)") : "";
   const intDirty = p?.operation?.integrationDirty;
-  $("intWarn").hidden = !(typeof intDirty === "number" && intDirty > 0);
-  $("intWarnText").textContent = typeof intDirty === "number" && intDirty > 0 ? `integration dirty · ${intDirty}` : "";
+  const dirty = typeof intDirty === "number" && intDirty > 0;
+  $("intWarn").hidden = !dirty;
+  $("intWarnText").textContent = dirty ? `integration dirty · ${intDirty}` : "";
+  // Narrow screens fold the connection and the dirty warning behind More; its dot keeps them visible.
+  $("moreButton").toggleAttribute("data-alert", state.conn !== "live" || dirty);
 }
 function showBlank(message, detail) {
   document.body.dataset.view = "blank";
@@ -878,6 +881,33 @@ $("toggle").addEventListener("click", (event) => {
   const btn = event.target.closest("[data-view]");
   if (btn) setView(btn.dataset.view);
 });
+
+// Narrow screens show one Board panel at a time; the list keeps its scroll for the way back.
+let listScroll = 0;
+function showBoardTab(tab) {
+  const narrow = $("boardTabs").getClientRects().length > 0;
+  if (narrow && document.body.dataset.boardtab === "list") listScroll = scrollY;
+  document.body.dataset.boardtab = tab;
+  for (const b of $("boardTabs").children) b.setAttribute("aria-selected", String(b.dataset.boardtab === tab));
+  if (narrow) scrollTo(0, tab === "list" ? listScroll : 0);
+}
+$("boardTabs").addEventListener("click", (event) => {
+  const b = event.target.closest("[data-boardtab]");
+  if (b) showBoardTab(b.dataset.boardtab);
+});
+
+function setMore(open) {
+  $("morePop").classList.toggle("open", open);
+  $("moreButton").setAttribute("aria-expanded", String(open));
+}
+$("moreButton").addEventListener("click", () => setMore(!$("morePop").classList.contains("open")));
+// A press outside closes it, and so does following one of its links or buttons; the Load stat only toggles its chip.
+document.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest("#morePop, #moreButton")) setMore(false);
+});
+$("morePop").addEventListener("click", (event) => {
+  if (event.target.closest("a, button")) setMore(false);
+});
 $("planTabs").addEventListener("click", (event) => {
   const b = event.target.closest("[data-planview]");
   if (!b) return;
@@ -915,7 +945,10 @@ $("historyClear").addEventListener("click", () => {
   state.historyFilter.contact = null;
   render();
 });
-$("historyOpen").addEventListener("click", () => setView("board"));
+$("historyOpen").addEventListener("click", () => {
+  setView("board");
+  showBoardTab("card");
+});
 
 $("projectCrumb").addEventListener("click", () => {
   const id = $("projectCrumb").dataset.project;
@@ -993,6 +1026,7 @@ $("needs").addEventListener("click", () => {
   if (first) {
     select(first.ticket);
     setView("board");
+    showBoardTab("card");
   }
 });
 
@@ -1006,8 +1040,10 @@ document.addEventListener("click", (event) => {
   if (!pick) return;
   // Selection rebuilds the map before the browser can dispatch dblclick to its old target.
   const openCard = event.detail === 2 && Boolean(pick.closest("#planMap"));
+  const fromList = Boolean(pick.closest("#list"));
   select(pick.dataset.id);
   if (openCard) setView("board");
+  if (openCard || fromList) showBoardTab("card");
 });
 
 const VIEW_KEYS = { t: "table", 1: "table", b: "board", 2: "board", p: "plan", 3: "plan" };
@@ -1062,6 +1098,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     $("toasts").replaceChildren();
     state.confirming = null;
+    setMore(false);
     // In the plan, Esc undoes a focused chain just as clicking the focused node again does.
     state.historyFilter.contact = null;
     document.activeElement?.blur?.();
