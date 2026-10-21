@@ -266,6 +266,7 @@ function contactView(
   state: ContactState,
   conflictOpen: string | null,
   decisionPaneOpen: boolean,
+  resolved: string | null,
 ): ContactView {
   const { operation: op, statuses, owners, probes } = input;
   const d = contactDerived(derived, contact.ticket);
@@ -312,6 +313,7 @@ function contactView(
   if (state === "complete") {
     const next = actions.find(action => action.primary);
     detail = next?.reason ? `Mission complete; ${next.reason}`
+      : next?.id === "land" && resolved ? `Mission complete; Land takes ${resolved}'s resolution onto the PR`
       : next?.id === "land" && probe?.mergeable === "conflict" ? `Mission complete; its PR conflicts with ${op.base}, so Land opens a conflict mission`
       : next?.id === "land" ? "Mission complete; awaiting landing"
       : next?.label === "Mark merged" ? "Merged; record landing"
@@ -381,6 +383,7 @@ export function project(input: ProjectionInput): Projection {
       states.get(c.ticket) ?? "ready",
       conflictOpenFor(op, states, c.ticket, derived),
       input.decisionPanes?.has(c.ticket) ?? false,
+      op.contacts.filter((r) => r.conflictOf === c.ticket && states.get(r.ticket) === "complete").at(-1)?.ticket ?? null,
     ),
   );
   // Only a running pane's problem is current evidence: a reaped or dead pane's last quota error must not

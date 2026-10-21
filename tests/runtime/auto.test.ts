@@ -322,6 +322,20 @@ describe("auto mode", () => {
     expect(autos.at(-1)).toMatchObject({ enabled: false, reason: "every contact landed", by: "board" });
   });
 
+  test("a completed conflict mission waits for its target's Land instead of being marked done", async () => {
+    // Its branch is the resolution: marking it done first drops that branch and the target's Land conflicts again.
+    const t = await setup([
+      contact("a", { lane: lane("/wt/a", "t1", "b/a") }),
+      contact("a-conflict-1", { kind: "conflict", conflictOf: "a", lane: lane("/wt/c", "t2", "b/c") }),
+    ]);
+    t.setStatus("a", status({ worktree: "/wt/a", phase: "execute", ctl: null }));
+    t.setStatus("a-conflict-1", status({ worktree: "/wt/c", complete: true, phase: "complete", ctl: null }));
+    await t.auto.pass();
+    const events = await t.events();
+    expect(events.filter((e) => e.kind === "operator")).toEqual([]);
+    expect(events.some((e) => e.kind === "landed")).toBe(false);
+  });
+
   test("never acts on decision contacts or plan approval", async () => {
     const t = await setup([contact("d", { kind: "decision" }), contact("b")]);
     // b is live, sitting at plan approval; d is a queued decision. Nothing may move.
