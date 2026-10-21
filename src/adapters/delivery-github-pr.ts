@@ -8,10 +8,25 @@ const FAILED = new Set(["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_RE
 /** How long a fresh PR head with no workflow runs and no checks may still be waiting for CI to register. */
 const CHECKS_REGISTER_MS = 20 * 60_000;
 
+/**
+ * GitHub's rollup keeps every run of a check on the head, so a run superseded by a newer one (concurrency
+ * cancels it) would read as a failure. Only the newest run of each workflow job counts.
+ */
+function latestRuns(rollup: unknown[]): unknown[] {
+  const latest = new Map<string, unknown>();
+  rollup.forEach((item, index) => {
+    if (!isRecord(item)) return void latest.set(`#${index}`, item);
+    const key = `${String(item.workflowName ?? "")}\u0000${String(item.name ?? item.context ?? index)}`;
+    const seen = latest.get(key);
+    if (!isRecord(seen) || String(item.startedAt ?? "") >= String(seen.startedAt ?? "")) latest.set(key, item);
+  });
+  return [...latest.values()];
+}
+
 function checksFrom(rollup: unknown): DeliveryProbe["checks"] {
   if (!Array.isArray(rollup) || rollup.length === 0) return "none";
   let sawPending = false;
-  for (const item of rollup) {
+  for (const item of latestRuns(rollup)) {
     if (!isRecord(item)) {
       sawPending = true;
       continue;
@@ -33,7 +48,7 @@ function checksFrom(rollup: unknown): DeliveryProbe["checks"] {
 
 function failedChecks(rollup: unknown): string[] {
   if (!Array.isArray(rollup)) return [];
-  const names = rollup.filter(isRecord).flatMap((item) => {
+  const names = latestRuns(rollup).filter(isRecord).flatMap((item) => {
     const failed = typeof item.state === "string" ? FAILED.has(item.state) : typeof item.conclusion === "string" && FAILED.has(item.conclusion);
     const name = typeof item.name === "string" ? item.name : typeof item.context === "string" ? item.context : "unnamed check";
     return failed ? [name] : [];

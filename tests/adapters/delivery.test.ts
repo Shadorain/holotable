@@ -120,6 +120,20 @@ describe("githubPrDelivery.probe", () => {
     expect((await githubPrDelivery(run).probe({ operation: makeOperation(home), contact: makeContact("b"), status: makeStatus(null) }))?.checks).toBe("pending");
   });
 
+  test("a run superseded by a newer run of the same check does not fail the PR", async () => {
+    // Concurrency cancels the older run of PR #317's policy check; the queued rerun is what counts.
+    const home = tempDir();
+    const policy = { workflowName: "Verification policy protection", name: "Verify policy change explanation" };
+    const probe = async (rollup: unknown[]) => (await githubPrDelivery(fakeRun({ stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE", url: null, statusCheckRollup: rollup }), stderr: "", code: 0 }).run)
+      .probe({ operation: makeOperation(home), contact: makeContact("b"), status: makeStatus(null) }));
+    const cancelled = { ...policy, status: "COMPLETED", conclusion: "CANCELLED", startedAt: "2026-10-21T06:16:06Z" };
+    expect(await probe([cancelled, { ...policy, status: "QUEUED", conclusion: "", startedAt: "2026-10-21T06:16:13Z" }])).toMatchObject({ checks: "pending" });
+    expect(await probe([{ ...policy, status: "COMPLETED", conclusion: "SUCCESS", startedAt: "2026-10-21T06:20:00Z" }, cancelled])).toMatchObject({ checks: "pass" });
+    // The newest run failing still fails, and a same-named job in another workflow is judged on its own.
+    const failed = await probe([{ ...policy, status: "COMPLETED", conclusion: "FAILURE", startedAt: "2026-10-21T06:30:00Z" }, { workflowName: "Rust checks", name: policy.name, status: "COMPLETED", conclusion: "SUCCESS" }]);
+    expect(failed).toMatchObject({ checks: "fail", failing: [policy.name] });
+  });
+
   test("a failing check maps to fail", async () => {
     const home = tempDir();
     const { run } = fakeRun({ stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE", url: null, statusCheckRollup: [{ status: "COMPLETED", conclusion: "FAILURE" }] }), stderr: "", code: 0 });
