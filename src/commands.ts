@@ -19,7 +19,7 @@ import {
   type Tracker,
 } from "./core/types.ts";
 import { workflowToMarkdown } from "./core/notes.ts";
-import { messageOf } from "./core/errors.ts";
+import { asInput, InputError, messageOf } from "./core/errors.ts";
 import { parseSeed } from "./core/seed.ts";
 import { validateProject } from "./core/validate-project.ts";
 import { addContact, queueEvents } from "./contacts.ts";
@@ -33,7 +33,7 @@ import { formatSettings, setSettingKey } from "./settings.ts";
 import { mutateSettings, readSettings } from "./store/settings.ts";
 import { seedBriefFromJson, writeBrief, writeSeed } from "./store/brief.ts";
 import { readNotes, writeNotes } from "./store/notes.ts";
-import { createProject, listProjects, mutateProject, readProject, removeProjectDir } from "./store/projects.ts";
+import { createProject, listProjects, mutateProject, readProject, readProjectOrNull, removeProjectDir } from "./store/projects.ts";
 import {
   createOperation,
   listOperations,
@@ -235,11 +235,12 @@ export async function createFromSpec(
   spec: NewOperationSpec,
 ): Promise<Operation> {
   const { defaults } = await readSettings(home);
-  const project = spec.project !== undefined ? await readProject(home, spec.project) : null;
-  const seed = spec.seed !== undefined ? parseSeed(spec.seed, "seed") : {};
+  const project = spec.project !== undefined ? await readProjectOrNull(home, spec.project) : null;
+  if (spec.project !== undefined && !project) throw new InputError(`No project "${spec.project}"`);
+  const seed = spec.seed !== undefined ? asInput(() => parseSeed(spec.seed!, "seed")) : {};
   const repo = spec.repo ?? project?.repo;
   const base = spec.base ?? project?.base;
-  if (!repo || !base) throw new Error("repo and base are required (or pass a project that supplies them)");
+  if (!repo || !base) throw new InputError("repo and base are required (or pass a project that supplies them)");
   let auto = seed.auto;
   if (spec.auto !== undefined) {
     if (auto === undefined) auto = { ...DEFAULT_AUTO, enabled: spec.auto };

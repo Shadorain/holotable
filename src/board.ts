@@ -1,7 +1,7 @@
 import { mkdir, realpath } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { usableMemoryBytes } from "./machine.ts";
-import { messageOf } from "./core/errors.ts";
+import { asInput } from "./core/errors.ts";
 import { zoneIdFor } from "./core/zones.ts";
 import { PANE_MEMORY_BYTES } from "./core/policy.ts";
 import { workspaceInfo, type WorkspaceInfo } from "./adapters/workspace-info.ts";
@@ -46,7 +46,7 @@ import { createModelCatalog } from "./models.ts";
 import { createDraftDir, draftEntry, listDrafts, MAX_DRAFT_INPUT, newDraftId, readDraftDoc, readDraftUsage, recordDraftTerminal, recordDraftUsage, removeDraft } from "./store/drafts.ts";
 import { draftPrompt } from "./store/draft-prompts.ts";
 import { withTimeout } from "./timeout.ts";
-import { draftDir } from "./paths.ts";
+import { draftDir, isDraftId } from "./paths.ts";
 import { validateProject } from "./core/validate-project.ts";
 import { normalizeTicket } from "./core/validate-operation.ts";
 import type { FrontendPort, Run, TrackerHit, TrackerPort } from "./ports.ts";
@@ -57,7 +57,7 @@ import { displaySettingsPath, setSettingKey } from "./settings.ts";
 import { readBoardInfo } from "./store/board.ts";
 import { mutateSettings, readSettings } from "./store/settings.ts";
 import { readNotes, StaleRevisionError, writeNotes } from "./store/notes.ts";
-import { createProject, listProjects, mutateProject, readProject, removeProjectDir } from "./store/projects.ts";
+import { createProject, listProjects, mutateProject, readProjectOrNull, removeProjectDir } from "./store/projects.ts";
 import { loadProjection, type ProjectionExtras } from "./snapshot.ts";
 import { listOperations, mutateOperation, operationsUsingProject, readOperation, readOperationDoc } from "./store/operations.ts";
 import type { AbortPreview } from "./runtime/end.ts";
@@ -325,19 +325,6 @@ export interface BoardHooks {
   now?: () => number;
 }
 
-/**
- * The one place a failure that is not an HttpError becomes a 400: around the operator's edits and
- * creations, whose store validation rejects their input. Anything outside it reaches the server as a 500.
- */
-async function asBadRequest<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    throw new HttpError(400, messageOf(error));
-  }
-}
-
 export function createBoardService(home: string, hooks: BoardHooks = {}): BoardService {
   const now = hooks.now ?? Date.now;
   let setupCache: { timestamp: number; result: SetupReport } | null = null;
@@ -356,6 +343,12 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
   async function knownOperation(opId: string): Promise<void> {
     const known = await listOperations(home);
     if (!known.some((row) => row.id === opId)) throw new HttpError(404, `No open operation "${opId}"`);
+  }
+  /** 404 for the project a request addresses, 400 for one its body names; a failed read stays a 500. */
+  async function existingProject(id: string, status: 400 | 404): Promise<Project> {
+    const project = await readProjectOrNull(home, id);
+    if (!project) throw new HttpError(status, `No project "${id}"`);
+    return project;
   }
   async function settingsView(): Promise<SettingsView> {
     const [settings, rows] = await Promise.all([readSettings(home), listOperations(home)]);
@@ -414,9 +407,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
   }
   /** The project page's lane folder mirrors the operation one: the project stands in for its ops. */
   async function projectConfig(id: string): Promise<ProjectConfig> {
-    const project = await readProject(home, id).catch(() => {
-      throw new HttpError(404, `No project "${id}"`);
-    });
+    const project = await existingProject(id, 404);
     const stub = {
       frontend: project.frontend,
       repo: project.repo,
@@ -433,7 +424,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
     projection,
     settings: settingsView,
     async setSetting(key, value) {
-      await asBadRequest(async () => mutateSettings(home, (current) => setSettingKey(current, key, value)));
+      await mutateSettings(home, (current) => setSettingKey(current, key, value));
       return settingsView();
     },
     operationConfig,
@@ -445,33 +436,27 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
           await mutateOperation(home, opId, (op) => ({ ...op, project: null }));
           return operationConfig(opId);
         }
-        const target = await readProject(home, value).catch(() => {
-          throw new HttpError(400, `No project "${value}"`);
-        });
+        const target = await existingProject(value, 400);
         // Attach means "follow the project": every overridable field takes the project's value,
         // overrides can be set again afterwards. Moving launched work to another repo would strand its worktrees.
-        await asBadRequest(() =>
-          mutateOperation(home, opId, (op) => {
-            if (op.repo !== target.repo && op.contacts.some((c) => c.lane))
-              throw new HttpError(409, `${op.id} has launched work in ${op.repo}; project ${target.id} uses ${target.repo}`);
-            const next: Operation = { ...op, project: target.id };
-            for (const key of OVERRIDABLE_FIELDS) {
-              if (key === "worktreeRoot") {
-                if (target.worktreeRoot === undefined) delete next.worktreeRoot;
-                else next.worktreeRoot = target.worktreeRoot;
-              } else (next as unknown as Record<string, unknown>)[key] = target[key];
-            }
-            return next;
-          }),
-        );
+        await mutateOperation(home, opId, (op) => {
+          if (op.repo !== target.repo && op.contacts.some((c) => c.lane))
+            throw new HttpError(409, `${op.id} has launched work in ${op.repo}; project ${target.id} uses ${target.repo}`);
+          const next: Operation = { ...op, project: target.id };
+          for (const key of OVERRIDABLE_FIELDS) {
+            if (key === "worktreeRoot") {
+              if (target.worktreeRoot === undefined) delete next.worktreeRoot;
+              else next.worktreeRoot = target.worktreeRoot;
+            } else (next as unknown as Record<string, unknown>)[key] = target[key];
+          }
+          return next;
+        });
         return operationConfig(opId);
       }
       if (!(SET_FIELDS as readonly string[]).includes(field)) throw new HttpError(400, `Unknown field "${field}"`);
       const before = await readOperationDoc(home, opId);
       // Relative integration paths resolve against the operation's repo: the page has no cwd.
-      const next = await asBadRequest(() =>
-        mutateOperation(home, opId, (op) => applyOperationField(op, field, value, op.repo, before.project)),
-      );
+      const next = await mutateOperation(home, opId, (op) => applyOperationField(op, field, value, op.repo, before.project));
       await recordConfigToggles(home, new Date(now()), opId, before.operation, next);
       return operationConfig(opId);
     },
@@ -497,22 +482,20 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
     },
     async setBrief(opId, text) {
       await knownOperation(opId);
-      await asBadRequest(() => writeBrief(home, opId, text));
+      await writeBrief(home, opId, text);
     },
     async addZone(opId, label) {
       await knownOperation(opId);
       let id = "";
-      await asBadRequest(() =>
-        mutateOperation(home, opId, (op) => {
-          id = zoneIdFor(label, op.zones.map((z) => z.id));
-          return { ...op, zones: [...op.zones, { id, label }] };
-        }),
-      );
+      await mutateOperation(home, opId, (op) => {
+        id = zoneIdFor(label, op.zones.map((z) => z.id));
+        return { ...op, zones: [...op.zones, { id, label }] };
+      });
       return id;
     },
     async addContact(opId, input) {
       await knownOperation(opId);
-      return asBadRequest(() => addContactStore(home, new Date(now()), opId, { ...input, source: "operator" }));
+      return addContactStore(home, new Date(now()), opId, { ...input, source: "operator" });
     },
     async trackerSearch(input) {
       const q = input.q.trim();
@@ -521,16 +504,13 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       let taken: Set<string> | null = null;
       if (input.op) {
         if (input.project) throw new HttpError(400, "op and project are alternatives");
-        const operation = await readOperation(home, input.op).catch(() => {
-          throw new HttpError(404, `No open operation "${input.op}"`);
-        });
+        await knownOperation(input.op);
+        const operation = await readOperation(home, input.op);
         tracker = operation.tracker;
         cwd = operation.repo;
         taken = new Set(operation.contacts.map((c) => normalizeTicket(tracker, c.ticket)));
       } else if (input.project) {
-        const project = await readProject(home, input.project).catch(() => {
-          throw new HttpError(404, `No project "${input.project}"`);
-        });
+        const project = await existingProject(input.project, 404);
         tracker = project.tracker;
         cwd = project.repo;
       } else {
@@ -550,9 +530,8 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       return { tracker, hits: taken ? hits.map((h) => (taken.has(normalizeTicket(tracker, h.ticket)) ? { ...h, taken: true as const } : h)) : hits };
     },
     async trackerIssue(opId, ticket) {
-      const operation = await readOperation(home, opId).catch(() => {
-        throw new HttpError(404, `No open operation "${opId}"`);
-      });
+      await knownOperation(opId);
+      const operation = await readOperation(home, opId);
       if (!operation.contacts.some((contact) => contact.ticket === ticket))
         throw new HttpError(404, `No contact "${ticket}"`);
       if (operation.tracker === "none") return { url: null };
@@ -565,7 +544,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       return { url };
     },
     async createOperation(spec) {
-      return asBadRequest(() => createFromSpec(home, new Date(now()), spec));
+      return createFromSpec(home, new Date(now()), spec);
     },
     async intelSources() {
       const [operations, archives] = await Promise.all([listOperations(home), listArchive(home, new Date(now()))]);
@@ -620,7 +599,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       }));
     },
     projectConfig,
-    createProject: (input) => asBadRequest(async () => {
+    async createProject(input) {
       const { defaults } = await readSettings(home);
       const detected = await detectRepo(input.repo, hooks.run ?? createRun());
       const topRepo = detected.fields.integration;
@@ -644,7 +623,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       const pause = input.pause ?? defaults.pause;
       const worktreeRoot = input.worktreeRoot ?? detected.fields.worktreeRoot;
 
-      const project = validateProject({
+      const project = asInput(() => validateProject({
         v: 1,
         id,
         name: input.name?.trim() || from || id,
@@ -658,44 +637,39 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         delivery,
         createdAt: new Date(now()).toISOString(),
         ...(worktreeRoot ? { worktreeRoot } : {}),
-      });
+      }));
       await createProject(home, project);
       reposCache = null;
       return { id };
-    }),
+    },
     async setProjectField(id, field, value) {
       if (!(PROJECT_FIELDS as readonly string[]).includes(field)) throw new HttpError(400, `Unknown field "${field}"`);
+      await existingProject(id, 404);
       // Project paths are absolute on the wire; resolve("/") is a pass-through for them.
-      await asBadRequest(() => mutateProject(home, id, (p) => applyProjectField(p, field, value, "/")));
+      await mutateProject(home, id, (p) => applyProjectField(p, field, value, "/"));
       return projectConfig(id);
     },
     async installGraphService(id) {
-      const project = await readProject(home, id).catch(() => {
-        throw new HttpError(404, `No project "${id}"`);
-      });
+      const project = await existingProject(id, 404);
       const run = hooks.run ?? createRun();
       const dolt = await run("which", ["dolt"], project.repo);
       const doltPath = dolt.stdout.trim();
       if (dolt.code !== 0 || !doltPath.startsWith("/"))
         throw new HttpError(400, "dolt is not on PATH; install it before managing the graph server");
-      const result = await asBadRequest(() => installDolt(project.id, project.name, project.repo, { run, doltPath }));
+      const result = await installDolt(project.id, project.name, project.repo, { run, doltPath });
       if (result.warnings.length) throw new HttpError(502, result.warnings.join("; "));
       return projectConfig(id);
     },
     async restartGraphService(id) {
-      const project = await readProject(home, id).catch(() => {
-        throw new HttpError(404, `No project "${id}"`);
-      });
-      await asBadRequest(() => restartDolt(project.id, project.repo, { run: hooks.run ?? createRun() }));
+      const project = await existingProject(id, 404);
+      await restartDolt(project.id, project.repo, { run: hooks.run ?? createRun() });
       return projectConfig(id);
     },
     async deleteProject(id) {
-      await readProject(home, id).catch(() => {
-        throw new HttpError(404, `No project "${id}"`);
-      });
+      await existingProject(id, 404);
       const using = await operationsUsingProject(home, id);
       if (using.length) throw new HttpError(409, `Project ${id} has open operations (${using.join(", ")})`);
-      await asBadRequest(() => removeProjectDir(home, id));
+      await removeProjectDir(home, id);
       reposCache = null;
     },
     async notes(opId) {
@@ -708,17 +682,15 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         return await writeNotes(home, opId, text, base);
       } catch (error) {
         if (error instanceof StaleRevisionError) throw new HttpError(409, "stale: the notes changed since you loaded them");
-        throw new HttpError(400, messageOf(error));
+        throw error;
       }
     },
-    createDraft: (input) => asBadRequest(async () => {
+    async createDraft(input) {
       const ports = hooks.drafts;
       if (!ports) throw new HttpError(404, "Drafts are unavailable without a frontend runtime");
       const text = input.text;
       if (Buffer.byteLength(text) > MAX_DRAFT_INPUT) throw new HttpError(400, "Draft text exceeds 64 KiB");
-      const project = input.project !== undefined && input.project !== "" ? await readProject(home, input.project).catch(() => {
-        throw new HttpError(400, `No project "${input.project}"`);
-      }) : null;
+      const project = input.project !== undefined && input.project !== "" ? await existingProject(input.project, 400) : null;
       const repo = input.repo ?? project?.repo;
       if (!repo) throw new HttpError(400, "A draft needs a project or a repo to open in");
       if (!isAbsolute(repo)) throw new HttpError(400, "repo must be an absolute path");
@@ -765,13 +737,14 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         throw error;
       }
       return { id };
-    }),
+    },
     async draft(id) {
       const entry = await draftEntry(home, id);
       if (!entry) return { id, state: "missing", createdAt: "" };
       return entry;
     },
-    closeDraft: (id) => asBadRequest(async () => {
+    async closeDraft(id) {
+      if (!isDraftId(id)) throw new HttpError(400, `Invalid draft id "${id}"`);
       const doc = await readDraftDoc(home, id);
       if (doc?.terminal && hooks.drafts) {
         const frontend = await hooks.drafts.frontend(doc.frontend, doc.worktreeRoot).catch(() => null);
@@ -779,7 +752,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       }
       await recordDraftUsage(home, id, new Date(now()).toISOString());
       await removeDraft(home, id);
-    }),
+    },
     async listDrafts() {
       return listDrafts(home);
     },
@@ -799,7 +772,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       reposCache = { timestamp: n, result: rows };
       return rows;
     },
-    detect: (repo) => asBadRequest(async () => {
+    async detect(repo) {
       const detected = await detectRepo(repo, hooks.run ?? createRun());
       const { defaults } = await readSettings(home);
       return {
@@ -809,7 +782,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
           pause: defaults.pause ? "Settings mission mode: pause" : "Settings mission mode: auto",
         },
       };
-    }),
+    },
     ...(hooks.usage
       ? {
           usage: async (opId: string | null) => {

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { access, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { lock } from "proper-lockfile";
+import { InputError } from "../core/errors.ts";
 import { operationDir } from "../paths.ts";
 import { writeFileAtomic } from "./atomic.ts";
 
@@ -52,7 +53,7 @@ export async function writeNotes(
   text: string,
   base: string,
 ): Promise<{ text: string; revision: string }> {
-  if (Buffer.byteLength(text) > MAX_NOTES) throw new Error("notes exceed 256 KiB");
+  if (Buffer.byteLength(text) > MAX_NOTES) throw new InputError("notes exceed 256 KiB");
   const dir = operationDir(home, id);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   // Lock notes.md itself: proper-lockfile does not need the file to exist and the

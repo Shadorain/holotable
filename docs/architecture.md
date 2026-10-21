@@ -278,6 +278,19 @@ Auto launch and auto decision panes count `recover.ts::relaunchesPending` agains
 
 Completed non-conflict contacts require attention even when their primary landing action is disabled; their detail names the refusal or awaiting-landing state. GitHub delivery probe, land and `verifyMerged` prefer the producer's delivered PR URL, falling back to branch lookup only when no URL is known. Reused branches cannot substitute a historical PR for the delivered one.
 
+## HTTP API status codes
+
+Every `/api/` failure answers `{error}` with a status chosen by its cause, from typed errors only (`src/server.ts`, never message text):
+
+| status | cause | typed as |
+|---|---|---|
+| 400 | the caller's input: malformed body or parameter, validation, unknown field or value, a project named in a body that does not exist | `HttpError(400)`, `InputError` (`core/errors.ts`) |
+| 404 | the operation, contact, project, archive or draft the request addresses does not exist; a route or runtime the board lacks | `HttpError(404)` |
+| 409 | a conflict with current state: stale notes revision, an id already taken, an unavailable action, launched work moving repo, a project still in use | `HttpError(409)`, `ConflictError` |
+| 500 | store, I/O or unexpected failure (including a read after a successful write), with the error message | anything else |
+
+Actions keep their own `ActionError` status. Stores mark the input phase themselves: `mutateOperation`, `mutateProject`, `mutateSettings`, `createOperation` and `createProject` run the caller's edit and validate the new document inside `asInput`, so a plain validator rejection there is an `InputError` while reading, locking and writing stay 500s; typed errors thrown by the edit (an `HttpError(409)`) pass through.
+
 ## Invariants
 
 - Events are append-only and every stat is derived from them; there is no second copy of mission JSON and the board never parses it.

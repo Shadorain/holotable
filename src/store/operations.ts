@@ -4,6 +4,7 @@ import { lock } from "proper-lockfile";
 import { workflowToMarkdown } from "../core/notes.ts";
 import type { Operation, OverridableField, Project, StoredOperation } from "../core/types.ts";
 import { OVERRIDABLE_FIELDS } from "../core/types.ts";
+import { asInput, ConflictError } from "../core/errors.ts";
 import { isRecord, MAX_OPERATION_BYTES } from "../core/validate.ts";
 import { validateOperationDoc } from "../core/validate-operation.ts";
 import { archiveDir, operationDir, operationsDir } from "../paths.ts";
@@ -206,16 +207,17 @@ export async function operationsUsingProject(home: string, projectId: string): P
 export async function createOperation(home: string, operation: Operation): Promise<Operation> {
   const target = operationFile(home, operation.id);
   const project = await readProjectOrNull(home, operation.project);
-  const stored = storedFromResolved(
-    { ...operation, project: project === null ? null : project.id },
-    project,
-  );
-  const validated = validateOperationDoc(stored, target, project);
+  // The document is the caller's: a rejection is their input, a taken id their conflict.
+  const { validated, text } = asInput(() => {
+    const stored = storedFromResolved({ ...operation, project: project === null ? null : project.id }, project);
+    const validated = validateOperationDoc(stored, target, project);
+    return { validated, text: serializeOperation(validated.stored) };
+  });
   try {
-    await createFileAtomic(target, serializeOperation(validated.stored));
+    await createFileAtomic(target, text);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST")
-      throw new Error(`Operation "${operation.id}" already exists`);
+      throw new ConflictError(`Operation "${operation.id}" already exists`);
     throw new Error(`Cannot create operation at ${target}: ${String(error)}`);
   }
   return validated.operation;
@@ -234,13 +236,17 @@ export async function mutateOperation(
     const stored = await migrateWorkflowLocked(home, id, file);
     const project = await readProjectOrNull(home, projectIdOf(stored));
     const resolved = validateOperationDoc(stored, file, project).operation;
-    const next = fn(resolved);
+    const next = asInput(() => fn(resolved));
     const nextProject =
       next.project === resolved.project
         ? project
         : await readProjectOrNull(home, next.project);
-    const doc = validateOperationDoc(storedFromResolved(next, nextProject), file, nextProject);
-    await writeFileAtomic(file, serializeOperation(doc.stored));
+    // The stored document was valid when read, so a rejection now is the edit's.
+    const { doc, text } = asInput(() => {
+      const doc = validateOperationDoc(storedFromResolved(next, nextProject), file, nextProject);
+      return { doc, text: serializeOperation(doc.stored) };
+    });
+    await writeFileAtomic(file, text);
     return doc.operation;
   } finally {
     await release();

@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { lock } from "proper-lockfile";
+import { asInput, ConflictError } from "../core/errors.ts";
 import type { Project } from "../core/types.ts";
 import { validateProject } from "../core/validate-project.ts";
 import { projectDir, projectFile, projectsDir } from "../paths.ts";
@@ -8,18 +9,25 @@ import { createFileAtomic, writeFileAtomic } from "./atomic.js";
 
 const MAX_PROJECT_BYTES = 64 * 1024;
 
+/** Validated and serialized for disk; a rejection is the caller's input (create or edit). */
+function serializeProject(project: Project, target: string): { validated: Project; text: string } {
+  return asInput(() => {
+    const validated = validateProject(project, target);
+    const text = `${JSON.stringify(validated, null, 2)}\n`;
+    if (Buffer.byteLength(text) > MAX_PROJECT_BYTES) throw new Error("project exceeds 64 KiB");
+    return { validated, text };
+  });
+}
+
 export async function createProject(home: string, project: Project): Promise<Project> {
   const target = projectFile(home, project.id);
-  const validated = validateProject(project, target);
-  const serialized = `${JSON.stringify(validated, null, 2)}\n`;
-  if (Buffer.byteLength(serialized) > MAX_PROJECT_BYTES)
-    throw new Error("project exceeds 64 KiB");
+  const { validated, text } = serializeProject(project, target);
   await mkdir(projectDir(home, project.id), { recursive: true, mode: 0o700 });
   try {
-    await createFileAtomic(target, serialized);
+    await createFileAtomic(target, text);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST")
-      throw new Error(`Project ${project.id} already exists`);
+      throw new ConflictError(`Project ${project.id} already exists`);
     throw error;
   }
   return validated;
@@ -84,12 +92,10 @@ export async function mutateProject(
   const target = projectFile(home, id);
   const release = await lock(target, { realpath: false, stale: 10_000, retries: { retries: 5, minTimeout: 50 } });
   try {
-    const next = validateProject(fn(await readProject(home, id)), target);
-    const serialized = `${JSON.stringify(next, null, 2)}\n`;
-    if (Buffer.byteLength(serialized) > MAX_PROJECT_BYTES)
-      throw new Error("project exceeds 64 KiB");
-    await writeFileAtomic(target, serialized);
-    return next;
+    const current = await readProject(home, id);
+    const { validated, text } = serializeProject(asInput(() => fn(current)), target);
+    await writeFileAtomic(target, text);
+    return validated;
   } finally {
     await release();
   }

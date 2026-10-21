@@ -555,6 +555,7 @@ Simulated decision panes write their answer about five seconds after opening (th
 - The board launches and watches missions; it never runs them. This process never attaches a mission and never calls `control()`. Every mutation is an operator click, forwarded to the owning session's control socket, which runs the same code the slash command runs.
 - Resume hold, plan mode, Pause gates and ownership apply inside the mission. Plan approval resolves OMP's native review through the mission socket, only on an operator click or opt-in `auto.plans`. Recovery never approves plans or gates; see [Recovery](#recovery).
 - The board page can approve gates. Access follows Settings → Server (Tailscale by default); every API call requires the URL-fragment token, plus Host and Origin checks. Keep the full URL private.
+- API errors say whose fault they are: 400 for your input, 404 for an operation, contact or project that does not exist, 409 for a conflict (stale notes, a taken id), 500 with the message for a store or I/O failure. See [docs/architecture.md](docs/architecture.md#http-api-status-codes).
 - Land happens on the integration checkout, never in a mission checkout; a conflict becomes a new mission rather than a second copy of the ticket. Linear issues and pull requests are only touched by an operator click (`gh pr merge` on Land) or by auto mode the operator switched on for that operation.
 - Queue stays visible: blocked work never launches and never disappears.
 - History is append-only events; there is no second copy of mission JSON.

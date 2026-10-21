@@ -3,6 +3,7 @@ import { mkdir, rm, stat } from "node:fs/promises";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createBoardService, HttpError } from "../src/board.ts";
+import { InputError } from "../src/core/errors.ts";
 import type { Project } from "../src/core/types.ts";
 import { createWatcher } from "../src/runtime/watcher.ts";
 import { DEFAULT_SETTINGS } from "../src/settings.ts";
@@ -160,10 +161,10 @@ test("a stale notes base is a typed error, whatever its wording", async () => {
   const dir = home();
   await createOperation(dir, operation({ id: "a" }));
   await expect(writeNotes(dir, "a", "# Notes\n", "bogus")).rejects.toBeInstanceOf(StaleRevisionError);
-  // Only the stale case is a 409: other write failures stay a 400.
+  // Only the stale case is a conflict: an oversized edit is the caller's input (a 400 on the API).
   const svc = createBoardService(dir);
   const empty = await svc.notes("a");
-  await expect(svc.setNotes("a", "x".repeat(256 * 1024 + 1), empty.revision)).rejects.toMatchObject({ status: 400 });
+  await expect(svc.setNotes("a", "x".repeat(256 * 1024 + 1), empty.revision)).rejects.toBeInstanceOf(InputError);
 });
 
 // ---- B5: drafts ----

@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { basename } from "node:path";
+import { InputError } from "../core/errors.ts";
 import { decode } from "./orca-envelope.ts";
 import type { Run } from "../ports.ts";
 
@@ -96,7 +97,7 @@ export async function detectRepo(repo: string, run: Run, orca?: OrcaRepoEntry[] 
   const reasons: Record<string, string> = {};
 
   const top = await gitTopLevel(run, repo);
-  if (!top) throw new Error(`${repo} is not inside a git work tree`);
+  if (!top) throw new InputError(`${repo} is not inside a git work tree`);
 
   const orcaRow = orca === undefined ? await orcaRepos(run) : orca;
   const repoReal = await realpath(top).catch(() => top);

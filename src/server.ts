@@ -8,7 +8,7 @@ import { isAllowedRemoteAddress, isTailscaleAddress, resolveBoardUrls } from "./
 import { HttpError, type BoardService, type ProjectSpec } from "./board.ts";
 import { CLOSE_OUTCOMES, type NewOperationSpec } from "./commands.ts";
 import type { Access, ClosedOutcome, Delivery, Fleet, Frontend, Kind, Settings, Tracker } from "./core/types.ts";
-import { messageOf } from "./core/errors.ts";
+import { ConflictError, InputError, messageOf } from "./core/errors.ts";
 import { notifyChanged, onChanged } from "./core/notify.ts";
 import type { Run } from "./ports.ts";
 import { ActionError } from "./runtime/errors.ts";
@@ -593,6 +593,8 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       if (res.headersSent) return res.end();
       if (error instanceof HttpError) return fail(res, error.status, error.message);
       if (error instanceof ActionError) return fail(res, error.status, `${error.code}: ${error.message}`);
+      if (error instanceof InputError) return fail(res, 400, error.message);
+      if (error instanceof ConflictError) return fail(res, 409, error.message);
       return fail(res, 500, messageOf(error));
     }
   };

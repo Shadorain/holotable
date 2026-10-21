@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,8 +7,8 @@ import { createBoardService, type BoardHooks } from "../src/board.ts";
 import { ActionError } from "../src/runtime/errors.ts";
 import { endOperation } from "../src/runtime/end.ts";
 import { startServer, type BoardServer } from "../src/server.ts";
-import { DEFAULT_SETTINGS } from "../src/settings.ts";
-import { archiveDir, operationDir } from "../src/paths.ts";
+import { DEFAULT_SETTINGS, settingsFile } from "../src/settings.ts";
+import { archiveDir, operationDir, operationsDir } from "../src/paths.ts";
 import { appendEvent } from "../src/store/events.ts";
 import { archiveOperation, createOperation } from "../src/store/operations.ts";
 import { createProject } from "../src/store/projects.ts";
@@ -536,4 +536,51 @@ test("Intel archives keep frozen evidence without reading histories and leave le
   const legacy = await (await api(`/api/intel?archive=${key}`)).json() as { evaluation: unknown };
   expect(legacy.evaluation).toBeNull();
   expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(stored);
+});
+
+test("status codes follow the cause: input 400, unknown target 404, conflict 409, store failure 500", async () => {
+  const project = { v: 1 as const, id: "yard", name: "Yard", repo: "/tmp/yard", base: "main", integration: "/tmp/yard", pause: true, ignoreChecks: false, tracker: "none" as const, fleet: "none" as const, frontend: "none" as const, delivery: "none" as const, createdAt: "2026-01-01T00:00:00.000Z" };
+  const breakOperationList = (home: string) => {
+    rmSync(operationsDir(home), { recursive: true, force: true });
+    writeFileSync(operationsDir(home), "not a directory");
+  };
+  const withProject = async (home: string) => {
+    await createProject(home, project);
+  };
+  const cases: Array<{ name: string; setup?: (home: string) => Promise<void> | void; path: string; method: string; body: unknown; status: number }> = [
+    { name: "notes: unknown operation", path: "/api/notes", method: "PUT", body: { op: "ghost", text: "" }, status: 404 },
+    { name: "notes: stale revision", path: "/api/notes", method: "PUT", body: { op: "lab", text: "x", base: "bogus" }, status: 409 },
+    { name: "notes: oversized text", path: "/api/notes", method: "PUT", body: { op: "lab", text: "x".repeat(256 * 1024 + 1) }, status: 400 },
+    { name: "notes: operation list unreadable", setup: breakOperationList, path: "/api/notes", method: "PUT", body: { op: "lab", text: "" }, status: 500 },
+    { name: "contacts: unknown zone", path: "/api/contacts", method: "POST", body: { op: "lab", ticket: "t1", zone: "ghost" }, status: 400 },
+    { name: "contacts: operation list unreadable", setup: breakOperationList, path: "/api/contacts", method: "POST", body: { op: "lab", ticket: "t1", zone: "ops" }, status: 500 },
+    { name: "brief: store write fails", setup: (home) => mkdirSync(join(operationDir(home, "lab"), "brief.md")), path: "/api/brief", method: "PUT", body: { op: "lab", text: "# Plan" }, status: 500 },
+    { name: "operations: id taken", path: "/api/operations", method: "POST", body: { id: "lab", repo: tmpdir(), base: "main" }, status: 409 },
+    { name: "operations: unknown project value", path: "/api/operations", method: "POST", body: { id: "new", project: "ghost" }, status: 400 },
+    { name: "project-config: unknown field", setup: withProject, path: "/api/project-config", method: "POST", body: { project: "yard", field: "colour", value: "red" }, status: 400 },
+    { name: "project-config: invalid value", setup: withProject, path: "/api/project-config", method: "POST", body: { project: "yard", field: "tracker", value: "nope" }, status: 400 },
+    { name: "project-config: unknown project", path: "/api/project-config", method: "POST", body: { project: "ghost", field: "name", value: "Ghost" }, status: 404 },
+    {
+      name: "project-config: config read fails after the write",
+      setup: async (home) => {
+        await createProject(home, project);
+        writeFileSync(settingsFile(home), "{not json");
+      },
+      path: "/api/project-config", method: "POST", body: { project: "yard", field: "name", value: "Yard 2" }, status: 500,
+    },
+    { name: "projects/remove: unknown project", path: "/api/projects/remove", method: "POST", body: { id: "ghost" }, status: 404 },
+    { name: "settings: unknown key", path: "/api/settings", method: "PUT", body: { key: "colour", value: "red" }, status: 400 },
+    { name: "settings: stored file unreadable", setup: (home) => writeFileSync(settingsFile(home), "{not json"), path: "/api/settings", method: "PUT", body: { key: "cap", value: "4" }, status: 500 },
+  ];
+  const run = async () => ({ code: 1, stdout: "", stderr: "" });
+  const actual: Record<string, number> = {};
+  for (const c of cases) {
+    const { home, api } = await boot({ run });
+    await c.setup?.(home);
+    const res = await api(c.path, { method: c.method, body: c.body });
+    actual[c.name] = res.status;
+    // A 500 still says what failed.
+    if (res.status === 500) expect(((await res.json()) as { error: string }).error).not.toBe("");
+  }
+  expect(actual).toEqual(Object.fromEntries(cases.map((c) => [c.name, c.status])));
 });

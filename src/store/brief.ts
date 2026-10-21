@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { InputError } from "../core/errors.ts";
 import { operationDir } from "../paths.ts";
 import { writeFileAtomic } from "./atomic.ts";
 
@@ -36,7 +37,7 @@ export async function readBrief(home: string, id: string): Promise<{ brief: stri
 
 export async function writeBrief(home: string, id: string, text: string): Promise<void> {
   const buf = Buffer.from(text, "utf8");
-  if (buf.length > MAX_BRIEF) throw new Error("brief exceeds 256 KiB");
+  if (buf.length > MAX_BRIEF) throw new InputError("brief exceeds 256 KiB");
   await writeFileAtomic(briefFile(home, id), text);
 }
 export async function writeSeed(home: string, id: string, text: string): Promise<void> {
@@ -44,7 +45,7 @@ export async function writeSeed(home: string, id: string, text: string): Promise
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const spath = seedFile(home, id);
   const buf = Buffer.from(text, "utf8");
-  if (buf.length > MAX_SEED) throw new Error("seed exceeds 1 MiB");
+  if (buf.length > MAX_SEED) throw new InputError("seed exceeds 1 MiB");
   // write once semantics: do not overwrite if exists
   try {
     await writeFile(spath, text, { mode: 0o600, flag: "wx" });

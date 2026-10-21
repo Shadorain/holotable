@@ -1,5 +1,6 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { lock } from "proper-lockfile";
+import { asInput } from "../core/errors.ts";
 import type { Settings } from "../core/types.ts";
 import { DEFAULT_SETTINGS, settingsFile, validateSettings } from "../settings.ts";
 import { writeFileAtomic } from "./atomic.ts";
@@ -49,7 +50,8 @@ export async function mutateSettings(home: string, fn: (current: Settings) => Se
   await mkdir(home, { recursive: true, mode: 0o700 });
   const release = await lock(path, LOCK_OPTS);
   try {
-    const next = validateSettings(fn(await readSettings(home)), path);
+    const current = await readSettings(home);
+    const next = asInput(() => validateSettings(fn(current), path));
     await writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`);
     return next;
   } finally {
