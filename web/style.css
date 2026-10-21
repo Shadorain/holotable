@@ -152,6 +152,24 @@ button:has(> svg.icon), .btn:has(> svg.icon) { display: inline-flex; align-items
 .top > .more-btn { display: none; position: relative; width: 36px; height: 36px; }
 .more-btn .dot { display: none; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
 .more-btn[data-alert] .dot { display: block; }
+.inbox-btn { position: relative; width: 36px; height: 36px; color: var(--bad); }
+.inbox-count {
+  position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  background: var(--bad); color: var(--bg); font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center;
+}
+.inbox {
+  position: fixed; right: 16px; z-index: 70; width: min(420px, calc(100vw - 32px)); max-height: min(60vh, 520px);
+  display: flex; flex-direction: column; background: var(--popover); border: 1px solid var(--line-2); border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.inbox:focus { outline: none; }
+.inbox-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.inbox-head h2 { margin: 0; font-size: 14px; }
+.inbox-list { list-style: none; margin: 0; padding: 4px 0; overflow: auto; }
+.inbox-item { display: flex; gap: 10px; align-items: baseline; padding: 6px 12px; font-size: 13px; border-left: 3px solid var(--bad); }
+.inbox-item + .inbox-item { border-top: 1px solid var(--line); }
+.inbox-time { flex: none; color: var(--dim); font-size: 11.5px; }
+.inbox-text { overflow-wrap: anywhere; }
 .toggle { display: flex; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
 .toggle button { background: transparent; border: 0; padding: 6px 14px; color: var(--muted); }
 .toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 650; }
@@ -379,6 +397,7 @@ details.group > summary .count { margin-left: auto; }
 .set-field { padding: 6px 0; }
 .set-field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .set-name { font-size: 13px; }
+.set-saved { display: inline-flex; align-items: center; align-self: center; gap: 3px; margin-right: auto; color: var(--ok); font-size: 11.5px; }
 .set-restart { color: var(--warn); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
 .set-control { margin-top: 6px; display: flex; align-items: center; }
 .set-note { color: var(--dim); font-size: 11.5px; margin-top: 4px; }

@@ -152,9 +152,17 @@ function inheritance(f, key, cfg, ctx) {
     const back = el("button", "linkish tag-inherit", "use project value");
     back.type = "button";
     back.title = "Drop this operation's override and follow the project again";
-    back.addEventListener("click", () => ctx.saveOp(key, "inherit"));
+    back.addEventListener("click", () => ctx.saveOp(key, "inherit", toastOrMark(f, ctx)));
     headRow.append(back);
   }
+}
+
+/** Done callback for saves without an inline revert: a failure toasts, a success marks the row. */
+function toastOrMark(f, ctx) {
+  return (error) => {
+    if (error) ctx.toast(error.message, "error");
+    else f.saved();
+  };
 }
 
 const OVERRIDE_KEYS = ["base", "integration", "pause", "tracker", "fleet", "frontend", "delivery", "worktreeRoot"];
@@ -165,11 +173,12 @@ function setupSection(p, doc, ctx) {
   const of = cfg.fields;
   const box = docSection("Setup");
   const projects = ctx.projects ?? [];
+  let projField;
   const pick = dropdown({
     label: "Project",
     options: [...projects.map((pr) => ({ value: pr.id, label: pr.name })), { value: "", label: "No project (standalone)" }],
     value: of.project ?? "",
-    onChange: (v) => ctx.saveOp("project", v),
+    onChange: (v) => ctx.saveOp("project", v, toastOrMark(projField, ctx)),
   });
   const projRow = el("div", "set-inline");
   projRow.append(pick.root);
@@ -180,7 +189,8 @@ function setupSection(p, doc, ctx) {
     open.addEventListener("click", () => ctx.openProject(of.project));
     projRow.append(open);
   }
-  field(box, "Project", projRow, {
+  projField = field(box, "Project", projRow, {
+    key: "project",
     note: of.project
       ? "Repo, base and wiring come from the project; change them on the project page. Detaching copies the project's values in."
       : "Standalone: this operation carries its own repo and wiring.",
@@ -259,11 +269,15 @@ function autoSection(p, ctx) {
         if (error) {
           sw.setChecked(Boolean(auto?.enabled));
           swField.setError(error);
-        } else ctx.rerender();
+        } else {
+          swField.saved();
+          ctx.rerender();
+        }
       });
     },
   });
   swField = field(card, "Run the board itself", sw.root, {
+    key: "auto",
     note: "Launch the queue and land finished work without a click each time.",
   });
   if (auto?.enabled) {
@@ -280,6 +294,7 @@ function autoSection(p, ctx) {
       // The board cap bounds it in practice; the operation file allows up to 64.
       const nf = numberField({ label: "Max live", value: auto.maxLive, min: 1, max: Math.min(64, Math.max(p.header?.cap ?? 64, auto.maxLive)) });
       const f = field(sub, "Max live in this operation", nf.root, {
+        key: "auto.maxLive",
         note: `Up to the board-wide cap${p.header?.cap ? ` (${p.header.cap})` : ""}.`,
       });
       nf.input.addEventListener("change", () => {
@@ -288,7 +303,7 @@ function autoSection(p, ctx) {
           if (error) {
             nf.input.value = String(auto.maxLive);
             f.setError(error);
-          }
+          } else f.saved();
         });
       });
     }

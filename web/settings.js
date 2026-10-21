@@ -1,7 +1,7 @@
 // Settings drawer: gear in the header opens a right-side panel over a scrim. It holds
 // only board-wide settings — the operation's own fields live on the operation page
 // (Plan view → Operation). Every control saves on change/blur through PUT /api/settings;
-// a 400 shows its message under the field, a save updates the footer.
+// a 400 shows its message under the field, a save flashes "Saved" beside its title.
 import { closePopoversWithin, dropdown, el, numberField, segmented, textField } from "./components.js";
 import { enumRow, field, numberRow, switchRow, textRow } from "./fields.js";
 import { icon } from "./icons.js";
@@ -49,7 +49,6 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
       const data = await fetchJson(res);
       settings = data;
       settingsChanged?.(data.settings);
-      // The footer confirms the save; a toast per field was noise.
       foot.textContent = `Saved to ${settings.path}`;
       if (key === "theme") applyTheme(settings.settings.theme);
       done?.(null);
@@ -102,7 +101,10 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
         if (error) {
           nf.input.value = String(ms / factor);
           f.setError(error);
-        } else ms = next;
+        } else {
+          ms = next;
+          f.saved();
+        }
       });
     });
     return f;
@@ -133,7 +135,10 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
           if (error) {
             applyTheme(s.theme);
             themeField.setError(error);
-          } else s.theme = v;
+          } else {
+            s.theme = v;
+            themeField.saved();
+          }
         });
       },
     });
@@ -170,7 +175,10 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
             nf.input.value = String(s.cap);
             syncWarn(s.cap);
             f.setError(error);
-          } else s.cap = Number(nf.input.value);
+          } else {
+            s.cap = Number(nf.input.value);
+            f.saved();
+          }
         });
       });
     }
@@ -199,7 +207,10 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
           f.setError(null);
           saveSetting("ai.model", String(v ?? ""), (err) => {
             if (err) f.setError(err);
-            else s.ai.model = v || null;
+            else {
+              s.ai.model = v || null;
+              f.saved();
+            }
           });
         },
       });
@@ -231,7 +242,10 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
           f.setError(null);
           saveSetting("ai.thinking", String(v ?? ""), (err) => {
             if (err) f.setError(err);
-            else s.ai.thinking = v || null;
+            else {
+              s.ai.thinking = v || null;
+              f.saved();
+            }
           });
         },
       });
@@ -263,7 +277,10 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
           const toSave = v === null ? "" : String(v);
           saveSetting(`ai.${def.key}`, toSave, (err) => {
             if (err) f.setError(err);
-            else s.ai[def.key] = v === null || v === "" ? null : v;
+            else {
+              s.ai[def.key] = v === null || v === "" ? null : v;
+              f.saved();
+            }
           });
         },
       });
@@ -355,6 +372,7 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
               s.access = v;
               buildUrls();
               checkOriginAllowed();
+              accessField.saved();
             }
           });
         },
@@ -455,7 +473,10 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
           if (error) {
             mode.setValue(committedMode);
             modeField.setError(error);
-          } else committedMode = value;
+          } else {
+            committedMode = value;
+            modeField.saved();
+          }
         });
       },
     });
@@ -494,7 +515,7 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
             if (error) {
               tf.input.value = s.custom?.[short] ?? "";
               f.setError(error);
-            }
+            } else f.saved();
           });
         });
       }

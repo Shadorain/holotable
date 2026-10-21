@@ -95,14 +95,73 @@ function arm(host) {
 // Focus tooltips follow keyboard navigation only, not focus a dialog hands back after a click.
 let keyboard = false;
 
+// Touch has no hover: a tap toggles the tip of something that does nothing when tapped,
+// and a long press shows a control's tip instead of pressing it.
+const LONG_PRESS_MS = 500;
+const CONTROLS =
+  "button, a[href], input, select, textarea, summary, label, [contenteditable], " +
+  "[role=button], [role=tab], [role=switch], [role=option], [role=radio], [role=checkbox], [role=combobox]";
+let coarse = null;
+let touch = false; // the current gesture is a touch
+let tapOwner = null; // whose tip was open when the gesture began, so a second tap closes it
+let press = null; // pending long press: { timer, x, y }
+let pressed = false; // a long press showed a tip: the click that follows must not fire
+
+const isTouch = (e) => e.pointerType === "touch" || (e.pointerType !== "mouse" && coarse.matches);
+
+function cancelPress() {
+  if (!press) return;
+  clearTimeout(press.timer);
+  press = null;
+}
+
 export function installTooltips() {
+  coarse = matchMedia("(pointer: coarse)");
   document.addEventListener("keydown", (e) => {
     if (e.key === "Tab" || e.key.startsWith("Arrow")) keyboard = true;
+    pressed = false;
   }, true);
-  document.addEventListener("pointerdown", () => {
+  document.addEventListener("pointerdown", (e) => {
     keyboard = false;
+    touch = isTouch(e);
+    tapOwner = owner;
+    pressed = false;
+    cancelPress();
+    hide();
+    if (!touch) return;
+    const host = tipFor(e.target);
+    if (!host || !e.target.closest(CONTROLS)) return;
+    press = {
+      x: e.clientX,
+      y: e.clientY,
+      timer: setTimeout(() => {
+        press = null;
+        pressed = true;
+        show(host);
+      }, LONG_PRESS_MS),
+    };
+  }, true);
+  document.addEventListener("pointermove", (e) => {
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) cancelPress();
+  }, true);
+  document.addEventListener("pointerup", cancelPress, true);
+  document.addEventListener("pointercancel", cancelPress, true);
+  document.addEventListener("contextmenu", (e) => {
+    if (press || pressed) e.preventDefault();
+  }, true);
+  document.addEventListener("click", (e) => {
+    if (pressed) {
+      pressed = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (!touch) return;
+    const host = tipFor(e.target);
+    if (host && !e.target.closest(CONTROLS) && host !== tapOwner) show(host);
   }, true);
   document.addEventListener("pointerover", (e) => {
+    if (isTouch(e)) return;
     const host = tipFor(e.target);
     if (host) arm(host);
     else if (owner || timer) hide();
@@ -112,7 +171,6 @@ export function installTooltips() {
     if (host && keyboard && e.target.matches(":focus-visible")) arm(host);
   });
   document.addEventListener("focusout", hide);
-  document.addEventListener("pointerdown", hide, true);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") hide();
   });

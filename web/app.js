@@ -16,6 +16,7 @@ import { openAddContact } from "./addcontact.js";
 import { allLanded, doneBanner } from "./endop.js";
 import { ensureNotes, notesKey } from "./notes.js";
 import { icon } from "./icons.js";
+import { installInbox } from "./inbox.js";
 import { installTooltips } from "./tooltip.js";
 import { installLoadTip } from "./usage.js";
 import { connectLive } from "./live.js";
@@ -84,7 +85,17 @@ installLoadTip($("load").closest(".stat"), {
 
 // ---- toasts ----
 
+const inbox = installInbox({
+  button: $("inboxButton"),
+  count: $("inboxCount"),
+  panel: $("inbox"),
+  list: $("inboxList"),
+  clear: $("inboxClear"),
+  fallbackFocus: $("settingsButton"),
+});
+
 function toast(text, kind = "info") {
+  if (kind === "error") inbox.add(text);
   for (const existing of $("toasts").children) {
     if (existing.dataset.text === text && existing.dataset.kind === kind) {
       existing.remove();
@@ -102,9 +113,9 @@ function toast(text, kind = "info") {
   close.addEventListener("click", () => box.remove());
   box.append(close);
   $("toasts").append(box);
-  // Errors stay until dismissed: the operator has to read why something did not happen.
-  if (kind !== "error") setTimeout(() => box.remove(), 4000);
-  // Over the cap the oldest non-error goes first: errors wait for the operator to dismiss them.
+  // Errors stay longer, and the inbox keeps them after the toast goes.
+  setTimeout(() => box.remove(), kind === "error" ? 8000 : 4000);
+  // Over the cap the oldest non-error goes first.
   const toasts = $("toasts");
   while (toasts.childElementCount > 4) {
     const oldest = [...toasts.children].find((t) => t.dataset.kind !== "error") ?? toasts.firstElementChild;
@@ -577,7 +588,6 @@ function renderProjectPage() {
           const data = await res.json().catch(() => null);
           if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
           state.projectCfg = data;
-          toast("Saved", "ok");
           done?.(null);
           poll();
         } catch (error) {

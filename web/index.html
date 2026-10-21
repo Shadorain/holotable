@@ -40,6 +40,7 @@
         </div>
       </div>
       <button class="icon-btn more-btn" id="moreButton" type="button" title="Base, load, tasks, connection and Intel" aria-label="More" aria-expanded="false" aria-controls="morePop"><svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg><span class="dot" aria-hidden="true"></span></button>
+      <button class="icon-btn inbox-btn" id="inboxButton" type="button" hidden title="Errors this session" aria-label="Errors" aria-haspopup="dialog" aria-expanded="false" aria-controls="inbox"><span class="inbox-count" id="inboxCount"></span></button>
       <button class="icon-btn settings-btn" id="settingsButton" title="Settings (,)" type="button" aria-label="Settings"><svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
     </header>
 
@@ -89,6 +90,13 @@
     </main>
   </div>
   <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="inbox" id="inbox" role="dialog" aria-label="Errors this session" tabindex="-1" hidden>
+    <div class="inbox-head">
+      <h2>Errors</h2>
+      <button type="button" class="btn small" id="inboxClear">Clear</button>
+    </div>
+    <ol class="inbox-list" id="inboxList"></ol>
+  </div>
   <dialog class="help" id="help" aria-label="Keyboard shortcuts">
     <h2>Keys</h2>
     <dl>
