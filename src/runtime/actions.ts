@@ -53,9 +53,9 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       const delivery = deps.portsFor(operation, settings).delivery;
       const verdict = await delivery.verifyMerged({ operation, contact, branch, url: view.delivery?.url });
       if (!verdict.merged) {
-        // An audit that committed code delivers no PR; without one, Mark done could only refuse forever.
+        // An audit or closer that committed code delivers no PR; without one, Mark done could only refuse forever.
         // Open the review it never opened, and Land takes over once the probe sees it.
-        if (contact.kind === "audit" && delivery.publish && !view.delivery?.url && !deps.extras(opId).probes?.[ticket]) {
+        if ((contact.kind === "audit" || contact.kind === "closer") && delivery.publish && !view.delivery?.url && !deps.extras(opId).probes?.[ticket]) {
           const { url } = await delivery.publish({ operation, contact, branch });
           throw new ActionError(409, "pr-opened", `${ticket}'s commits are not in ${operation.base}; opened ${url} for them. Land it once its checks pass`);
         }

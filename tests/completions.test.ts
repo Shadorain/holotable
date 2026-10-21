@@ -36,7 +36,7 @@ test("set and config complete fields then enum values", () => {
 test("new completes flag names, enum values and skips used flags", () => {
   expect(values("new lab --tr")).toEqual(["new lab --tracker "]);
   expect(values("new lab --tracker l")).toEqual(["new lab --tracker linear "]);
-  expect(values("new lab --repo /x --no")).toEqual(["new lab --repo /x --no-pause "]);
+  expect(values("new lab --repo /x --no")).toEqual(["new lab --repo /x --no-pause ", "new lab --repo /x --no-closer "]);
   // --repo is used, so --re only offers --recover.
   expect(values("new lab --repo /x --re")).toEqual(["new lab --repo /x --recover "]);
   expect(values("new lab")).toBeNull();

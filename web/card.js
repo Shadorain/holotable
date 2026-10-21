@@ -320,6 +320,47 @@ function historyTab(contact, entries) {
   return list;
 }
 
+// ---- closer ----
+
+/**
+ * What the closer will be told, from GET /api/closer (`data`: null while loading, {error} on failure,
+ * else {brief, report}). The brief is rebuilt at launch, so this is what it would get right now.
+ */
+function closerBriefBox(contact, data) {
+  const sec = el("section", "facts-group closer-brief");
+  sec.append(el("div", "kicker", contact.lane ? "Review brief (as it would be built now)" : "Review brief it will launch with"));
+  if (!data) sec.append(el("div", "empty-line", "Loading the brief…"));
+  else if (data.error) sec.append(el("div", "set-err", data.error));
+  else {
+    const body = el("div", "card-desc closer-brief-text");
+    body.append(renderMarkdown(data.brief));
+    sec.append(body);
+  }
+  return sec;
+}
+
+/** The closer's own report: what it checked, fixed and left as follow-ups. Shown once it has run. */
+function closerReportBox(contact, data) {
+  if (!contact.lane) {
+    return el("div", "set-note", "Reviews the integrated work once every other contact has landed. Details shows the brief it will launch with.");
+  }
+  const box = el("div", "next closer-report");
+  box.append(el("div", "kicker", "Closer report"));
+  if (!data) box.append(el("div", "empty-line", "Loading…"));
+  else if (data.error) box.append(el("div", "set-err", data.error));
+  else if (data.report) {
+    const body = el("div", "card-desc");
+    body.append(renderMarkdown(data.report));
+    box.append(body);
+  } else {
+    const done = contact.state === "complete" || contact.state === "landed";
+    box.append(el("div", "next-text", done
+      ? "The closer wrote no report. Its delivery summary is in the mission pane (and the PR, if it opened one)."
+      : "The closer writes its report (checked, fixed, follow-ups) before it delivers."));
+  }
+  return box;
+}
+
 // ---- plan tab ----
 
 function planButton(iconName, label, cls = "") {
@@ -537,7 +578,7 @@ export function cardTabs(contact) {
   return CARD_TABS.filter(([id]) => id !== "plan" || contact?.plan);
 }
 
-export function renderCard(root, projection, contact, ctx, tab, entries, plan) {
+export function renderCard(root, projection, contact, ctx, tab, entries, plan, closer = null) {
   root.replaceChildren();
   if (!contact) {
     root.append(el("div", "placeholder", projection.contacts.length ? "Select a contact." : "No contacts yet. Add one with /holotable add <ticket> --zone <id>."));
@@ -566,6 +607,7 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan) {
 
   if (active === "details") {
     body.append(facts(contact, projection));
+    if (contact.kind === "closer") body.append(closerBriefBox(contact, closer));
     return;
   }
   if (active === "history") {
@@ -605,6 +647,7 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan) {
   if (asked) body.append(asked);
   const approval = approvalBox(contact, ctx);
   if (approval) body.append(approval);
+  if (contact.kind === "closer") body.append(closerReportBox(contact, closer));
   for (const part of [actionBar(contact, ctx), relations(contact, projection)]) if (part) body.append(part);
 }
 

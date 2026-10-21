@@ -179,6 +179,7 @@ Discovery is bound to its home: a copied `board.json`/`token` cannot let one hom
 /holotable zone Ops
 /holotable add notes --zone ops --kind decision
 /holotable add api --zone ops --blocked-by notes
+/holotable add closer
 /holotable list
 ```
 
@@ -212,7 +213,7 @@ Once activated, the row shows the selected operation and nonzero live, queued an
 |---|---|
 |(none)|start the board if needed and print its URLs; also records the session's repo for the project picker|
 |`start` / `stop` / `restart` / `status` / `url`|manage or inspect the same home-selected board through the CLI|
-|`new <id> (--project <id> \| --repo <path> --base <branch>) [--name] [--tracker] [--fleet] [--frontend] [--delivery] [--auto] [--pause \| --no-pause] [--recover] [--from file.json] [--brief file.md]`|create and select an operation; unset fields follow the project, then global defaults; `--auto` enables board launch/land, independently of mission Pause gates|
+|`new <id> (--project <id> \| --repo <path> --base <branch>) [--name] [--tracker] [--fleet] [--frontend] [--delivery] [--auto] [--pause \| --no-pause] [--closer \| --no-closer] [--recover] [--from file.json] [--brief file.md]`|create and select an operation; unset fields follow the project, then global defaults; `--auto` enables board launch/land, independently of mission Pause gates; `--closer`/`--no-closer` override `defaults.closer` (see [Closer review](#closer-review))|
 |`project new <id> --repo <path> --base <branch> [--name] [--integration] [--tracker] [--fleet] [--frontend] [--delivery] [--pause \| --no-pause] [--worktree-root]`|create a project; mission mode follows the global default unless explicitly overridden|
 |`project list`|projects and their operations|
 |`project set [<id>:]<field> <value>`|change a project field (default: the selected operation's project); every operation that has not overridden it follows|
@@ -221,7 +222,8 @@ Once activated, the row shows the selected operation and nonzero live, queued an
 |`use <id>`|select an operation|
 |`zone <label>`|add a zone (its id is derived from the label)|
 |`set <field> <value>`|change `name`, `base`, `integration`, `pause`, `ignoreChecks` (`true`/`false`, see [Landing](#landing-and-conflicts)), `tracker`, `fleet`, `frontend`, `delivery`, `worktreeRoot` (`default` clears it), `recover` (`on`/`off`, see [Recovery](#recovery)) or the auto-mode fields `auto` (`on`/`off`), `auto.launch`, `auto.land`, `auto.maxLive`, `auto.plans`, `auto.decide`, `auto.repairs`, `auto.reviews`; in a project, `inherit` drops the override (not for `auto*` or `recover`: those belong to the operation)|
-|`add <ticket> --zone <id> [--kind] [--blocked-by A,B] [--title] [--description <text>] [--worktree <path>] [--option X…] [--recommended X]`|add a contact with a short title and separate full instructions; `--worktree` adopts an existing checkout; `--option`/`--recommended` build a decision contact (see [Decisions](#decisions))|
+|`add <ticket> --zone <id> [--kind] [--blocked-by A,B] [--title] [--description <text>] [--worktree <path>] [--option X…] [--recommended X]`|add a contact with a short title and separate full instructions; `--worktree` adopts an existing checkout; `--option`/`--recommended` build a decision contact (see [Decisions](#decisions)); kinds: `implement` (default), `audit`, `decision`, `closer`|
+|`add closer [ticket] [--zone <id>] [--title] [--description <text>]`|add the operation's closer (ticket `CLOSER`, the last zone, unless given): it waits for everything else, then reviews the integrated work (see [Closer review](#closer-review))|
 |`close <id> <landed\|abandoned\|decision\|failed>`|end the operation through the same path as the page: wind-down, `closed` event, report, archive|
 |`config [key value]`|show or set board settings|
 
@@ -268,6 +270,7 @@ Start an automatic campaign from OMP with `/holotable new release --repo /path/t
 |`defaults.frontend`|`none`|`orca`, `herdr`, `custom`, `none`|
 |`defaults.delivery`|`none`|`github-pr`, `local-merge`, `none`|
 |`defaults.pause`|`false`|Settings → Defaults → **Pause gates**: whether missions in new projects and standalone operations stop at each Pause gate (unrelated to an operation's Auto mode); saved projects and operations keep theirs|
+|`defaults.closer`|`true`|Settings → Defaults → **Finish with a closer review**: new operations end with a [closer](#closer-review) (the New operation form and `new --no-closer` can still leave it out); saved operations keep theirs|
 |`cleanup`|`true`|after a contact lands or is marked done, close its terminal and remove its worktree when clean (a dirty worktree is kept and noted)|
 
 ### AI models and token usage
@@ -321,7 +324,7 @@ Keys (`?` or Settings → Help shows them): WASD/HJKL/arrows move, Enter acts, `
 
 ### Operation page (Plan → Operation)
 
-The operation as a document: brief (edit in place), notes, the auto-mode card (launch, land, max live, and the opt-in decide and approve-plans switches), setup (project and name; for a project's operation the rest folds behind a summary of overrides, each inherited field tagged "from project" and each override offering "use project value"; a standalone operation shows them all), zones (just a name; the id is derived) and contacts (Add contact, here or on the Board and the Plan map), the seed it was created from (formatted, downloadable), and at the bottom **End the operation**: Close (once everything has landed) or Abort. Abort opens a dialog listing the panes it will close, the worktrees it will delete (dirty ones called out with their paths), then asks you to type the operation id.
+The operation as a document: brief (edit in place), notes, the auto-mode card (launch, land, max live, and the opt-in decide and approve-plans switches), setup (project and name; for a project's operation the rest folds behind a summary of overrides, each inherited field tagged "from project" and each override offering "use project value"; a standalone operation shows them all), zones (just a name; the id is derived) and contacts (Add contact, here or on the Board and the Plan map), the closer (its state, or **Add closer** when the operation has none), the seed it was created from (formatted, downloadable), and at the bottom **End the operation**: Close (once everything has landed) or Abort. Abort opens a dialog listing the panes it will close, the worktrees it will delete (dirty ones called out with their paths), then asks you to type the operation id.
 
 ### Getting started and the tour
 
@@ -337,7 +340,7 @@ A markdown scratch pad per operation (`notes.md`), on the Operation page and in 
 
 ### New operation
 
-Picker → New operation. Choose the project, paste a source or rough goal into **What**, then **Draft it**. The drafting toolbar has a per-run model picker and a separate progress message. Review the generated name, brief, zones, contacts and notes before **Create**; drafting needs a terminal frontend and creates no operation by itself.
+Picker → New operation. Choose the project, paste a source or rough goal into **What**, then **Draft it**. The drafting toolbar has a per-run model picker and a separate progress message. Review the generated name, brief, zones, contacts and notes before **Create**; drafting needs a terminal frontend and creates no operation by itself. **Finish with a closer review** (on by default, from `defaults.closer`) adds a [closer](#closer-review) as the last contact.
 
 The brief has a full-width editor, markdown **Preview**, and **Review in focus** for a wide review
 window with edit/preview and Save/Cancel. Draft completion fills both review views and preserves
@@ -469,6 +472,18 @@ The card and confirmation dialog show native radio options with keyboard arrow n
 
 **Ask an agent** (`decide-agent`) opens a lane-less `omp` pane in the operation's integration checkout — read-only, briefed with the question, options, brief, notes and earlier decisions — that writes `decisions/<ticket>.json` under the operation directory and stops. The watcher lands the contact with `by: "agent"` and closes the pane; an unreadable answer is recorded once and left for you to fix or close, and a pane that exits without answering fails as `pane closed before deciding`. The pane counts toward `cap` like a live mission. With `auto.decide` on, auto mode lands each ready decision on its `recommended` option (`by: "recommended"`); without one it opens the agent pane itself, still respecting `auto.maxLive` and `cap`.
 
+## Closer review
+
+A `closer` is an operation's last contact: once every other contact has landed, a mission checks the integrated work as a whole, fixes small integration problems through the normal delivery and reports anything bigger as follow-ups. An operation has at most one. New operations get one by default (`defaults.closer`, the New operation switch, `new --closer`/`--no-closer`); add one later with `/holotable add closer [ticket]`, **Add contact** (kind **Closer**, disabled once the operation has one) or **Add closer** on the Operation page, which also shows whether the operation has a closer.
+
+**It waits for everything.** A closer lists no `blockedBy` and nothing may wait on it. It stays blocked until every other contact has a `landed` event (decided decisions count; a conflict mission is part of its target's landing, so an abandoned one never holds it back), including contacts added after it. Its detail reads `Waits for the rest of the operation to land (N left)`, and the Plan map draws it in its own column after every zone, without an arrow from each contact.
+
+**What it is told.** At launch the board builds a review brief from what it knows: the operation's name and brief, the notes checklist (done and open items), every landed contact with its PR or branch and landing time, decisions with their choice and rationale, conflict missions and their paths, the base branch, and Intel's top three open recommendations. Lists are capped with the number left out. The brief asks the mission to fetch the base and run the repo's full verification on the integrated result; review the combined change set for duplicated helpers, inconsistent APIs or naming, leftover TODO/FIXME/debug code, dead code from superseded approaches, docs that disagree with code and missing tests at the seams between contacts; check the brief's acceptance criteria and every checklist item; fix small problems on its own branch; report larger ones as follow-ups without building them; never rewrite or revert landed history; and, when nothing needs fixing, deliver no changes and say so with evidence. Before launch the card's **Details** tab shows the brief as it would be built now.
+
+**How it runs.** A freeform `/mission -- Closer review of operation <name>` with the brief as additional instructions, in a `closer-<token>` worktree on the bead graph. Its delivery is always local: omp-mission's PR delivery needs a real PR URL, which a closer with nothing to fix cannot have. The mission writes its report (checked, fixed, follow-ups) to `closer/<ticket>.md` in the operation's directory, and the card's **Overview** shows it once the mission has run.
+
+**Finishing.** Like an audit: with no changes, **Mark done** checks its branch is already in the base and records it landed; with commits and no PR, Mark done opens one (`pr-opened`) and Land takes it through the usual checks and conflict handling; on `local-merge` its branch lands like any other. Auto mode launches it when it turns ready and lands or marks it done like other work, under every existing gate. The operation is finished (auto mode switching itself off, the done banner, **Close**) only once the closer has landed too.
+
 ## Auto mode
 Per operation (`/holotable set auto on`, or the auto card on the Operation page): `auto.launch` launches ready contacts up to `auto.maxLive` and the global `cap`, choosing the ready contact that unblocks the most unlanded work (saved queue order breaks ties); `auto.land` lands completed contacts; `auto.decide` resolves decisions using their recommended answer or an agent pane. Actions are credited to auto mode in history. Overlapping uncommitted paths or the wrong base branch defer landing without switching Auto off; readiness is rechecked every 30 seconds while other automation continues. Your uncommitted changes are never stashed, discarded or committed by the board. A failed automatic launch, land, plan approval or decision pane never switches Auto off: that contact is retried after 5, 15 and 60 minutes, then left for you with the last error in its history, while the rest of the operation keeps moving. The backoff is read from history, so a board restart keeps it. `auto.plans` (off by default) approves advertised native plan reviews with compacted context on OMP 18.10.4 or newer. Older running panes must be updated and relaunched; absence of a pending review is not an unsupported-runtime warning. See [docs/omp-plan-approval.md](docs/omp-plan-approval.md). Pause gates still wait for you.
 
@@ -570,6 +585,8 @@ Simulated decision panes write their answer about five seconds after opening (th
 
 `charidel` also seeds failure cases. `CHR-156`'s simulated PR has a red `Flaky e2e` check, so once it completes, Land waits and **Land anyway** (or **Land with failing checks**) merges it. `CHR-167` and `CHR-157-CONFLICT-1` are parked on provider quota: the first leads with **Switch model** and fills the strip above the list, while the second stopped while planning, where the switch is not offered.
 
+`mission` ends with a [closer](#closer-review): it stays blocked, saying how many contacts are left, until `socket`, `status`, `review` and `herdr` have all landed, then launches like any contact. Its card shows the review brief under Details before launch, and the simulated closer writes a report that the Overview shows once it completes. `autopilot` gets one from `defaults.closer`, so auto mode launches and finishes it after the pipeline lands.
+
 ## Safety model
 
 - The board launches and watches missions; it never runs them. This process never attaches a mission and never calls `control()`. Every mutation is an operator click, forwarded to the owning session's control socket, which runs the same code the slash command runs.
@@ -590,6 +607,7 @@ Per operation under `$OMP_HOLOTABLE_HOME/operations/<id>/`:
 - `events.jsonl`: append-only history. Everything shown (state, stats) is rebuilt from it.
 - `brief.md`: free-text brief, edited on the Operation page; `notes.md`: the scratch pad; `seed.json`: the raw seed the operation was created from.
 - `decisions/<ticket>.sessions/`: the decision pane's omp transcripts (`--session-dir`), rescanned each watcher pass into `pane-usage` spend deltas attributed to the ticket's `decision` phase.
+- `closer/<ticket>.md`: the closer mission's report (checked, fixed, follow-ups), shown on its card.
 
 `drafts/<id>/` holds agent drafts until the form closes them; `drafts/<id>/sessions/` pins the draft pane's transcripts. Closing persists aggregate spend to `drafts/usage.jsonl` before deletion; a failed ledger write retains the transcripts for retry. Per-draft high-water marks prevent retry double-counting. Truncated or malformed evidence is marked partial.
 

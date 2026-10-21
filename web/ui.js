@@ -155,6 +155,7 @@ const KIND_LABEL = {
   audit: "Audit",
   decision: "Decision",
   conflict: "Conflict",
+  closer: "Closer",
 };
 
 export function kindPill(kind) {

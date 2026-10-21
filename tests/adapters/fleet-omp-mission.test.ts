@@ -215,5 +215,24 @@ describe("fleet.launch", () => {
       "--append-system-prompt", `Additional scope for mission CHR-142:\n\n${task}`,
     ]);
   });
+
+  test("a closer launches a short freeform mission with its brief in the system prompt, on the beads graph with local delivery", () => {
+    const closer: Contact = { ...contact("CLOSER"), kind: "closer", title: "Closer review", description: "ignored here: the brief carries it" };
+    const brief = "# Closer review of operation Ledger --force\n\nFetch `main`…";
+    for (const delivery of ["github-pr", "local-merge"] as const) {
+      for (const tracker of ["linear", "none"] as const) {
+        const out = fleet.launch({ operation: op({ name: "Ledger  Q3", delivery, tracker, pause: true }), contact: closer, worktree: "/wt/x", overlay: "/o.yml", closerBrief: brief, model: "p/m" });
+        expect(out.env.OMP_MISSION_AUTOSTART).toBe("/mission --pause -- Closer review of operation Ledger Q3");
+        expect(out.argv).toEqual(["omp", "--config", "/o.yml", "--append-system-prompt", brief, "--model", "p/m"]);
+        // pr delivery needs a PR URL to record delivery; a closer with nothing to fix has none, so it is always local.
+        expect(out.env).toMatchObject({ OMP_MISSION_GRAPH: "beads", OMP_MISSION_DELIVERY: "local", OMP_MISSION_CHECKOUT: "/wt/x", OMP_MISSION_BASE: "main" });
+      }
+    }
+    expect(() => fleet.launch({ operation: op(), contact: closer, worktree: "/wt/x", overlay: "/o.yml" })).toThrow("launched without its review brief");
+  });
+
+  test("an implementation on a github-pr operation still delivers its own PR", () => {
+    expect(launch(op({ delivery: "github-pr" }), contact("task-1")).env.OMP_MISSION_DELIVERY).toBe("pr");
+  });
 });
 

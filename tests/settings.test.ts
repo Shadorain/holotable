@@ -71,6 +71,15 @@ describe("validateSettings", () => {
     expect(() => validateSettings({ defaults: { pause: "true" } })).toThrow("defaults.pause must be a boolean");
   });
 
+  test("defaults.closer is on unless saved false", () => {
+    expect(validateSettings({}).defaults.closer).toBe(true);
+    expect(validateSettings({ defaults: { pause: true } }).defaults.closer).toBe(true);
+    expect(validateSettings({ defaults: { closer: false } }).defaults.closer).toBe(false);
+    expect(() => validateSettings({ defaults: { closer: "no" } })).toThrow("defaults.closer must be a boolean");
+    expect(setSettingKey(DEFAULT_SETTINGS, "defaults.closer", "false").defaults.closer).toBe(false);
+    expect(() => setSettingKey(DEFAULT_SETTINGS, "defaults.closer", "maybe")).toThrow("defaults.closer must be true or false");
+  });
+
   test("normalizes empty custom templates to absent", () => {
     const withEmpty = validateSettings({ custom: { terminal: "x", focus: "" } });
     expect(withEmpty.custom).toEqual({ terminal: "x" });

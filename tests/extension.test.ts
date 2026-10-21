@@ -125,7 +125,7 @@ test("a board-launched child process registers nothing", () => {
 test("store commands select locally without starting the board service", async () => {
   const f = fixture();
   await f.start();
-  await f.run("new lab --repo /tmp/r --base main");
+  await f.run("new lab --repo /tmp/r --base main --no-closer");
   await f.run("zone Ops");
   await f.run("add CHR-1 --zone ops");
   expect((await serviceHealth(f.home)).running).toBe(false);
@@ -136,7 +136,7 @@ test("store commands select locally without starting the board service", async (
 
 test("completions follow created operations and zones", async () => {
   const f = fixture();
-  await f.run("new lab --repo /tmp/r --base main");
+  await f.run("new lab --repo /tmp/r --base main --no-closer");
   await f.run("zone Ops");
   const values = (prefix: string) => f.complete(prefix)?.map((i: { value: string }) => i.value) ?? null;
   expect(values("use ")).toEqual(["use lab "]);

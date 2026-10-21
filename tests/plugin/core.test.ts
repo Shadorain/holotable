@@ -37,7 +37,7 @@ test("the core runs store commands: new, use, zone, add, list", async () => {
 
 test("completions come from the store, not the host", async () => {
   const { core } = setup();
-  await core.runCommand("new lab --repo /tmp/r --base main", { cwd: "/tmp" });
+  await core.runCommand("new lab --repo /tmp/r --base main --no-closer", { cwd: "/tmp" });
   await core.runCommand("zone Ops", { cwd: "/tmp", current: "lab" });
   const values = (prefix: string, current?: string | null) => core.completions(prefix, current).then((rows) => rows?.map((i) => i.value) ?? null);
   expect(await values("use ")).toEqual(["use lab "]);

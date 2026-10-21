@@ -18,6 +18,9 @@ import {
 } from "./commands.ts";
 import { addContact as addContactStore, type NewContact } from "./contacts.ts";
 import { history } from "./core/projection.ts";
+import { closerOf } from "./core/closer.ts";
+import { closerBriefFor } from "./runtime/closer.ts";
+import { readCloserReport } from "./store/closer.ts";
 import type { UsageReport } from "./core/usage.ts";
 import { foldEvents } from "./core/fold.ts";
 import { evaluateOperation, type Evaluation } from "./core/evaluation.ts";
@@ -167,6 +170,8 @@ export interface BoardService {
   usage?(opId: string | null): Promise<UsageReport>;
   brief(opId: string): Promise<{ brief: string | null; seed: { text: string } | null; createdAt: string }>;
   setBrief(opId: string, text: string): Promise<void>;
+  /** The operation's closer: its review brief as it would launch now, and its report once written; null without one. */
+  closer(opId: string): Promise<{ ticket: string; brief: string; report: string | null } | null>;
   /** `zone` subcommand over HTTP. */
   /** Adds a zone; its id is derived from the label. Returns the id. */
   addZone(opId: string, label: string): Promise<string>;
@@ -483,6 +488,17 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
     async setBrief(opId, text) {
       await knownOperation(opId);
       await writeBrief(home, opId, text);
+    },
+    async closer(opId) {
+      await knownOperation(opId);
+      const operation = await readOperation(home, opId);
+      const closer = closerOf(operation);
+      if (!closer) return null;
+      const [brief, report] = await Promise.all([
+        closerBriefFor(home, operation, closer, now()),
+        readCloserReport(home, opId, closer.ticket),
+      ]);
+      return { ticket: closer.ticket, brief, report };
     },
     async addZone(opId, label) {
       await knownOperation(opId);

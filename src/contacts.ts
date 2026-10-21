@@ -1,3 +1,4 @@
+import { CLOSER_TITLE, closerOf } from "./core/closer.ts";
 import { foldEvents } from "./core/fold.ts";
 import { unmetBlockers } from "./core/graph.ts";
 import type { Contact, Kind, Operation, Source } from "./core/types.ts";
@@ -7,7 +8,8 @@ import { mutateOperation } from "./store/operations.ts";
 
 export interface NewContact {
   ticket: string;
-  zone: string;
+  /** Required except for a closer, which defaults to the last zone (a new "Closer" zone when there is none). */
+  zone?: string;
   kind?: Kind;
   blockedBy?: string[];
   title?: string | null;
@@ -31,7 +33,10 @@ export interface ContactPatch {
   recommended?: string;
 }
 
-/** `queued` per ticket, plus `blocked` when blockers are not yet landed. */
+/**
+ * `queued` per ticket, plus `blocked` when blockers are not yet landed. A waiting closer is blocked
+ * again with the new tickets among its blockers: it waits for everything, including later additions.
+ */
 export async function queueEvents(home: string, now: Date, op: Operation, tickets: string[], source: Source): Promise<void> {
   const derived = foldEvents(await readEvents(home, op.id));
   const at = now.toISOString();
@@ -40,6 +45,18 @@ export async function queueEvents(home: string, now: Date, op: Operation, ticket
     const by = unmetBlockers(op, derived, ticket);
     if (by.length) await appendEvent(home, op.id, { v: 1, at, kind: "blocked", contact: ticket, by });
   }
+  const closer = closerOf(op);
+  if (closer && !tickets.includes(closer.ticket) && closer.lane === null && !derived.contacts[closer.ticket]?.landed) {
+    const by = unmetBlockers(op, derived, closer.ticket);
+    if (tickets.some((t) => by.includes(t))) await appendEvent(home, op.id, { v: 1, at, kind: "blocked", contact: closer.ticket, by });
+  }
+}
+
+/** A closer's zone when none is given: the last zone, or a new "Closer" zone in an operation with none. */
+function closerZone(op: Operation): { zone: string; zones: Operation["zones"] } {
+  const last = op.zones.at(-1);
+  if (last) return { zone: last.id, zones: op.zones };
+  return { zone: "closer", zones: [{ id: "closer", label: "Closer" }] };
 }
 
 export async function addContact(
@@ -51,12 +68,14 @@ export async function addContact(
   let ticket = input.ticket;
   const next = await mutateOperation(home, opId, (op) => {
     ticket = normalizeTicket(op.tracker, input.ticket);
+    const kind = input.kind ?? "implement";
+    const placed = kind === "closer" && input.zone === undefined ? closerZone(op) : { zone: input.zone as string, zones: op.zones };
     const contact: Contact = {
       ticket,
-      title: input.title ?? null,
+      title: input.title ?? (kind === "closer" ? CLOSER_TITLE : null),
       description: input.description ?? null,
-      zone: input.zone,
-      kind: input.kind ?? "implement",
+      zone: placed.zone,
+      kind,
       blockedBy: (input.blockedBy ?? []).map((t) => normalizeTicket(op.tracker, t)),
       ...(input.options !== undefined ? { options: input.options } : {}),
       ...(input.recommended !== undefined ? { recommended: input.recommended } : {}),
@@ -65,7 +84,7 @@ export async function addContact(
         ? { worktree: input.worktree, branch: null, frontend: "external", terminal: null }
         : null,
     };
-    return { ...op, contacts: [...op.contacts, contact] };
+    return { ...op, zones: placed.zones, contacts: [...op.contacts, contact] };
   });
   if (input.worktree)
     await appendEvent(home, opId, { v: 1, at: now.toISOString(), kind: "adopted", contact: ticket, worktree: input.worktree, source: input.source ?? "operator" });

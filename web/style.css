@@ -512,6 +512,7 @@ details.group > summary .count { margin-left: auto; }
 .link.dim { opacity: 0.25; }
 .map-col-head { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
 .map-col .meter { margin: 4px 0 12px; }
+.map-col-closer .map-col-head { color: var(--warn); margin-bottom: 17px; }
 .node {
   display: block; width: 100%; text-align: left; margin-bottom: 28px; padding: 9px 11px;
   background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--s, var(--line-2)); border-radius: var(--radius-s);
@@ -965,6 +966,7 @@ button.zone-chip[aria-pressed="true"] {
 .kind-pill.k-audit { --s: var(--info); }
 .kind-pill.k-decision { --s: var(--decide); }
 .kind-pill.k-conflict { --s: var(--bad); }
+.kind-pill.k-closer { --s: var(--warn); }
 
 .recovery-missions { display: grid; gap: 8px; margin-bottom: 14px; }
 .recovery-mission { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }

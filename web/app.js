@@ -73,7 +73,7 @@ const state = {
   archiveKey: null, // open report
   archiveReports: new Map(),
   opDoc: null,
-  defaults: { tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none", pause: false },
+  defaults: { tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none", pause: false, closer: true },
 };
 const POLL_INTERVAL_MS = 3000;
 // While the stream is connected the loop only covers what file watching cannot see.
@@ -495,8 +495,9 @@ function render() {
   // The card's timeline reads the log, so only that contact's lines are part of its signature.
   const mine = state.cardTab === "history" && state.history ? state.history.filter((h) => h.contact === selected) : null;
   const plan = state.cardTab === "plan" ? planFor(p.operation.id, contact) : null;
-  region($("card"), { op: p.operation.id, ai: state.settings?.ai, contact, zones: p.operation.zones, rel: p.contacts.map((c) => [c.ticket, c.state, c.conflictOf, c.blockedBy]), tab: state.cardTab, mine, plan, planUi: contact ? planUiKey(p.operation.id, contact.ticket) : "", busy, c: state.confirming }, (root) =>
-    renderCard(root, p, contact, ctx, state.cardTab, state.cardTab === "history" ? state.history : null, plan));
+  const closer = contact?.kind === "closer" ? closerFor(p, contact) : null;
+  region($("card"), { op: p.operation.id, ai: state.settings?.ai, contact, zones: p.operation.zones, rel: p.contacts.map((c) => [c.ticket, c.state, c.conflictOf, c.blockedBy]), tab: state.cardTab, mine, plan, closer, planUi: contact ? planUiKey(p.operation.id, contact.ticket) : "", busy, c: state.confirming }, (root) =>
+    renderCard(root, p, contact, ctx, state.cardTab, state.cardTab === "history" ? state.history : null, plan, closer));
   if (state.view === "table") {
     renderRadarOverlay(p, selected);
     region($("stage"), { op: p.operation.id, contacts: p.contacts.map((c) => [c.ticket, c.title, c.zone, c.group, c.state, c.attention, c.detail, c.blockedBy.map(b => [b.ticket, b.landed]), c.conflictOf]), zones: p.operation.zones, selected }, () =>
@@ -791,6 +792,25 @@ function planFor(opId, contact) {
     });
   }
   return null;
+}
+
+// The closer's brief and report, refetched whenever what they are built from moves: landings, notes, its own state.
+const closerCache = new Map();
+const closerLoading = new Set();
+function closerFor(p, contact) {
+  const key = `${p.operation.id}/${contact.ticket}`;
+  const revision = JSON.stringify([p.contacts.map((c) => c.state === "landed"), p.notes, contact.state, contact.phase]);
+  const hit = closerCache.get(key);
+  if (hit?.revision === revision) return hit.data;
+  if (!closerLoading.has(key)) {
+    closerLoading.add(key);
+    getJson(`/api/closer?op=${encodeURIComponent(p.operation.id)}`).then((data) => {
+      closerCache.set(key, { revision, data });
+      closerLoading.delete(key);
+      render();
+    });
+  }
+  return hit?.data ?? null;
 }
 
 /** Mouse path to what needs you, over the radar; the keyboard path is WASD/HJKL. */

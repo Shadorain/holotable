@@ -4,6 +4,7 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBoardService, type BoardHooks } from "../src/board.ts";
+import type { Projection } from "../src/core/types.ts";
 import { ActionError } from "../src/runtime/errors.ts";
 import { endOperation } from "../src/runtime/end.ts";
 import { startServer, type BoardServer } from "../src/server.ts";
@@ -288,6 +289,25 @@ test("POST /api/zones and /api/contacts add to the operation; bad input is a 400
   expect((await api("/api/contacts", { method: "POST", body: { op: "lab", ticket: "t8", zone: "ghost" } })).status).toBe(400);
   expect((await api("/api/zones", { method: "POST", body: { op: "lab", label: "" } })).status).toBe(400);
   expect((await api("/api/contacts", { method: "POST", body: { op: "ghost", ticket: "t1", zone: "ops" } })).status).toBe(404);
+});
+
+test("POST /api/contacts adds a closer with neither ticket nor zone; GET /api/closer shows its brief, then its report", async () => {
+  const { api, home } = await boot();
+  expect((await api("/api/closer?op=lab")).status).toBe(404);
+  const added = await api("/api/contacts", { method: "POST", body: { op: "lab", kind: "closer" } });
+  expect(await added.json()).toEqual({ ticket: "CLOSER" });
+  const projection = (await (await api("/api/projection?op=lab")).json()) as Projection;
+  const closer = projection.contacts.find((c) => c.ticket === "CLOSER");
+  expect(closer).toMatchObject({ kind: "closer", title: "Closer review", zone: projection.operation.zones.at(-1)?.id, state: "blocked", blockedBy: [] });
+  expect(closer?.detail).toMatch(/^Waits for the rest of the operation to land \(\d+ left\)$/);
+  const view = (await (await api("/api/closer?op=lab")).json()) as { ticket: string; brief: string; report: string | null };
+  expect(view).toMatchObject({ ticket: "CLOSER", report: null });
+  expect(view.brief).toStartWith("# Closer review of operation Lab");
+  mkdirSync(join(home, "operations", "lab", "closer"), { recursive: true });
+  writeFileSync(join(home, "operations", "lab", "closer", "CLOSER.md"), "## Checked\n\nEverything.");
+  expect(((await (await api("/api/closer?op=lab")).json()) as { report: string }).report).toBe("## Checked\n\nEverything.");
+  expect((await api("/api/contacts", { method: "POST", body: { op: "lab", kind: "closer" } })).status).toBe(400);
+  expect((await api("/api/contacts", { method: "POST", body: { op: "lab", ticket: "t2" } })).status).toBe(400);
 });
 
 test("GET/PUT /api/brief round-trips markdown; bad ops are 404", async () => {

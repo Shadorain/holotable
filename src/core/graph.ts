@@ -1,6 +1,10 @@
 import type { Derived, Operation } from "./types.ts";
 
-/** Tickets in the contact's `blockedBy` that have no `landed` event yet. */
+/**
+ * Tickets the contact still waits for. A closer waits for every other contact without listing them in
+ * `blockedBy`, so contacts added later block it too. A conflict mission is part of its target's landing:
+ * the target stands for it, and an abandoned one never holds the closer back.
+ */
 export function unmetBlockers(
   op: Operation,
   derived: Derived,
@@ -8,6 +12,8 @@ export function unmetBlockers(
 ): string[] {
   const contact = op.contacts.find((c) => c.ticket === ticket);
   if (!contact) return [];
+  if (contact.kind === "closer")
+    return op.contacts.filter((c) => c.ticket !== ticket && c.kind !== "conflict" && !derived.contacts[c.ticket]?.landed).map((c) => c.ticket);
   return contact.blockedBy.filter((t) => !derived.contacts[t]?.landed);
 }
 

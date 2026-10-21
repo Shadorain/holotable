@@ -8,6 +8,7 @@ import { isAllowedRemoteAddress, isTailscaleAddress, resolveBoardUrls } from "./
 import { HttpError, type BoardService, type ProjectSpec } from "./board.ts";
 import { CLOSE_OUTCOMES, type NewOperationSpec } from "./commands.ts";
 import type { Access, ClosedOutcome, Delivery, Fleet, Frontend, Kind, Settings, Tracker } from "./core/types.ts";
+import { CLOSER_TICKET } from "./core/closer.ts";
 import { ConflictError, InputError, messageOf } from "./core/errors.ts";
 import { notifyChanged, onChanged } from "./core/notify.ts";
 import type { Run } from "./ports.ts";
@@ -326,6 +327,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         ...(typeof body.brief === "string" ? { brief: body.brief } : {}),
         ...(typeof body.seed === "string" ? { seed: body.seed } : {}),
         ...(typeof body.recover === "boolean" ? { recover: body.recover } : {}),
+        ...(typeof body.closer === "boolean" ? { closer: body.closer } : {}),
       };
       const created = await service.createOperation(spec);
       return { id: created.id };
@@ -411,6 +413,11 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       return plan;
     },
     "GET /api/brief": ({ url }) => service.brief(requireParam(url, "op")),
+    "GET /api/closer": async ({ url }) => {
+      const closer = await service.closer(requireParam(url, "op"));
+      if (!closer) throw new HttpError(404, "This operation has no closer");
+      return closer;
+    },
     "PUT /api/brief": async ({ req }) => {
       const body = await readBody(req);
       if (typeof body.text !== "string") throw new HttpError(400, "text must be a string");
@@ -448,9 +455,11 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         throw new HttpError(400, "options must be an array of strings");
       const recommended = body.recommended;
       if (recommended !== undefined && typeof recommended !== "string") throw new HttpError(400, "recommended must be a string");
+      // A closer needs neither: it defaults to CLOSER in the operation's last zone.
+      const closer = kind === "closer";
       const added = await service.addContact(requireString(body, "op"), {
-        ticket: requireString(body, "ticket"),
-        zone: requireString(body, "zone"),
+        ticket: closer && body.ticket === undefined ? CLOSER_TICKET : requireString(body, "ticket"),
+        ...(closer && body.zone === undefined ? {} : { zone: requireString(body, "zone") }),
         ...(kind !== undefined ? { kind: kind as Kind } : {}),
         ...(title !== undefined ? { title: title as string | null } : {}),
         ...(description !== undefined ? { description: description as string | null } : {}),

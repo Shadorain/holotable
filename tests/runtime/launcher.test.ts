@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Operation } from "../../src/core/types.ts";
-import { PortError } from "../../src/ports.ts";
+import { PortError, type FleetPort } from "../../src/ports.ts";
 import { createActionRunner } from "../../src/runtime/actions.ts";
 import { ActionError } from "../../src/runtime/errors.ts";
 import type { LanderDeps } from "../../src/runtime/lander.ts";
@@ -134,6 +134,21 @@ test("a tracker-less operation passes no ticket to the workspace", async () => {
   t.readyChild();
   await t.act({ op: "lab", contact: "a", action: "launch", args: {} });
   expect(t.fake.calls.find((c) => c.method === "createWorkspace")?.args).toMatchObject({ name: "a", ticket: null });
+});
+
+test("a closer on a Linear operation gets a token-named workspace with no issue link, its brief and a report folder", async () => {
+  const t = await setup({ tracker: "linear", contacts: [contact("CHR-1", { lane: lane("/wt/chr-1", "t1", "b/chr-1") }), contact("CLOSER", { kind: "closer", title: "Closer review" })] });
+  await appendEvent(t.home, "lab", { v: 1, at: "2026-01-01T00:30:00.000Z", kind: "landed", contact: "CHR-1", via: "pr" });
+  t.fake.world.statuses.set("/wt/closer-abc123", status({ worktree: "/wt/closer-abc123" }));
+  t.fake.world.alive.add("/tmp/x.sock");
+  await t.act({ op: "lab", contact: "CLOSER", action: "launch", args: {} });
+  expect(t.fake.calls.find((c) => c.method === "createWorkspace")?.args).toMatchObject({ name: "closer-abc123", ticket: null });
+  // The fake fleet records the launch input it was given; the closer's carries the generated brief.
+  const input = t.fake.calls.find((c) => c.method === "launch")?.args as Parameters<FleetPort["launch"]>[0];
+  const reportPath = join(t.home, "operations", "lab", "closer", "CLOSER.md");
+  expect(input.closerBrief).toContain(`write your report to \`${reportPath}\``);
+  expect(input.closerBrief).toContain("- CHR-1 (implement) — branch b/chr-1 · landed 2026-01-01 00:30 UTC");
+  expect(existsSync(join(t.home, "operations", "lab", "closer"))).toBe(true);
 });
 
 test("a failed workspace step is recorded and a second launch retries it", async () => {

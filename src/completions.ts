@@ -53,6 +53,7 @@ const CONFIG_VALUES: Record<string, readonly string[]> = {
   "defaults.frontend": FRONTENDS,
   "defaults.delivery": DELIVERIES,
   "defaults.pause": ["auto", "pause", "false", "true"],
+  "defaults.closer": ["true", "false"],
   "custom.terminal": [],
   "custom.focus": [],
   "custom.close": [],
@@ -181,7 +182,7 @@ export function holotableCompletions(
         "new",
         rest,
         { repo: [], base: [], name: [], tracker: TRACKERS, fleet: FLEETS, frontend: FRONTENDS, delivery: DELIVERIES, from: [], integration: [], project: snapshot.projects.map((p) => p.id), brief: [] },
-        ["no-pause", "pause", "auto", "recover"],
+        ["no-pause", "pause", "closer", "no-closer", "auto", "recover"],
       );
     case "project": {
       const subs = ["new", "list", "set", "attach", "detach", "delete"];

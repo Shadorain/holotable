@@ -4,7 +4,7 @@ export const TRACKERS = ["linear", "github", "none"] as const;
 export const FLEETS = ["omp-mission", "none"] as const;
 export const FRONTENDS = ["orca", "herdr", "custom", "none"] as const;
 export const DELIVERIES = ["github-pr", "local-merge", "none"] as const;
-export const KINDS = ["implement", "audit", "decision", "conflict"] as const;
+export const KINDS = ["implement", "audit", "decision", "conflict", "closer"] as const;
 export const OPERATOR_OPS = [
   "plan-approve",
   "redecide",
@@ -353,7 +353,8 @@ export interface Settings {
   theme: Theme;
   /** Folder template for lanes holotable creates with git itself; see core/worktrees.ts. */
   worktrees: { root: string };
-  defaults: { tracker: Tracker; fleet: Fleet; frontend: Frontend; delivery: Delivery; pause: boolean };
+  /** `closer`: new operations end with a closer review contact unless the creator opts out. */
+  defaults: { tracker: Tracker; fleet: Fleet; frontend: Frontend; delivery: Delivery; pause: boolean; closer: boolean };
   custom?: { terminal?: string; focus?: string; close?: string };
   /** After a contact lands, close its pane and remove its worktree. */
   cleanup: boolean;

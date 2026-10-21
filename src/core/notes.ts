@@ -1,14 +1,10 @@
-const TASK_LINE = /^\s*[-*]\s*\[([ xX])\]/;
+const TASK_LINE = /^\s*[-*]\s*\[([ xX])\]\s*(.*)$/;
 const FENCE = /^\s*(```|~~~)/;
 
-/**
- * Markdown task lines (`- [ ]`, `* [x]`, case-insensitive x) outside fenced
- * code blocks. `{done:0,total:0}` for absent text and text with no task lines.
- */
-export function countTasks(text: string | null): { done: number; total: number } {
-  if (text === null) return { done: 0, total: 0 };
-  let done = 0;
-  let total = 0;
+/** Markdown task lines (`- [ ]`, `* [x]`, case-insensitive x) outside fenced code blocks, in order. */
+export function taskLines(text: string | null): Array<{ done: boolean; text: string }> {
+  if (text === null) return [];
+  const tasks: Array<{ done: boolean; text: string }> = [];
   let inFence = false;
   for (const line of text.split("\n")) {
     if (FENCE.test(line)) {
@@ -17,11 +13,15 @@ export function countTasks(text: string | null): { done: number; total: number }
     }
     if (inFence) continue;
     const m = TASK_LINE.exec(line);
-    if (m === null) continue;
-    total += 1;
-    if (m[1]!.toLowerCase() === "x") done += 1;
+    if (m !== null) tasks.push({ done: m[1]!.toLowerCase() === "x", text: m[2]!.trim() });
   }
-  return { done, total };
+  return tasks;
+}
+
+/** `{done:0,total:0}` for absent text and text with no task lines. */
+export function countTasks(text: string | null): { done: number; total: number } {
+  const tasks = taskLines(text);
+  return { done: tasks.filter((t) => t.done).length, total: tasks.length };
 }
 
 /** One `- [ ]`/`- [x]` line per workflow item; `done` holds the latest workflow event per item. */

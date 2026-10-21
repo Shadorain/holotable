@@ -432,6 +432,9 @@ export function createSettingsDrawer({ api, applyTheme, toast, openHelp, openGui
     switchRow(sec, "Pause gates", "defaults.pause", s.defaults.pause, saveSetting, {
       note: "Missions in new projects, and in operations that do not inherit a project, stop at each Pause gate for your approval. Existing projects and operations keep theirs. Unrelated to an operation's Auto mode, which launches and lands for you.",
     });
+    switchRow(sec, "Finish with a closer review", "defaults.closer", s.defaults.closer !== false, saveSetting, {
+      note: "New operations end with a closer: once every other contact lands, a mission checks the integrated work, fixes small problems and reports the rest. The New operation form can still turn it off. Existing operations keep theirs.",
+    });
     for (const kind of ["tracker", "fleet", "frontend", "delivery"])
       enumRow(sec, titleCase(kind), `defaults.${kind}`, PORT_OPTIONS[kind], s.defaults[kind], saveSetting);
     textRow(sec, "Worktree folder", "worktrees.root", s.worktrees.root, saveSetting, {

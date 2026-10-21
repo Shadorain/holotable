@@ -6,6 +6,8 @@ import { PortError, type FleetPort, type Ports } from "../ports.ts";
 import type { ProjectionExtras } from "../snapshot.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { ensureLaunchOverlay } from "../store/launch.ts";
+import { ensureCloserReportDir } from "../store/closer.ts";
+import { closerBriefFor } from "./closer.ts";
 import { mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
 import { offered } from "./offer.ts";
@@ -33,6 +35,22 @@ const DEFAULT_SOCKET_WAIT_MS = 90_000;
 
 export function slug(ticket: string): string {
   return ticket.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50);
+}
+
+/**
+ * Conflict and closer worktrees take a random suffix: several can exist for one repo, and a freeform
+ * mission refuses a checkout whose branch looks like a tracker ticket (a closer may carry one).
+ */
+function workspaceName(contact: Contact, token: () => string): string {
+  if (contact.kind === "conflict") return `conflict-${token()}`;
+  if (contact.kind === "closer") return `closer-${token()}`;
+  return slug(contact.ticket);
+}
+
+/** The closer's review brief as of this launch; its report directory exists before the pane starts. */
+async function closerLaunchBrief(deps: LauncherDeps, operation: Operation, closer: Contact): Promise<string> {
+  await ensureCloserReportDir(deps.home, operation.id);
+  return closerBriefFor(deps.home, operation, closer, deps.now().getTime());
 }
 
 async function recordedConflictPaths(deps: LauncherDeps, opId: string, original: string): Promise<string[]> {
@@ -97,6 +115,7 @@ export async function launchContact(
   // A conflict mission launched from its card (after a refused launch) still needs the paths it may edit.
   const conflictPaths =
     extra.conflictPaths ?? (contact.kind === "conflict" && contact.conflictOf ? await recordedConflictPaths(deps, opId, contact.conflictOf) : []);
+  const closerBrief = contact.kind === "closer" ? await closerLaunchBrief(deps, operation, contact) : undefined;
 
   const fail = (step: LaunchStep, error: unknown): Promise<never> => failLaunch(deps, opId, ticket, step, error);
   const setLane = (lane: NonNullable<Contact["lane"]>) =>
@@ -124,17 +143,18 @@ export async function launchContact(
     worktree,
     overlay: await ensureLaunchOverlay(deps.home),
     ...(conflictPaths.length ? { conflictPaths } : {}),
+    ...(closerBrief !== undefined ? { closerBrief } : {}),
     model: selectedModel,
     thinking: settings.ai.thinking,
   });
   if (!lane) {
     try {
-      const name = contact.kind === "conflict" ? `conflict-${deps.token()}` : slug(ticket);
       const input = {
         repo: operation.repo,
-        name,
+        name: workspaceName(contact, () => deps.token()),
         base: operation.base,
-        ticket: operation.tracker === "linear" && contact.kind !== "conflict" ? ticket : null,
+        // Only tracker tickets link their issue; conflict and closer missions are the board's own.
+        ticket: operation.tracker === "linear" && (contact.kind === "implement" || contact.kind === "audit") ? ticket : null,
         delivery: operation.delivery,
       };
       let created;
@@ -256,6 +276,7 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
     contact,
     worktree: lane.worktree,
     overlay,
+    ...(contact.kind === "closer" ? { closerBrief: await closerLaunchBrief(deps, operation, contact) } : {}),
     model: selectedModel,
     thinking: settings.ai.thinking,
   });

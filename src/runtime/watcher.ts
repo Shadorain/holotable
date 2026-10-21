@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { foldEvents } from "../core/fold.ts";
 import { contactOf } from "../core/projection.ts";
 import { unmetBlockers } from "../core/graph.ts";
+import { trackerTicket } from "../core/validate-operation.ts";
 import { messageOf } from "../core/errors.ts";
 import { validateEvent } from "../core/validate-event.ts";
 import { hasRecentUncontrolledStatus } from "../core/policy.ts";
@@ -310,7 +311,8 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       await sample(op, ticket, seen, fields);
       return;
     }
-    if (op.tracker !== "none") {
+    // A closer named CLOSER is no tracker issue: asking the tracker would only fail every pass.
+    if (op.tracker !== "none" && (contact.kind !== "closer" || trackerTicket(op.tracker, ticket))) {
       const tracked = await guard(`tracker ${ticket}`, () => ports.tracker.sample(ticket, op.repo));
       if (tracked) fields.tracker = tracked;
     }

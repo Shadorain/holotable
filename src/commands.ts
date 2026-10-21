@@ -23,6 +23,7 @@ import { asInput, InputError, messageOf } from "./core/errors.ts";
 import { parseSeed } from "./core/seed.ts";
 import { validateProject } from "./core/validate-project.ts";
 import { addContact, queueEvents } from "./contacts.ts";
+import { CLOSER_TICKET, closerOf } from "./core/closer.ts";
 import type { Ports } from "./ports.ts";
 import type { Run } from "./ports.ts";
 import { agentDir } from "./paths.ts";
@@ -104,13 +105,14 @@ export const HELP = `/holotable: campaign board over omp-mission missions.
   /holotable restart             restart the board without changing missions or data
   /holotable status              report the selected home's board health
   /holotable url                 print the running board URLs
-  /holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]
+  /holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--closer] [--no-closer] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]
   /holotable list [--all]
   /holotable project <new|list|set|attach|detach|delete> …
   /holotable use <id>
   /holotable zone <label>              (id derived from the label)
   /holotable set <${SET_FIELDS.join("|")}> <value>
   /holotable add <ticket> --zone <id> [--kind K] [--blocked-by A,B] [--title text] [--description text] [--worktree <path>]
+  /holotable add closer [ticket] [--zone <id>]   the last contact: reviews the integrated work once everything else lands
   /holotable close <id> <landed|abandoned|decision|failed>
   /holotable config [key value]
 Launch, land and approve are board clicks only.`;
@@ -219,6 +221,8 @@ export interface NewOperationSpec {
   recover?: boolean;
   /** Enable automatic launch/land without opting into plan approval or recovery. */
   auto?: boolean;
+  /** End with a closer review contact; defaults to `settings.defaults.closer`. */
+  closer?: boolean;
 }
 
 /** The project the selected operation belongs to; `project set`/`detach` work on it. */
@@ -290,25 +294,31 @@ export async function createFromSpec(
   }
   if (spec.brief !== undefined) await writeBrief(home, created.id, spec.brief);
   await queueEvents(home, now, created, created.contacts.map((c) => c.ticket), "seed");
+  if ((spec.closer ?? defaults.closer) && !closerOf(created)) {
+    await addContact(home, now, created.id, { ticket: CLOSER_TICKET, kind: "closer", source: "operator" });
+    return readOperation(home, created.id);
+  }
   return created;
 }
 
-function explicitPause(flags: ReadonlyMap<string, string | true>): boolean | undefined {
-  const pause = flags.has("pause");
-  const noPause = flags.has("no-pause");
-  if (pause && noPause) throw new Error("pass only one of --pause and --no-pause");
-  if (pause) return true;
-  if (noPause) return false;
+/** `--<name>` / `--no-<name>`: true, false, or undefined when neither is given. */
+function explicitSwitch(flags: ReadonlyMap<string, string | true>, name: string): boolean | undefined {
+  const on = flags.has(name);
+  const off = flags.has(`no-${name}`);
+  if (on && off) throw new Error(`pass only one of --${name} and --no-${name}`);
+  if (on) return true;
+  if (off) return false;
   return undefined;
 }
+
 async function cmdNew(tokens: string[], env: CommandEnv): Promise<CommandOutcome> {
 
   const usage =
-    "/holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]";
+    "/holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--closer] [--no-closer] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]";
   const parsed = parseArgs(
     tokens,
     ["repo", "base", "project", "name", "tracker", "fleet", "frontend", "delivery", "from", "integration", "brief"],
-    ["no-pause", "pause", "auto", "recover"],
+    ["no-pause", "pause", "closer", "no-closer", "auto", "recover"],
     usage,
   );
   const [id] = parsed.positional;
@@ -330,7 +340,8 @@ async function cmdNew(tokens: string[], env: CommandEnv): Promise<CommandOutcome
     ...(flag(parsed, "integration") !== undefined || repo !== undefined
       ? { integration: resolve(env.cwd, flag(parsed, "integration") ?? repo ?? "") }
       : {}),
-    ...(explicitPause(parsed.flags) !== undefined ? { pause: explicitPause(parsed.flags) } : {}),
+    ...(explicitSwitch(parsed.flags, "pause") !== undefined ? { pause: explicitSwitch(parsed.flags, "pause") } : {}),
+    ...(explicitSwitch(parsed.flags, "closer") !== undefined ? { closer: explicitSwitch(parsed.flags, "closer") } : {}),
     ...(parsed.flags.has("auto") ? { auto: true } : {}),
     ...(parsed.flags.has("recover") ? { recover: true } : {}),
     ...(flag(parsed, "tracker") ? { tracker: oneOf(TRACKERS, flag(parsed, "tracker")!, "--tracker") } : {}),
@@ -373,7 +384,7 @@ async function cmdProject(tokens: string[], env: CommandEnv): Promise<CommandOut
         repo: resolve(env.cwd, repo),
         base,
         integration: resolve(env.cwd, flag(parsed, "integration") ?? repo),
-        pause: explicitPause(parsed.flags) ?? defaults.pause,
+        pause: explicitSwitch(parsed.flags, "pause") ?? defaults.pause,
         tracker: oneOf(TRACKERS, flag(parsed, "tracker") ?? defaults.tracker, "--tracker"),
         fleet: oneOf(FLEETS, flag(parsed, "fleet") ?? defaults.fleet, "--fleet"),
         frontend: oneOf(FRONTENDS, flag(parsed, "frontend") ?? defaults.frontend, "--frontend"),
@@ -594,13 +605,14 @@ async function cmdSet(tokens: string[], env: CommandEnv): Promise<CommandOutcome
 }
 
 async function cmdAdd(tokens: string[], env: CommandEnv): Promise<CommandOutcome> {
+  if (tokens[0] === "closer") return cmdAddCloser(tokens.slice(1), env);
   const usage =
-    "/holotable add <ticket> --zone <id> [--kind K] [--blocked-by A,B] [--title text] [--description text] [--worktree <path>] [--option X ...] [--recommended X]";
+    "/holotable add <ticket> --zone <id> [--kind K] [--blocked-by A,B] [--title text] [--description text] [--worktree <path>] [--option X ...] [--recommended X] | add closer [ticket]";
   const parsed = parseArgs(tokens, ["zone", "kind", "blocked-by", "title", "description", "worktree", "option", "recommended"], [], usage);
   const [rawTicket] = parsed.positional;
   const zone = flag(parsed, "zone");
-  if (!rawTicket || parsed.positional.length !== 1 || !zone) throw new Error(`Usage: ${usage}`);
   const kind = oneOf(KINDS, flag(parsed, "kind") ?? "implement", "--kind");
+  if (!rawTicket || parsed.positional.length !== 1 || (!zone && kind !== "closer")) throw new Error(`Usage: ${usage}`);
   const opId = requireCurrent(env);
   const worktree = flag(parsed, "worktree");
   const real = worktree ? await realpath(resolve(env.cwd, worktree)).catch(() => {
@@ -617,7 +629,24 @@ async function cmdAdd(tokens: string[], env: CommandEnv): Promise<CommandOutcome
     ...(flag(parsed, "recommended") !== undefined ? { recommended: flag(parsed, "recommended") } : {}),
     worktree: real,
   });
-  return { message: `${ticket} ${adopted ? "adopted" : "queued"} in ${opId}/${zone}.` };
+  return { message: `${ticket} ${adopted ? "adopted" : "queued"} in ${opId}/${zone ?? "its closer zone"}.` };
+}
+
+/** The operation's last contact: it waits for everything else, then reviews the integrated result. */
+async function cmdAddCloser(tokens: string[], env: CommandEnv): Promise<CommandOutcome> {
+  const usage = "/holotable add closer [ticket] [--zone <id>] [--title text] [--description text]";
+  const parsed = parseArgs(tokens, ["zone", "title", "description"], [], usage);
+  if (parsed.positional.length > 1) throw new Error(`Usage: ${usage}`);
+  const opId = requireCurrent(env);
+  const zone = flag(parsed, "zone");
+  const { ticket } = await addContact(env.home, env.now, opId, {
+    ticket: parsed.positional[0] ?? CLOSER_TICKET,
+    kind: "closer",
+    ...(zone !== undefined ? { zone } : {}),
+    ...(flag(parsed, "title") !== undefined ? { title: flag(parsed, "title") } : {}),
+    description: flag(parsed, "description") ?? null,
+  });
+  return { message: `${ticket} queued in ${opId} as its closer: it launches once everything else has landed.` };
 }
 
 async function cmdClose(tokens: string[], env: CommandEnv): Promise<CommandOutcome> {

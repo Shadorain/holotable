@@ -20,7 +20,7 @@ export interface Recommendation {
  * Landed/support/open/abandoned exclude board pane spend, which is `paneUsd` alone.
  */
 export interface SpendEvaluation {
-  /** Spend of landed implement/audit contacts (sources and legacy totals, no panes). */
+  /** Spend of landed implement/audit/closer contacts (sources and legacy totals, no panes). */
   landedUsd: number | null;
   /** Landed work contacts whose spend has a known cost; the `perLandedUsd` denominator. */
   landedPriced: number;

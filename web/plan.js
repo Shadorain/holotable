@@ -77,6 +77,8 @@ function node(c, selected, chain) {
     if (unlanded.length > 0) {
       const cue = unlanded.length <= 2 ? `waits on ${unlanded.join(", ")}` : `waits on ${unlanded[0]} +${unlanded.length - 1}`;
       box.append(el("div", "node-cue", cue));
+    } else if (c.kind === "closer" && c.state === "blocked") {
+      box.append(el("div", "node-cue", "after everything else lands"));
     } else if (c.conflictOf) {
       box.append(el("div", "node-cue", `conflict of ${c.conflictOf}`));
     } else if (c.phase && c.state !== "conflict") {
@@ -176,9 +178,13 @@ export function renderMap(root, projection, selected, focus, onAdd = null) {
   const chain = focus ? chainOf(projection, focus) : null;
   const zones = [...projection.operation.zones];
   const known = new Set(zones.map((z) => z.id));
-  if (contacts.some((c) => !known.has(c.zone))) zones.push({ id: "", label: "No zone" });
+  if (contacts.some((c) => c.kind !== "closer" && !known.has(c.zone))) zones.push({ id: "", label: "No zone" });
+  // The closer waits for everything without an arrow from each contact: it gets its own column, last.
+  const closer = contacts.find((c) => c.kind === "closer");
   for (const zone of zones) {
-    const members = contacts.filter((c) => (zone.id ? c.zone === zone.id : !known.has(c.zone)));
+    const members = contacts.filter((c) => c.kind !== "closer" && (zone.id ? c.zone === zone.id : !known.has(c.zone)));
+    // A zone made only to hold the closer would be an empty column beside the closer's own.
+    if (!members.length && closer?.zone === zone.id) continue;
     // Tree order inside a column: each contact is followed by what waits on it, so arrows stay short.
     const ordered = [];
     const placed = new Set();
@@ -201,6 +207,13 @@ export function renderMap(root, projection, selected, focus, onAdd = null) {
     col.append(head, meter);
     if (!members.length) col.append(el("div", "empty-line", "Nothing here yet."));
     for (const c of members) col.append(node(c, selected, chain));
+    cols.append(col);
+  }
+  if (closer) {
+    const col = el("section", "map-col map-col-closer");
+    const head = el("div", "map-col-head");
+    head.append(el("span", "", "Closer"), el("span", "count", closer.state === "landed" ? "1/1" : "0/1"));
+    col.append(head, node(closer, selected, chain));
     cols.append(col);
   }
   if (!zones.length) cols.append(el("div", "placeholder", "No zones yet. Add one on the Operation page or with /holotable zone <name>."));

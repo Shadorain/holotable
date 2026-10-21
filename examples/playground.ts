@@ -13,6 +13,7 @@ import { DEFAULT_SETTINGS, settingsFile } from "../src/settings.ts";
 import { readSettings } from "../src/store/settings.ts";
 import { createFromSpec } from "../src/commands.ts";
 import { addContact } from "../src/contacts.ts";
+import { closerReportPath } from "../src/store/closer.ts";
 import { appendEvent, readEvents } from "../src/store/events.ts";
 import { mutateOperation, readOperation } from "../src/store/operations.ts";
 import { seedDemo } from "./demo.ts";
@@ -43,6 +44,19 @@ const SIM_MODELS = [
   { selector: "anthropic/claude-sonnet-4-5", name: "Claude Sonnet 4.5", provider: "anthropic", reasoning: true },
   { selector: "openai/gpt-5.1-codex", name: "GPT-5.1 Codex", provider: "openai", reasoning: true },
 ];
+const SIM_CLOSER_REPORT = `## Checked
+
+- Full verification on the integrated base: 412 tests, typecheck and lint pass.
+- Every landed contact's change set, read together; the brief's acceptance criteria and the notes checklist.
+
+## Fixed
+
+- Two contacts each added a \`retryDelay\` helper; kept one in \`src/net/retry.ts\` (simulated).
+
+## Follow-ups
+
+- \`docs/socket.md\` still describes the pre-herdr frontend list; rewrite it (larger than a closer fix).
+`;
 
 interface SimMission {
   id: string;
@@ -120,6 +134,8 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
   /** Panes the simulated frontend lists; a closed pane drops out, so the watcher sees it vanish. */
   const terminals = new Map<string, TerminalRef & { worktree: string }>();
   let counter = 0;
+  /** Where each simulated closer writes its report once it completes, by worktree. */
+  const closerReports = new Map<string, string>();
   const now = () => Date.now();
 
   const born = (worktree: string, branch: string | null): SimMission => {
@@ -169,7 +185,11 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
     // Native plan approval and Pause gates are separate operator actions.
     // Pause gates are separate: without --pause a mission goes straight from execute to review.
     if (m.stage === "execute" && age > EXECUTE_S) go(m.noPause ? "review" : "gate");
-    else if (m.stage === "review" && age > REVIEW_S) go("complete");
+    else if (m.stage === "review" && age > REVIEW_S) {
+      go("complete");
+      const report = closerReports.get(m.worktree);
+      if (report) writeFileSync(report, SIM_CLOSER_REPORT);
+    }
   };
   const statusOf = (m: SimMission): ContactStatus => {
     advance(m);
@@ -281,7 +301,10 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
   const ports: Omit<Ports, "tracker"> = {
     fleet: {
       id: "omp-mission",
-      launch: (i) => ({ argv: ["omp", "--config", i.overlay], env: { OMP_MISSION_AUTOSTART: `/mission ${i.contact.ticket}${i.operation.pause ? " --pause" : ""}` } }),
+      launch: (i) => {
+        if (i.contact.kind === "closer") closerReports.set(i.worktree, closerReportPath(homeDir, i.operation.id, i.contact.ticket));
+        return { argv: ["omp", "--config", i.overlay], env: { OMP_MISSION_AUTOSTART: `/mission ${i.contact.ticket}${i.operation.pause ? " --pause" : ""}` } };
+      },
       read: async ({ worktree }) => (missions.get(worktree)?.closed ? null : statusOf(born(worktree, null))),
       ping: async (s) => s.ctl !== null && [...missions.values()].some((m) => m.id === s.id && !m.closed),
       running: async (s) => [...missions.values()].some((m) => m.id === s.id && !m.closed),
@@ -570,6 +593,8 @@ async function main(): Promise<void> {
   await addContact(home, seededAt, "charidel", { ticket: "CHR-180", zone: "plat", title: "Audit log export" });
   await addContact(home, seededAt, "charidel", { ticket: "CHR-181", zone: "plat", title: "Audit log viewer", blockedBy: ["CHR-180"] });
   await addContact(home, seededAt, "charidel", { ticket: "CHR-182", zone: "cut", kind: "audit", title: "Cutover dry-run audit", source: "model" });
+  // `mission` ends with a closer: it turns ready once socket, status, review and herdr have all landed.
+  await addContact(home, seededAt, "mission", { ticket: "CLOSER", kind: "closer" });
 
   // Auto mode: the board lands finished missions and launches the next one itself.
   // dry-* names are chosen so none hash into the simulator's conflict bucket.
@@ -646,6 +671,7 @@ async function main(): Promise<void> {
     repo: join(home, "repos", "scratch"),
     base: "main",
     name: "Scratch (no project)",
+    closer: false,
     tracker: "none",
     fleet: "none",
     frontend: "herdr",

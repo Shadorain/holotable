@@ -335,6 +335,49 @@ function recoverSection(p, ctx) {
   return box;
 }
 
+const addingCloser = new Set();
+
+/** Whether the operation ends with a closer review, and a way to add one when it does not. */
+function closerSection(p, ctx) {
+  const box = docSection("Closer");
+  const opId = p.operation.id;
+  const closer = p.contacts.find((c) => c.kind === "closer");
+  if (closer) {
+    const row = el("div", "actions plan-row");
+    row.append(kindPill("closer"), el("span", "mono", closer.ticket), statePill(closer), el("span", "dim", closer.detail));
+    box.append(row, el("div", "set-note", "The last contact: once every other contact lands, a mission checks the integrated work, fixes small problems through the normal delivery and reports anything bigger."));
+    return box;
+  }
+  box.append(el("div", "set-note", "No closer. A closer is the last contact: once everything else lands, a mission checks the integrated work, fixes small problems and reports the rest."));
+  const add = el("button", "btn small");
+  add.type = "button";
+  add.dataset.key = "op/add-closer";
+  add.append(icon("plus", { size: 12 }), document.createTextNode("Add closer"));
+  add.disabled = addingCloser.has(opId);
+  const err = el("div", "set-err");
+  err.hidden = true;
+  add.addEventListener("click", async () => {
+    if (addingCloser.has(opId)) return;
+    addingCloser.add(opId);
+    add.disabled = true;
+    try {
+      const data = await fetchJson(await ctx.api("/api/contacts", { method: "POST", body: JSON.stringify({ op: opId, kind: "closer" }) }));
+      ctx.toast(`${data?.ticket ?? "Closer"} queued as the closer`, "ok");
+      await ctx.poll();
+    } catch (error) {
+      err.hidden = false;
+      err.textContent = errorText(error);
+    } finally {
+      addingCloser.delete(opId);
+      add.disabled = false;
+    }
+  });
+  const row = el("div", "list-tools");
+  row.append(add);
+  box.append(row, err);
+  return box;
+}
+
 function zonesContactsSection(p, ctx) {
   const box = docSection("Zones and contacts");
   const zones = p.operation.zones;
@@ -446,7 +489,7 @@ function zonesContactsSection(p, ctx) {
     const st = el("span", "");
     st.append(statePill(c));
     row.append(st);
-    const waits = c.blockedBy.filter((b) => !b.landed).map((b) => b.ticket).join(", ");
+    const waits = c.kind === "closer" && c.state === "blocked" ? "everything else" : c.blockedBy.filter((b) => !b.landed).map((b) => b.ticket).join(", ");
     row.append(el("span", "dim", waits || "—"));
     table.append(row);
   }
@@ -517,7 +560,7 @@ export function renderOperation(root, projection, doc, ctx) {
   const n = p.notes;
   if (n?.total) notes.querySelector(".group-head").append(el("span", "count", `${n.done}/${n.total} done`));
   notes.append(notesPanel(p.operation.id, ctx));
-  root.append(briefSection(p, doc, ctx), notes, autoSection(p, ctx), recoverSection(p, ctx), setupSection(p, doc, ctx), zonesContactsSection(p, ctx));
+  root.append(briefSection(p, doc, ctx), notes, autoSection(p, ctx), recoverSection(p, ctx), setupSection(p, doc, ctx), zonesContactsSection(p, ctx), closerSection(p, ctx));
 
   root.append(seedSection(doc, p), endSection(p, ctx));
   const created = el("div", "set-note opdoc-created");

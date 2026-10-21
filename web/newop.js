@@ -144,6 +144,8 @@ export function renderNewOperation(root, ctx) {
   name.input.addEventListener("input", syncId);
   const recover = switcher({ label: "Keep missions running", checked: true });
   field(grid, "Keep missions running", recover.root, { note: "Reopen a pane that closes or crashes and take the mission back. Never past a gate, plan or failed verification." });
+  const closer = switcher({ label: "Finish with a closer review", checked: ctx.defaults.closer !== false });
+  field(grid, "Finish with a closer review", closer.root, { note: "Adds a last contact: once everything else lands, a mission checks the integrated work, fixes small problems and reports the rest. Default in Settings." });
   review.append(grid);
   const briefWrap = el("div", "brief-wrap");
   const brief = el("textarea", "plan-edit brief-edit");
@@ -428,7 +430,12 @@ export function renderNewOperation(root, ctx) {
     if (s === undefined) return;
     const id = slug(name.input.value);
     if (!id) return nameF.setError(new Error("required"));
-    const body = { id, name: name.input.value.trim(), recover: recover.root.getAttribute("aria-checked") === "true" };
+    const body = {
+      id,
+      name: name.input.value.trim(),
+      recover: recover.root.getAttribute("aria-checked") === "true",
+      closer: closer.root.getAttribute("aria-checked") === "true",
+    };
     if (brief.value.trim()) body.brief = brief.value;
     if (s) body.seed = seed.value.trim();
     create.disabled = true;

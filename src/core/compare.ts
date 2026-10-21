@@ -77,7 +77,7 @@ interface TrialFacts {
   knownCostUsd: number | null; costPerDelivered: number | null; usagePartial: boolean; costClean: boolean;
 }
 
-const work = (kind: string) => kind === "implement" || kind === "audit";
+const work = (kind: string) => kind === "implement" || kind === "audit" || kind === "closer";
 
 function facts(trial: ManifestTrial, report: OperationReport): TrialFacts {
   const e = report.evaluation ?? null;

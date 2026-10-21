@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ActionRequest } from "../../src/board.ts";
 import type { AutoMode, ContactStatus, DeliveryProbe } from "../../src/core/types.ts";
-import { PortError, type Run } from "../../src/ports.ts";
+import { PortError, type FleetPort, type Run } from "../../src/ports.ts";
 import { createActionRunner } from "../../src/runtime/actions.ts";
 import { createAuto } from "../../src/runtime/auto.ts";
 import { ActionError } from "../../src/runtime/errors.ts";
@@ -320,6 +320,41 @@ describe("auto mode", () => {
     expect(op.auto?.enabled).toBe(false);
     const autos = (await t.events()).filter((e) => e.kind === "auto");
     expect(autos.at(-1)).toMatchObject({ enabled: false, reason: "every contact landed", by: "board" });
+  });
+
+  test("launches the closer only once everything else landed, marks it done, and only then finishes", async () => {
+    const t = await setup([contact("a", { lane: lane("/wt/a", "t1", "b/a") }), contact("b"), contact("CLOSER", { kind: "closer", title: "Closer review" })]);
+    t.setStatus("a", status({ worktree: "/wt/a", complete: true, phase: "complete", ctl: null }));
+    t.setProbe("a", { url: "u", state: "open", mergeable: "clean", checks: "pass" });
+    t.liveWorktree("b");
+    t.liveWorktree("closer-abc123");
+    const launched = async () => (await t.events()).flatMap((e) => (e.kind === "operator" && e.op === "launch" && e.ok ? [e.contact] : []));
+
+    await t.auto.pass(); // lands a, launches b: the closer still waits for b
+    await t.auto.pass();
+    expect(await launched()).toEqual(["b"]);
+    expect((await t.op()).auto?.enabled).toBe(true);
+
+    t.setStatus("b", status({ worktree: "/wt/b", complete: true, phase: "complete", ctl: null }));
+    await t.auto.pass(); // lands b
+    await t.auto.pass(); // now the closer is ready
+    expect(await launched()).toEqual(["b", "CLOSER"]);
+    // The fake fleet records each launch input it was given; the closer's carries the generated brief.
+    const launches = t.fake.calls.filter((c) => c.port === "fleet" && c.method === "launch").map((c) => c.args as Parameters<FleetPort["launch"]>[0]);
+    const brief = launches.find((i) => i.contact.ticket === "CLOSER")?.closerBrief;
+    expect(brief).toContain("# Closer review of operation");
+    expect(brief).toContain("## Landed work (2)");
+    expect((await t.op()).contacts.find((c) => c.ticket === "CLOSER")?.lane?.worktree).toBe("/wt/closer-abc123");
+    // Every other contact landed, but the operation is not finished until the closer is.
+    expect((await t.op()).auto?.enabled).toBe(true);
+
+    // Nothing to fix: no PR, branch already in the base. Auto marks it done, then finishes.
+    t.setStatus("CLOSER", status({ worktree: "/wt/closer-abc123", complete: true, phase: "complete", ctl: null }));
+    await t.auto.pass();
+    expect((await t.events()).some((e) => e.kind === "landed" && e.contact === "CLOSER")).toBe(true);
+    await t.auto.pass();
+    expect((await t.op()).auto?.enabled).toBe(false);
+    expect((await t.events()).filter((e) => e.kind === "auto").at(-1)).toMatchObject({ enabled: false, reason: "every contact landed" });
   });
 
   test("a completed conflict mission waits for its target's Land instead of being marked done", async () => {

@@ -1,3 +1,4 @@
+import { closerWait } from "./closer.ts";
 import { contactDerived } from "./fold.ts";
 import { unmetBlockers } from "./graph.ts";
 import { missionProblem, retryWaiting } from "./mission-problem.ts";
@@ -95,7 +96,7 @@ export function launchRefusal(i: PolicyInput): string | null {
   if (contact.kind === "decision") return "decision tickets do not launch";
   if (contact.lane?.terminal != null) return "already launched";
   const blockers = unmetBlockers(operation, derived, contact.ticket);
-  if (blockers.length > 0) return `blocked by ${blockers.join(", ")}`;
+  if (blockers.length > 0) return contact.kind === "closer" ? closerWait(blockers.length) : `blocked by ${blockers.join(", ")}`;
   if (load.open >= cap) return `cap ${load.open}/${cap} omp`;
   return setupRefusal(operation);
 }
@@ -248,8 +249,9 @@ function liveActions(s: Shared): ActionView[] {
 function completeActions(i: PolicyInput, s: Shared): ActionView[] {
   const { operation, contact, owner, probe } = i;
   const actions: ActionView[] = [];
-  // An audit that opened a PR (or committed on a local-merge base) carries code like any implementation.
-  const carriesCode = contact.kind === "implement" || (contact.kind === "audit" && probe !== null);
+  // An audit or closer that opened a PR (or committed on a local-merge base) carries code like any implementation;
+  // one that changed nothing has nothing to land.
+  const carriesCode = contact.kind === "implement" || ((contact.kind === "audit" || contact.kind === "closer") && probe !== null);
   if (carriesCode && probe?.state === "merged") {
     // Merged outside the board (or by an earlier Land): recording it is the only step left.
     actions.push(view("done", "Mark merged", true, true));
@@ -271,7 +273,7 @@ function completeActions(i: PolicyInput, s: Shared): ActionView[] {
     // Without a delivery the operator merges by hand; Mark done then verifies the merge actually happened.
     if (operation.delivery === "none") actions.push(view("done", "Mark done", false, true));
   } else {
-    // Audits with nothing to merge and conflict missions never land: done is the exit.
+    // Audits and closers with nothing to merge, and conflict missions, never land: done is the exit.
     // A finished conflict mission is not the operator's next step: Land on the original is.
     actions.push(view("done", "Mark done", contact.kind !== "conflict", true));
   }
@@ -354,7 +356,7 @@ export function handsOff(i: PolicyInput & { actions: ActionView[]; reviewStalled
     if (probe?.checks === "pending") return "Waiting for CI; auto mode lands it when green";
     if (status?.check?.state === "fixing" && probe?.checks !== "fail") return "The mission is fixing its PR";
     if (enabled("land")) return "Auto mode lands this next";
-    if (contact.kind === "audit" && enabled("done")) return "Auto mode marks this done, or opens a PR for its commits";
+    if ((contact.kind === "audit" || contact.kind === "closer") && enabled("done")) return "Auto mode marks this done, or opens a PR for its commits";
   }
   return null;
 }

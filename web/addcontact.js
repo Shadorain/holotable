@@ -8,6 +8,7 @@ const KINDS = [
   ["implement", "Implement", "A mission builds and delivers it"],
   ["audit", "Audit", "A mission reviews; you mark it done"],
   ["decision", "Decision", "No mission: you decide and mark it decided"],
+  ["closer", "Closer", "Last: once everything else lands, a mission reviews the integrated work and fixes small problems"],
 ];
 
 function row(label, control, note) {
@@ -76,12 +77,19 @@ export function openAddContact(projection, ctx) {
   });
   const decideBox = el("div", "modal-grid decide-only");
   decideBox.hidden = true;
+  const hasCloser = projection.contacts.some((c) => c.kind === "closer");
   const kind = dropdown({
     label: "Kind",
-    options: KINDS.map(([value, label, hint]) => ({ value, label, hint })),
+    options: KINDS.map(([value, label, hint]) =>
+      value === "closer" && hasCloser
+        ? { value, label, hint: "An operation has at most one closer", meta: "already has one", disabled: true }
+        : { value, label, hint }),
     value: "implement",
     onChange: (v) => {
       decideBox.hidden = v !== "decision";
+      // A closer waits for everything on its own; it gets CLOSER unless the operator names it.
+      waits.hidden = v === "closer";
+      if (v === "closer" && !ticket.input.value.trim()) ticket.input.value = "CLOSER";
     },
   });
   // Waits for: picked from this operation's contacts, shown as removable chips.
@@ -158,7 +166,7 @@ export function openAddContact(projection, ctx) {
       return;
     }
     add.disabled = true;
-    const blockedBy = [...chosen];
+    const blockedBy = kind.value === "closer" ? [] : [...chosen];
     try {
       const data = await fetchJson(await ctx.api("/api/contacts", {
         method: "POST",

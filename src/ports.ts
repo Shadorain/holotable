@@ -102,6 +102,8 @@ export interface FleetPort {
     /** YAML overlay that puts the new session into plan mode at startup. */
     overlay: string;
     conflictPaths?: string[];
+    /** A closer's generated review brief (`core/closer.ts`); required for kind "closer". */
+    closerBrief?: string;
     model?: string | null;
     thinking?: string | null;
   }): { argv: string[]; env: Record<string, string> };

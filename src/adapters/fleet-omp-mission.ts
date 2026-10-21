@@ -228,6 +228,9 @@ export function ompMissionFleet(options: MissionFleetOptions): FleetPort {
         const more = paths.length > MAX_CONFLICT_PATHS ? ` and ${paths.length - MAX_CONFLICT_PATHS} more` : "";
         // The worktree holds an unfinished merge: committing it is what makes this branch the resolution Land pushes.
         message = `/mission${pause} -- Resolve the merge conflicts in ${paths.slice(0, MAX_CONFLICT_PATHS).join(", ")}${more} of ${contact.conflictOf}. Edit only those files, then git add them and conclude the merge with git commit --no-edit. Do not push or open a PR; Holotable lands this branch.`;
+      } else if (contact.kind === "closer") {
+        // Short on purpose: the review brief rides the system prompt below.
+        message = `/mission${pause} -- Closer review of operation ${operation.name.replace(/\s+/g, " ").trim()}`;
       } else if (operation.tracker === "none") {
         const text = (contact.description && contact.description.trim().length > 0)
           ? contact.description
@@ -237,9 +240,13 @@ export function ompMissionFleet(options: MissionFleetOptions): FleetPort {
         message = `/mission ${contact.ticket}${pause}`;
       }
       const argv = ["omp", "--config", i.overlay];
-      // Mission extras parse option-looking words as flags, even inside task prose.
-      if (operation.tracker !== "none" && contact.kind !== "conflict" && contact.description?.trim())
+      if (contact.kind === "closer") {
+        if (!i.closerBrief) throw new PortError("no-brief", `Closer ${contact.ticket} launched without its review brief`);
+        argv.push("--append-system-prompt", i.closerBrief);
+      } else if (operation.tracker !== "none" && contact.kind !== "conflict" && contact.description?.trim()) {
+        // Mission extras parse option-looking words as flags, even inside task prose.
         argv.push("--append-system-prompt", `Additional scope for mission ${contact.ticket}:\n\n${contact.description}`);
+      }
       if (i.model) argv.push("--model", i.model);
       if (i.thinking) argv.push("--thinking", i.thinking);
       return {
@@ -250,6 +257,8 @@ export function ompMissionFleet(options: MissionFleetOptions): FleetPort {
           OMP_MISSION_CHECKOUT: i.worktree,
           OMP_MISSION_BASE: operation.base,
           OMP_MISSION_GRAPH: contact.kind === "conflict" ? "local" : "beads",
+          // Only an implementation delivers its own PR. omp-mission's `pr` delivery demands a PR URL to record
+          // delivery, which an audit or a closer with nothing to fix cannot have; Mark done opens one for their commits.
           OMP_MISSION_DELIVERY: contact.kind === "implement" && operation.delivery === "github-pr" ? "pr" : "local",
         },
       };

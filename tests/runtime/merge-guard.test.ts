@@ -91,6 +91,29 @@ test("Mark done lands an audit once its work is really in the base", async () =>
   expect(await t.kinds()).toContain("landed");
 });
 
+const landedOther = () => contact("x", { kind: "audit", lane: lane("/wt/x", "t0", "b/x") });
+const closer = () => contact("CLOSER", { kind: "closer", lane: lane("/wt/closer", "t2", "b/closer") });
+
+test("Mark done lands a closer that changed nothing: its branch is already in the base", async () => {
+  const t = await setup([landedOther(), closer()]);
+  await t.act({ op: "lab", contact: "x", action: "done", args: {} });
+  await t.act({ op: "lab", contact: "CLOSER", action: "done", args: {} });
+  expect((await readEvents(t.home, "lab")).filter((e) => e.kind === "landed").map((e) => ("contact" in e ? e.contact : ""))).toEqual(["x", "CLOSER"]);
+  expect(t.fake.count("delivery.verifyMerged")).toBe(2);
+});
+
+test("Mark done on a closer with fixes and no PR opens one for Land, like an audit", async () => {
+  const t = await setup([landedOther(), closer()]);
+  await t.act({ op: "lab", contact: "x", action: "done", args: {} });
+  t.fake.world.unmerged.set("CLOSER", "1 commit on b/closer not in main");
+  const published: string[] = [];
+  t.fake.ports.delivery.publish = async (i) => { published.push(i.branch); return { url: "https://github.com/acme/w/pull/12" }; };
+  const failed = await t.failure(t.act({ op: "lab", contact: "CLOSER", action: "done", args: {} }));
+  expect(failed).toMatchObject({ status: 409, code: "pr-opened" });
+  expect(published).toEqual(["b/closer"]);
+  expect((await readEvents(t.home, "lab")).some((e) => e.kind === "landed" && e.contact === "CLOSER")).toBe(false);
+});
+
 test("a decision contact never asks the delivery about a merge", async () => {
   const t = await setup([contact("d", { kind: "decision", options: ["Stay", "Move"] })]);
   await t.act({ op: "lab", contact: "d", action: "done", args: { choice: "Stay" } });

@@ -19,8 +19,8 @@ export const sumTokens = (tokens: UsageTotals["tokens"]): number => TOKEN_KEYS.r
 /** The phase decision-pane spend is attributed to. */
 export const DECISION_PHASE = "decision";
 
-/** Only implement/audit contacts deliver work; decisions and conflict fixes do not count toward delivery. */
-export const isWork = (contact: Contact): boolean => contact.kind === "implement" || contact.kind === "audit";
+/** Only implement/audit/closer contacts deliver work; decisions and conflict fixes do not count toward delivery. */
+export const isWork = (contact: Contact): boolean => contact.kind === "implement" || contact.kind === "audit" || contact.kind === "closer";
 
 /** Median and nearest-rank p90; sorts `values` in place. */
 export function distribution(values: number[]): Distribution {

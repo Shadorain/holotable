@@ -22,7 +22,7 @@ function fixture(current: string | null = null): CommandEnv {
 }
 async function withLab(extra = ""): Promise<CommandEnv> {
   const env = fixture();
-  const out = await runCommand(`new lab --repo /tmp/r --base main ${extra}`, env);
+  const out = await runCommand(`new lab --repo /tmp/r --base main --no-closer ${extra}`, env);
   env.current = out.current ?? null;
   await runCommand("zone Ops", env);
   return env;
@@ -44,28 +44,59 @@ test("standalone CLI preserves an empty value when clearing a model preference",
   expect((await readSettings(env.home)).ai.model).toBeNull();
 });
 
-test("new creates and selects an operation with settings defaults", async () => {
+test("new creates and selects an operation with settings defaults, ending with a closer", async () => {
   const env = fixture();
   const out = await runCommand("new lab --repo /tmp/r --base main --name Lab", env);
   expect(out.current).toBe("lab");
   const op = await readOperation(env.home, "lab");
   expect(op).toMatchObject({ name: "Lab", repo: "/tmp/r", integration: "/tmp/r", pause: false, tracker: "none", fleet: "omp-mission", frontend: "none", delivery: "none" });
   expect(op.auto).toBeUndefined();
-  expect(await readEvents(env.home, "lab")).toEqual([]);
+  // defaults.closer is on: a zone-less operation gets a Closer zone to hold it.
+  expect(op.zones).toEqual([{ id: "closer", label: "Closer" }]);
+  expect(op.contacts.map((c) => [c.ticket, c.kind, c.zone, c.title, c.blockedBy])).toEqual([["CLOSER", "closer", "closer", "Closer review", []]]);
+  expect(await kinds(env)).toEqual(["queued:CLOSER"]);
 });
 
-test("new --from seeds zones, contacts and workflow and queues each contact", async () => {
+test("new --no-closer, or defaults.closer off, creates no closer; --closer overrides the setting", async () => {
+  const env = fixture();
+  await runCommand("new lab --repo /tmp/r --base main --no-closer", env);
+  expect((await readOperation(env.home, "lab")).contacts).toEqual([]);
+  await runCommand("config defaults.closer false", env);
+  await runCommand("new two --repo /tmp/r --base main", env);
+  expect((await readOperation(env.home, "two")).contacts).toEqual([]);
+  await runCommand("new three --repo /tmp/r --base main --closer", env);
+  expect((await readOperation(env.home, "three")).contacts.map((c) => c.kind)).toEqual(["closer"]);
+  await expect(runCommand("new four --repo /tmp/r --base main --closer --no-closer", env)).rejects.toThrow("pass only one of --closer and --no-closer");
+});
+
+test("new --from seeds zones, contacts and workflow and queues each contact; the closer comes last, blocked by all", async () => {
   const env = fixture();
   const file = join(env.home, "seed.json");
   writeFileSync(file, JSON.stringify({
-    zones: [{ id: "a", label: "A" }],
+    zones: [{ id: "a", label: "A" }, { id: "b", label: "B" }],
     workflow: [{ id: "ship", label: "Ship it" }],
     contacts: [{ ticket: "one", zone: "a" }, { ticket: "two", zone: "a", blockedBy: ["one"], title: "Second" }],
   }));
   await runCommand(`new lab --repo /tmp/r --base main --from seed.json`, env);
   const op = await readOperation(env.home, "lab");
-  expect(op.contacts.map((c) => [c.ticket, c.kind, c.lane])).toEqual([["one", "implement", null], ["two", "implement", null]]);
-  expect(await kinds(env)).toEqual(["queued:one", "queued:two", "blocked:two"]);
+  expect(op.zones.map((z) => z.id)).toEqual(["a", "b"]);
+  expect(op.contacts.map((c) => [c.ticket, c.kind, c.zone, c.lane])).toEqual([["one", "implement", "a", null], ["two", "implement", "a", null], ["CLOSER", "closer", "b", null]]);
+  expect(await kinds(env)).toEqual(["queued:one", "queued:two", "blocked:two", "queued:CLOSER", "blocked:CLOSER"]);
+  const events = await readEvents(env.home, "lab");
+  expect(events.at(-1)).toMatchObject({ kind: "blocked", contact: "CLOSER", by: ["one", "two"] });
+});
+
+test("add closer queues the operation's closer, blocked again by contacts added later; a second is refused", async () => {
+  const env = await withLab("--tracker linear");
+  await runCommand("add chr-1 --zone ops", env);
+  expect((await runCommand("add closer", env)).message).toContain("CLOSER queued in lab as its closer");
+  await runCommand("add chr-2 --zone ops", env);
+  const op = await readOperation(env.home, "lab");
+  expect(op.contacts.map((c) => [c.ticket, c.kind, c.zone])).toEqual([["CHR-1", "implement", "ops"], ["CLOSER", "closer", "ops"], ["CHR-2", "implement", "ops"]]);
+  const events = await readEvents(env.home, "lab");
+  expect(events.filter((e) => e.kind === "blocked" && e.contact === "CLOSER").map((e) => (e.kind === "blocked" ? e.by : null))).toEqual([["CHR-1"], ["CHR-1", "CHR-2"]]);
+  await expect(runCommand("add closer AUDIT-9", env)).rejects.toThrow("only one closer per operation");
+  await expect(runCommand("add chr-3 --zone ops --blocked-by CLOSER", env)).rejects.toThrow("must not wait for closer CLOSER");
 });
 
 test("new --auto enables operation auto mode with safe defaults", async () => {

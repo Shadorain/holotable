@@ -33,6 +33,18 @@ export function normalizeTicket(tracker: Tracker, ticket: string): string {
   return tracker === "linear" ? t.toUpperCase() : t;
 }
 
+/** Whether `ticket` names an issue in `tracker` (any short id when there is no tracker). */
+export function trackerTicket(tracker: Tracker, ticket: string): boolean {
+  switch (tracker) {
+    case "linear":
+      return LINEAR_TICKET_RE.test(ticket);
+    case "github":
+      return GITHUB_TICKET_RE.test(ticket);
+    case "none":
+      return FREEFORM_TICKET_RE.test(ticket);
+  }
+}
+
 export interface OperationDoc {
   /** The normalized on-disk shape (absent overridable keys stay absent). */
   stored: StoredOperation;
@@ -211,16 +223,7 @@ export function validateOperationDoc(
   if (value.contacts.length > 200)
     return fail("contacts must have at most 200 entries");
 
-  const isTicketOk = (ticket: string): boolean => {
-    switch (tracker) {
-      case "linear":
-        return LINEAR_TICKET_RE.test(ticket);
-      case "github":
-        return GITHUB_TICKET_RE.test(ticket);
-      case "none":
-        return FREEFORM_TICKET_RE.test(ticket);
-    }
-  };
+  const isTicketOk = (ticket: string): boolean => trackerTicket(tracker, ticket);
   const ticketOk = (kind: Kind, ticket: string): boolean => {
     if (kind === "conflict") {
       const idx = ticket.lastIndexOf("-conflict-");
@@ -230,6 +233,8 @@ export function validateOperationDoc(
       }
       return FREEFORM_TICKET_RE.test(ticket);
     }
+    // A closer is the board's own review, not a tracker issue: CLOSER is a valid ticket under any tracker.
+    if (kind === "closer") return isTicketOk(ticket) || FREEFORM_TICKET_RE.test(ticket);
     return isTicketOk(ticket);
   };
 
@@ -353,6 +358,15 @@ export function validateOperationDoc(
       return fail(`${at}.conflictOf "${c.conflictOf}" is not a contact ticket`);
     if (c.conflictOf === c.ticket)
       return fail(`${at}.conflictOf must not be itself`);
+  }
+  const closers = contacts.filter((c) => c.kind === "closer");
+  if (closers.length > 1) return fail(`only one closer per operation (${closers.map((c) => c.ticket).join(", ")})`);
+  const closer = closers[0];
+  if (closer) {
+    // Its blockers are implicit (every other contact), and nothing can wait on the operation's last contact.
+    if (closer.blockedBy.length) return fail(`closer ${closer.ticket} must not list blockedBy: it waits for every other contact`);
+    const waiting = contacts.find((c) => c.blockedBy.includes(closer.ticket));
+    if (waiting) return fail(`${waiting.ticket} must not wait for closer ${closer.ticket}: the closer lands last`);
   }
   const cycle = findCycle(contacts);
   if (cycle) return fail(`blockedBy cycle: ${cycle.join(" -> ")}`);

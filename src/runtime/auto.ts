@@ -205,7 +205,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
         // A conflict contact is its target's resolution: the target's Land carries it. Marking it done first
         // would drop the resolution and reopen the conflict, so auto only finishes one whose target has landed.
         if (c.kind === "conflict" && contactOf(projection, c.conflictOf ?? "")?.state !== "landed") return false;
-        return (c.kind === "audit" || c.kind === "conflict") && canDo(c, "done") && allowed(c.ticket, "done");
+        return (c.kind === "audit" || c.kind === "closer" || c.kind === "conflict") && canDo(c, "done") && allowed(c.ticket, "done");
       });
       if (!target) landingWaits.delete(opId);
       if (target) {
