@@ -1,17 +1,16 @@
 import { renderOps } from "./board.js";
-import { cardTabs, clearCardDecision, clearDecideModel, clearLaunchModel, getCardDecision, getDecideModel, getLaunchModel, planUiKey, renderCard } from "./card.js";
+import { cardTabs, planUiKey, renderCard } from "./card.js";
 import { orderedTickets, renderList } from "./list.js";
 import { drawLinks, renderHistory, renderMap } from "./plan.js";
 import { createRadar } from "./radar.js";
 import { createSettingsDrawer } from "./settings.js";
-import { CONFIRM, el, fmtMs, KEY_DIR, nearestInDirection, openTicket } from "./ui.js";
+import { el, KEY_DIR, nearestInDirection, openTicket } from "./ui.js";
 import { dropdown, popoverOpenWithin } from "./components.js";
 import { renderNewOperation } from "./newop.js";
 import { opUiKey, renderOperation } from "./operation.js";
 import { renderArchive } from "./archive.js";
 import { renderProject } from "./project.js";
 import { renderProjects } from "./projects.js";
-import { openDecide } from "./decide.js";
 import { gettingStarted, onboardingHidden, showOnboarding, startTour, tourPending } from "./onboarding.js";
 import { openAddContact } from "./addcontact.js";
 import { allLanded, doneBanner } from "./endop.js";
@@ -20,7 +19,7 @@ import { icon } from "./icons.js";
 import { installTooltips } from "./tooltip.js";
 import { installLoadTip } from "./usage.js";
 import { connectLive } from "./live.js";
-import { openModelRecovery } from "./model-recovery.js";
+import { createActions } from "./actions.js";
 
 installTooltips();
 
@@ -67,7 +66,6 @@ let polling = false;
 let refreshPending = false;
 let pollDone = Promise.resolve();
 let pollTimer = null;
-let confirmTimer = null;
 let opDocPending = null;
 let stream = null;
 
@@ -106,7 +104,12 @@ function toast(text, kind = "info") {
   $("toasts").append(box);
   // Errors stay until dismissed: the operator has to read why something did not happen.
   if (kind !== "error") setTimeout(() => box.remove(), 4000);
-  while ($("toasts").childElementCount > 4) $("toasts").firstElementChild.remove();
+  // Over the cap the oldest non-error goes first: errors wait for the operator to dismiss them.
+  const toasts = $("toasts");
+  while (toasts.childElementCount > 4) {
+    const oldest = [...toasts.children].find((t) => t.dataset.kind !== "error") ?? toasts.firstElementChild;
+    oldest.remove();
+  }
 }
 
 // ---- selection ----
@@ -118,6 +121,20 @@ function select(ticket, fromKey = false) {
   state.selected[state.opId] = ticket;
   localStorage.setItem("holotable.selected", JSON.stringify(state.selected));
   render();
+}
+
+function storePlanView(view) {
+  state.planView = view;
+  localStorage.setItem("holotable.planView", view);
+}
+
+/** Point the page at another operation; everything loaded for the old one is dropped. */
+function switchOp(id) {
+  state.opId = id;
+  localStorage.setItem("holotable.op", id);
+  state.opDoc = null;
+  state.projection = null;
+  state.history = null;
 }
 
 // Table view centre: one radar instance for the session; update() replaces its data, never its canvas.
@@ -139,24 +156,16 @@ const opPick = dropdown({
       label: "New operation",
       icon: "plus",
       onPick: () => {
-        state.planView = "new";
-        localStorage.setItem("holotable.planView", "new");
+        storePlanView("new");
         setView("plan");
       },
     },
     { label: "Archive", icon: "archive", className: "dd-link", onPick: () => setView("archive") },
   ],
   onChange: (id) => {
-    state.opId = id;
-    localStorage.setItem("holotable.op", state.opId);
-    state.opDoc = null;
-    state.projection = null;
-    state.history = null;
+    switchOp(id);
     state.historyFilter.contact = null;
-    if (state.planView === "new") {
-      state.planView = "map";
-      localStorage.setItem("holotable.planView", "map");
-    }
+    if (state.planView === "new") storePlanView("map");
     // Archive and project pages are not about one operation; choosing one means "go look at it".
     if (state.view === "archive" || state.view === "project" || state.view === "projects") setView("board");
     poll();
@@ -198,99 +207,11 @@ async function loadTheme() {
   }
 }
 loadTheme();
+
 // ---- actions ----
 
-const PAST = {
-  launch: "launched", land: "landed", "land-anyway": "landed past failing checks", approve: "approved", continue: "continued", review: "sent to review",
-  dispatch: "dispatched", check: "PR check started", done: "marked done", reap: "terminal closed", focus: "focused", mode: "mode changed",
-  "plan-save": "plan saved", "plan-refine": "refinement sent to the mission", answer: "question answered",
-  relaunch: "reopened", redecide: "decision changed", "decide-agent": "agent asked to decide",
-  resend: "worker retry requested", release: "blocker release requested", "retry-model": "switched model and retrying",
-};
+const { runAction, confirmOrRun } = createActions({ state, api, toast, render, pollFresh });
 
-/** Runs one board action; resolves `{ok, error}` so callers like the plan editor can react. */
-async function runAction(ticket, action, args = {}, opId = state.opId) {
-  const key = `${opId}/${ticket}/${action}`;
-  const lock = `${opId}/${ticket}/*`;
-  if (state.busy.has(lock)) return { ok: false, error: "Request already pending for this mission" };
-  state.busy.add(key);
-  state.busy.add(lock);
-  render();
-  let outcome;
-  try {
-    const res = await api("/api/actions", {
-      method: "POST",
-      body: JSON.stringify({ op: opId, contact: ticket, action, args }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      outcome = { ok: false, error: body?.error ?? `HTTP ${res.status}` };
-      toast(`${ticket ? `${ticket}: ` : ""}${action} failed. ${outcome.error}`, "error");
-    } else {
-      outcome = { ok: true, error: null };
-      toast(`${ticket} ${PAST[action] ?? action}`, "ok");
-    }
-  } catch (error) {
-    outcome = { ok: false, error: error instanceof Error ? error.message : String(error) };
-    toast(`${action} failed: ${outcome.error}`, "error");
-  } finally {
-    try {
-      if (polling) await pollDone;
-      await poll();
-    } finally {
-      state.busy.delete(key);
-      state.busy.delete(lock);
-      render();
-    }
-  }
-  return outcome;
-}
-
-function confirmOrRun(ticket, action) {
-  const opId = state.opId;
-  const key = `${ticket}/${action}`;
-  if (state.busy.has(`${opId}/${ticket}/*`)) return;
-  // Recording a decision needs the choice (and maybe why), so it opens a dialog first.
-  const contact = state.projection?.contacts.find((c) => c.ticket === ticket);
-  if (action === "retry-model" && contact) {
-    openModelRecovery([contact], { api, opId, run: runAction });
-    return;
-  }
-  if (contact?.kind === "decision" && (action === "done" || action === "redecide")) {
-    const initialChoice = action === "done" ? getCardDecision(opId, ticket) : null;
-    openDecide(contact, action, async (args) => {
-      const res = await runAction(ticket, action, args, opId);
-      if (res.ok) clearCardDecision(opId, ticket);
-      return res;
-    }, { initialChoice });
-    return;
-  }
-  if (CONFIRM[action] && state.confirming !== key) {
-    state.confirming = key;
-    clearTimeout(confirmTimer);
-    confirmTimer = setTimeout(() => {
-      state.confirming = null;
-      render();
-    }, 4000);
-    render();
-    return;
-  }
-  const args = {};
-  if (action === "launch") {
-    const model = getLaunchModel(opId, ticket);
-    if (model !== undefined) args.model = model;
-  } else if (action === "decide-agent") {
-    const model = getDecideModel(opId, ticket);
-    if (model !== undefined) args.model = model;
-  }
-  state.confirming = null;
-  runAction(ticket, action, args, opId).then((res) => {
-    if (res?.ok) {
-      if (action === "launch") clearLaunchModel(opId, ticket);
-      if (action === "decide-agent") clearDecideModel(opId, ticket);
-    }
-  });
-}
 // ---- rendering ----
 
 /** Rebuild a region only when its inputs changed; keep keyboard focus on the same control. */
@@ -313,18 +234,15 @@ function region(root, data, build) {
 
 let lastHeaderSig = "";
 function renderHeader() {
-  const intelQuery = state.view === "archive" && state.archiveKey
-    ? `archive=${encodeURIComponent(state.archiveKey)}`
-    : state.opId ? `op=${encodeURIComponent(state.opId)}` : "";
+  let intelQuery = "";
+  if (state.view === "archive" && state.archiveKey) intelQuery = `archive=${encodeURIComponent(state.archiveKey)}`;
+  else if (state.opId) intelQuery = `op=${encodeURIComponent(state.opId)}`;
   $("intelLink").href = `/intel${intelQuery ? `?${intelQuery}` : ""}#${token}`;
   const p = state.projection;
   const current = state.operations.find((o) => o.id === state.opId);
-  const shown =
-    state.view === "project" && state.projectId
-      ? { id: state.projectId, name: state.projectCfg?.fields?.name ?? state.projectId }
-      : state.view === "projects"
-        ? null
-        : current?.project;
+  let shown = current?.project;
+  if (state.view === "project" && state.projectId) shown = { id: state.projectId, name: state.projectCfg?.fields?.name ?? state.projectId };
+  else if (state.view === "projects") shown = null;
   const needs = p ? p.contacts.filter((c) => c.attention).length : 0;
   const sig = JSON.stringify([
     state.operations.map((o) => [o.id, o.name, o.attention, o.project?.id, o.project?.name]),
@@ -343,7 +261,11 @@ function renderHeader() {
     if (!groups.has(key)) groups.set(key, { name: o.project?.name ?? "Standalone", ops: [] });
     groups.get(key).ops.push(o);
   }
-  const keys = [...groups.keys()].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : groups.get(a).name.localeCompare(groups.get(b).name)));
+  const keys = [...groups.keys()].sort((a, b) => {
+    if (a === "") return 1;
+    if (b === "") return -1;
+    return groups.get(a).name.localeCompare(groups.get(b).name);
+  });
   const grouped = keys.length > 1 || keys[0] !== "";
   const options = [];
   for (const key of keys) {
@@ -393,75 +315,34 @@ function showBlank(message, detail) {
   syncRadar();
 }
 
+function showPage(view, planView = null) {
+  $("blank").hidden = true;
+  document.body.dataset.view = view;
+  if (planView) document.body.dataset.planview = planView;
+  else delete document.body.dataset.planview;
+}
+
+// Views that need no open operation; the archive is about the ones that ended.
+const PAGES = {
+  projects: renderProjectsPage,
+  project: renderProjectPage,
+  archive: renderArchivePage,
+};
+
 function render() {
   syncRadar();
   renderHeader();
   if (!token) return showBlank("No access token", "Open the full URL that /holotable printed in OMP (it ends in #<token>).");
   if (state.conn === "denied") return showBlank("Token rejected", "The board was restarted and has a new URL. Run /holotable in OMP and open the URL it prints.");
-  if (state.view === "projects" && state.conn === "live") {
-    $("blank").hidden = true;
-    document.body.dataset.view = "projects";
-    delete document.body.dataset.planview;
-    if (state.projects === null) {
-      state.projects = [];
-      loadProjects().then(render);
-    }
-    const guide = !onboardingHidden();
-    if (guide && state.setup === undefined) loadSetup();
-    const formOpen = $("projectsPage").querySelector(".proj-new");
-    if (formOpen) return;
-    region($("projectsPage"), { projects: state.projects, ops: state.operations.map((o) => [o.id, o.attention, o.project?.id]), guide, setup: state.setup }, (root) =>
-      renderProjects(root, state.projects, state.operations, {
-        api,
-        toast,
-        defaults: state.defaults,
-        autoNew: state.newProject,
-        onboarding: guide
-          ? gettingStarted(state.setup, {
-              toast,
-              newOperation: () => {
-                state.planView = "new";
-                setView("plan");
-              },
-              openBoard: () => setView(state.operations.length ? "board" : "projects"),
-              startTour,
-              hide: render,
-            })
-          : null,
-        openProject: (id) => {
-          state.projects = null;
-          state.newProject = false;
-          openProject(id);
-        },
-        openOperation: (id) => openOperationPage(id),
-        reload: () => loadProjects().then(render),
-      }));
-    state.newProject = false;
-    syncRadar();
-    return;
-  }
-  if (state.view === "project" && state.conn === "live" && state.projectId) {
-    $("blank").hidden = true;
-    document.body.dataset.view = "project";
-    delete document.body.dataset.planview;
-    renderProjectPage();
-    syncRadar();
-    return;
-  }
-  // The archive needs no open operation: it is about the ones that ended.
-  if (state.view === "archive" && state.conn === "live") {
-    $("blank").hidden = true;
-    document.body.dataset.view = "archive";
-    delete document.body.dataset.planview;
-    renderArchivePage();
+  if (state.conn === "live" && PAGES[state.view] && (state.view !== "project" || state.projectId)) {
+    showPage(state.view);
+    PAGES[state.view]();
     syncRadar();
     return;
   }
   if (!state.operations.length && state.conn === "live") {
     if (state.view === "plan" && state.planView === "new") {
-      $("blank").hidden = true;
-      document.body.dataset.view = "plan";
-      document.body.dataset.planview = "new";
+      showPage("plan", "new");
       renderNewOp();
       return;
     }
@@ -476,10 +357,7 @@ function render() {
     tourOffered = true;
     setTimeout(startTour, 800);
   }
-  $("blank").hidden = true;
-  document.body.dataset.view = state.view;
-  if (state.view === "plan") document.body.dataset.planview = state.planView;
-  else delete document.body.dataset.planview;
+  showPage(state.view, state.view === "plan" ? state.planView : null);
   // Default to what needs the operator first, not merely the first live contact.
   let selected = selectedTicket();
   let contact = p.contacts.find((c) => c.ticket === selected) ?? null;
@@ -529,62 +407,102 @@ function render() {
   const plan = state.cardTab === "plan" ? planFor(p.operation.id, contact) : null;
   region($("card"), { op: p.operation.id, ai: state.settings?.ai, contact, zones: p.operation.zones, rel: p.contacts.map((c) => [c.ticket, c.state, c.conflictOf, c.blockedBy]), tab: state.cardTab, mine, plan, planUi: contact ? planUiKey(p.operation.id, contact.ticket) : "", busy, c: state.confirming }, (root) =>
     renderCard(root, p, contact, ctx, state.cardTab, state.cardTab === "history" ? state.history : null, plan));
-  if (state.view === "table") renderRadarOverlay(p, selected);
-  if (state.view === "table")
+  if (state.view === "table") {
+    renderRadarOverlay(p, selected);
     region($("stage"), { op: p.operation.id, contacts: p.contacts.map((c) => [c.ticket, c.title, c.zone, c.group, c.state, c.attention, c.detail, c.blockedBy.map(b => [b.ticket, b.landed]), c.conflictOf]), zones: p.operation.zones, selected }, () =>
       radar.update(p, selected));
-  else if (state.view === "board")
+  } else if (state.view === "board") {
     region($("ops"), { op: p.operation, notes: p.notes, notesKey: notesKey(p.operation.id), counts: p.contacts.map((c) => [c.state, c.group, c.attention]), busy }, (root) => renderOps(root, p, ctx));
-  else {
-    // Plan view: map | op | new
-    const tabs = $("planTabs");
-    tabs.hidden = false;
-    document.querySelectorAll("#planTabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.planview === state.planView)));
-    $("planMap").hidden = state.planView !== "map";
-    $("opPage").hidden = state.planView !== "op";
-    $("newOp").hidden = state.planView !== "new";
-    if (state.planView === "map") renderPlan(p, selected);
-    else if (state.planView === "op") {
-      const doc = state.opDoc;
-      if (!doc) loadOpDoc().then(render);
-      if (state.projects === null) {
-        state.projects = [];
-        loadProjects().then(render);
-      }
-      const docKey = {
-        projects: state.projects,
-        op: p.operation.id,
-        doc,
-        ui: opUiKey(p.operation.id, p.operation.zones),
-        auto: p.operation.auto,
-        zones: p.operation.zones,
-        contacts: p.contacts.map((c) => [c.ticket, c.title, c.description, c.zone, c.kind, c.state, c.problem, c.blockedBy, c.tracker?.url ?? null]),
-        notes: p.notes,
-        notesKey: notesKey(p.operation.id),
-        busy: [...ctx.busy],
-      };
-      region($("opPage"), docKey, (root) => {
-        const c = {
-          ...ctx,
-          api,
-          toast,
-          poll: () => poll(),
-          reloadOp: async () => { await loadOpDoc(); render(); },
-          run: runAction,
-          rerender: () => render(),
-          saveOp: saveOpField,
-          addContact: () => addContact(p),
-          projects: state.projects ?? [],
-          openProject,
-          ended: opEnded,
-          ticketUrl: lookupTicketUrl,
-        };
-        renderOperation(root, p, doc, c);
-      });
-    } else renderNewOp();
+  } else {
+    // Also reached by a page view while the connection is not live.
+    renderPlanView(p, selected, ctx, busy);
   }
   syncRadar();
 }
+
+function renderProjectsPage() {
+  ensureProjects();
+  const guide = !onboardingHidden();
+  if (guide && state.setup === undefined) loadSetup();
+  const formOpen = $("projectsPage").querySelector(".proj-new");
+  if (formOpen) return;
+  region($("projectsPage"), { projects: state.projects, ops: state.operations.map((o) => [o.id, o.attention, o.project?.id]), guide, setup: state.setup }, (root) =>
+    renderProjects(root, state.projects, state.operations, {
+      api,
+      toast,
+      defaults: state.defaults,
+      autoNew: state.newProject,
+      onboarding: guide
+        ? gettingStarted(state.setup, {
+            toast,
+            newOperation: () => {
+              state.planView = "new";
+              setView("plan");
+            },
+            openBoard: () => setView(state.operations.length ? "board" : "projects"),
+            startTour,
+            hide: render,
+          })
+        : null,
+      openProject: (id) => {
+        state.projects = null;
+        state.newProject = false;
+        openProject(id);
+      },
+      openOperation: (id) => openOperationPage(id),
+      reload: () => loadProjects().then(render),
+    }));
+  state.newProject = false;
+}
+
+/** Plan view: map | op | new. */
+function renderPlanView(p, selected, ctx, busy) {
+  $("planTabs").hidden = false;
+  document.querySelectorAll("#planTabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.planview === state.planView)));
+  $("planMap").hidden = state.planView !== "map";
+  $("opPage").hidden = state.planView !== "op";
+  $("newOp").hidden = state.planView !== "new";
+  if (state.planView === "map") renderPlan(p, selected);
+  else if (state.planView === "op") renderOpPage(p, ctx, busy);
+  else renderNewOp();
+}
+
+function renderOpPage(p, ctx, busy) {
+  const doc = state.opDoc;
+  if (!doc) loadOpDoc().then(render);
+  ensureProjects();
+  const docKey = {
+    projects: state.projects,
+    op: p.operation.id,
+    doc,
+    ui: opUiKey(p.operation.id, p.operation.zones),
+    auto: p.operation.auto,
+    zones: p.operation.zones,
+    contacts: p.contacts.map((c) => [c.ticket, c.title, c.description, c.zone, c.kind, c.state, c.problem, c.blockedBy, c.tracker?.url ?? null]),
+    notes: p.notes,
+    notesKey: notesKey(p.operation.id),
+    busy,
+  };
+  region($("opPage"), docKey, (root) =>
+    renderOperation(root, p, doc, {
+      ...ctx,
+      poll: () => poll(),
+      reloadOp: async () => { await loadOpDoc(); render(); },
+      saveOp: saveOpField,
+      projects: state.projects ?? [],
+      openProject,
+      ended: opEnded,
+      ticketUrl: lookupTicketUrl,
+    }));
+}
+
+/** Fetch the project list once; rendering repeats when it arrives. */
+function ensureProjects() {
+  if (state.projects !== null) return;
+  state.projects = [];
+  loadProjects().then(render);
+}
+
 async function loadArchive() {
   try {
     const res = await api("/api/archive");
@@ -727,10 +645,7 @@ function renderArchivePage() {
 }
 
 function renderNewOp() {
-  if (state.projects === null) {
-    state.projects = [];
-    loadProjects().then(render);
-  }
+  ensureProjects();
   region($("newOp"), { defaults: state.defaults, projects: state.projects, project: state.newOpProject ?? null }, (root) => {
     renderNewOperation(root, {
       defaults: state.defaults,
@@ -740,15 +655,13 @@ function renderNewOp() {
       toast,
       cancel: () => {
         state.newOpProject = null;
-        state.planView = "map";
-        localStorage.setItem("holotable.planView", "map");
+        storePlanView("map");
         render();
       },
       created: (id) => {
         state.newOpProject = null;
         state.projects = null;
-        state.planView = "map";
-        localStorage.setItem("holotable.planView", "map");
+        storePlanView("map");
         state.opId = id;
         localStorage.setItem("holotable.op", id);
         poll();
@@ -906,13 +819,7 @@ async function poll() {
     if (document.visibilityState !== "visible") return;
     if (state.operations && newOps.length !== state.operations.length) state.setup = undefined;
     state.operations = newOps;
-    if (state.operations.length && !state.operations.some((o) => o.id === state.opId)) {
-      state.opId = state.operations[0].id;
-      localStorage.setItem("holotable.op", state.opId);
-      state.opDoc = null;
-      state.projection = null;
-      state.history = null;
-    }
+    if (state.operations.length && !state.operations.some((o) => o.id === state.opId)) switchOp(state.operations[0].id);
     const pollOpId = state.opId;
     if (state.operations.length) {
       const pres = await api(`/api/projection?op=${encodeURIComponent(pollOpId)}`);
@@ -956,6 +863,12 @@ async function poll() {
   }
 }
 
+/** A poll that starts after any one in flight, so it sees what just changed. */
+async function pollFresh() {
+  if (polling) await pollDone;
+  await poll();
+}
+
 // ---- events ----
 
 $("toggle").addEventListener("click", (event) => {
@@ -965,8 +878,7 @@ $("toggle").addEventListener("click", (event) => {
 $("planTabs").addEventListener("click", (event) => {
   const b = event.target.closest("[data-planview]");
   if (!b) return;
-  state.planView = b.dataset.planview;
-  localStorage.setItem("holotable.planView", state.planView);
+  storePlanView(b.dataset.planview);
   if (state.planView === "op" && !state.opDoc) loadOpDoc().then(render);
   render();
 });
@@ -1013,32 +925,18 @@ $("projectsCrumb").addEventListener("click", () => {
 
 /** Plan → Operation for `id` (default: the selected operation). */
 function openOperationPage(id = state.opId) {
-  if (id !== state.opId) {
-    state.opId = id;
-    localStorage.setItem("holotable.op", id);
-    state.opDoc = null;
-    state.projection = null;
-    state.history = null;
-  }
-  state.planView = "op";
-  localStorage.setItem("holotable.planView", "op");
+  if (id !== state.opId) switchOp(id);
+  storePlanView("op");
   setView("plan"); // loads the operation doc and polls
 }
-$("autoInd").addEventListener("click", () => {
-  openOperationPage();
-});
-$("intWarn").addEventListener("click", () => {
-  openOperationPage();
-});
+$("autoInd").addEventListener("click", () => openOperationPage());
+$("intWarn").addEventListener("click", () => openOperationPage());
 
 /** After close/abort the operation left the picker; poll() falls back to the first open one. */
 function opEnded() {
   state.opDoc = null;
   state.archive = null;
-  if (state.view === "plan") {
-    state.planView = "map";
-    localStorage.setItem("holotable.planView", "map");
-  }
+  if (state.view === "plan") storePlanView("map");
   poll();
 }
 
@@ -1156,6 +1054,8 @@ document.addEventListener("keydown", (event) => {
     else help.showModal();
     return;
   }
+  // The open dialog closes itself on Escape; nothing behind it reacts.
+  if (help.open) return;
   if (event.key === "Escape") {
     $("toasts").replaceChildren();
     state.confirming = null;
@@ -1165,7 +1065,6 @@ document.addEventListener("keydown", (event) => {
     render();
     return;
   }
-  if (help.open) return;
   if (event.key === ",") {
     event.preventDefault();
     settingsDrawer.open();
@@ -1176,9 +1075,8 @@ document.addEventListener("keydown", (event) => {
   if (VIEW_KEYS[event.key]) return setView(VIEW_KEYS[event.key]);
   if (event.key.toUpperCase() === "P" && event.shiftKey && state.view === "plan") {
     event.preventDefault();
-    const next = state.planView === "map" ? "op" : state.planView === "op" ? "map" : "map";
-    state.planView = next;
-    localStorage.setItem("holotable.planView", next);
+    const next = state.planView === "map" ? "op" : "map";
+    storePlanView(next);
     if (next === "op" && !state.opDoc) loadOpDoc().then(render);
     else render();
     return;
