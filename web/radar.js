@@ -130,7 +130,9 @@ export function createRadar(stage, opts) {
         const rr0 = RING_R[ring] * R;
         const lanes = members.length > 12 ? 4 : members.length > 6 ? 3 : members.length > 3 ? 2 : 1;
         const laneMembers = Math.ceil(members.length / lanes);
-        const step = Math.min(clamp(gapPx / rr0, 0, Math.PI), Math.max(avail, laneMembers > 1 ? 0.02 : 0) / Math.max(1, laneMembers - 1));
+        // Spread a ring's blips a label apart when the sector has room, so ticket labels don't collide.
+        const labelGap = Math.max(gapPx, ...members.map((c) => ctx.measureText(c.ticket).width + 16));
+        const step = Math.min(clamp(labelGap / rr0, 0, Math.PI), Math.max(avail, laneMembers > 1 ? 0.02 : 0) / Math.max(1, laneMembers - 1));
         const span = step * (laneMembers - 1);
         members.forEach((c, i) => {
           const laneIdx = Math.floor(i / lanes);
@@ -301,7 +303,7 @@ export function createRadar(stage, opts) {
     if (!staticReady) drawStatic();
     ctx.drawImage(bg, 0, 0, W, H);
 
-    const motion = active && !mq.matches && needsMotion();
+    const motion = animates();
     if (motion) sweep = (sweep + (dt * TAU) / SWEEP_MS) % TAU;
 
     // Sweep trail + head.
@@ -398,7 +400,8 @@ export function createRadar(stage, opts) {
       const r = blipR * (1 + 0.45 * glow) + (isSel ? 0.6 : 0);
       ctx.beginPath();
       ctx.arc(b.x, b.y, r, 0, TAU);
-      if (c.group === "queue") {
+      // Hollow means "waiting its turn"; a decision is waiting on you, so it stays filled.
+      if (c.group === "queue" && c.state !== "decision") {
         ctx.fillStyle = rgba(pal["--well-inner"], 0.9);
         ctx.fill();
         ctx.strokeStyle = color;
@@ -445,23 +448,29 @@ export function createRadar(stage, opts) {
     if (selBlip) {
       for (const l of linksFor(selBlip)) selDeps.add(l.to.c.ticket);
     }
-    const labelsToPlace = [...blips].sort((a, b) => {
-      const aPrior = (a.c.ticket === selected) || (a.c.ticket === hovered) ? 2 : selDeps.has(a.c.ticket) ? 1 : 0;
-      const bPrior = (b.c.ticket === selected) || (b.c.ticket === hovered) ? 2 : selDeps.has(b.c.ticket) ? 1 : 0;
-      return bPrior - aPrior;
-    });
+    const priority = (c) => {
+      if (c.ticket === selected || c.ticket === hovered) return 3;
+      if (selDeps.has(c.ticket)) return 2;
+      return c.attention ? 1 : 0;
+    };
+    const labelsToPlace = [...blips].sort((a, b) => priority(b.c) - priority(a.c));
     for (const b of labelsToPlace) {
       const isSel = b.c.ticket === selected;
       const isHover = b.c.ticket === hovered;
       const isDep = selDeps.has(b.c.ticket);
       if (!(showLabels || isSel || isHover || isDep)) continue;
       const w = b.tw + 6;
-      // Candidates: right, left, below, above the blip.
+      // Candidates: right, left, below, above the blip, then the four diagonals for crowded clusters.
+      const mid = b.y - labelH / 2;
       const cands = [
-        [b.x + 8, b.y - labelH / 2, w],
-        [b.x - 8 - w, b.y - labelH / 2, w],
+        [b.x + 8, mid, w],
+        [b.x - 8 - w, mid, w],
         [b.x - w / 2, b.y + blipR + 4, w],
         [b.x - w / 2, b.y - blipR - 4 - labelH, w],
+        [b.x + 6, mid - labelH, w],
+        [b.x + 6, mid + labelH, w],
+        [b.x - 6 - w, mid - labelH, w],
+        [b.x - 6 - w, mid + labelH, w],
       ];
       let spot = null;
       for (const [x, y, cw] of cands) {
@@ -541,13 +550,15 @@ export function createRadar(stage, opts) {
     ctx.textBaseline = "alphabetic";
   }
   const needsMotion = () => P && (P.header.open > 0 || P.contacts.some((c) => c.attention));
+  const visible = () => active && document.visibilityState === "visible";
+  const animates = () => visible() && !mq.matches && needsMotion();
   const render_ = () => {
-    if (active && document.visibilityState === "visible") frame(performance.now());
+    if (visible()) frame(performance.now());
   };
 
   function loop(t) {
     raf = 0;
-    if (!running || !active || !needsMotion() || document.visibilityState !== "visible") {
+    if (!running || !animates()) {
       stop();
       return;
     }
@@ -559,7 +570,7 @@ export function createRadar(stage, opts) {
   }
 
   function start() {
-    if (running || mq.matches || !active || !needsMotion() || document.visibilityState !== "visible") return;
+    if (running || !animates()) return;
     running = true;
     lastT = 0;
     lastFrame = 0;
@@ -632,21 +643,14 @@ export function createRadar(stage, opts) {
     render_();
   }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   mq.addEventListener?.("change", () => {
-    if (mq.matches) {
-      stop();
-      render_();
-    } else if (active) {
-      render_();
-      start();
-    }
+    if (mq.matches) stop();
+    render_();
+    start();
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible") {
-      stop();
-    } else if (active) {
-      render_();
-      start();
-    }
+    if (!visible()) stop();
+    render_();
+    start();
   });
 
   return {
@@ -665,12 +669,9 @@ export function createRadar(stage, opts) {
     setActive(on) {
       if (active === Boolean(on)) return;
       active = Boolean(on);
-      if (active && document.visibilityState === "visible") {
-        render_();
-        start();
-      } else {
-        stop();
-      }
+      if (!visible()) stop();
+      render_();
+      start();
     },
   };
 }
