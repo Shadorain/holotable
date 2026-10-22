@@ -23,7 +23,13 @@ The generic build (slices 0-11) has landed. This file keeps only what is not bui
 
 |Topic|Where|
 |---|---|
-|use, commands, settings, tools, safety|`README.md`|
+|overview, install, quick start, concepts, safety|`README.md`|
+|using the board, decisions, closer review, ending an operation|`docs/guide.md`|
+|Land, CI gates, conflicts|`docs/landing.md`|
+|auto mode, Recovery|`docs/automation.md`|
+|commands, settings, model tools, frontends, data layout|`docs/reference.md`|
+|Intel|`docs/intel.md`|
+|playground|`docs/playground.md`|
 |layers, ports, data flow, invariants, events, contact states|`docs/architecture.md`|
 |mission status file, control socket, launch recipe|`docs/contract.md`|
 |tests and smokes|`docs/testing.md`|

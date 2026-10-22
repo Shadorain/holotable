@@ -41,7 +41,13 @@ Behavior changes update `README.md` and the affected doc in the same commit. One
 
 |Doc|Covers|
 |---|---|
-|`README.md`|use, commands, settings, safety|
+|`README.md`|overview, install, quick start, concepts, safety|
+|`docs/guide.md`|using the board: setup, operations, views, card, launch, actions, decisions, closer, ending|
+|`docs/landing.md`|Land, CI gates, conflict missions, cleanup|
+|`docs/automation.md`|auto mode and Recovery|
+|`docs/reference.md`|commands, seed file, settings, models, frontends, watching, resource budgets, data layout|
+|`docs/intel.md`|Intel view and evaluation|
+|`docs/playground.md`|the simulated board|
 |`docs/architecture.md`|layers, ports, data flow, invariants, events|
 |`PLAN.md`|what is not built yet|
 |`docs/contract.md`|status file and control socket wire contract|
