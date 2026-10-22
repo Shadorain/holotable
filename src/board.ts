@@ -71,6 +71,8 @@ import { createRun } from "./run.ts";
 
 export type { RepoRow, DetectionResult, DetectedFields };
 
+const WORKSPACE_TTL_MS = 60_000;
+
 export class HttpError extends Error {
   constructor(
     readonly status: number,
@@ -336,6 +338,20 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
   const now = hooks.now ?? Date.now;
   let setupCache: { timestamp: number; result: SetupReport } | null = null;
   let reposCache: { timestamp: number; result: RepoRow[] } | null = null;
+  // `orca repo show` spawns Orca's CLI, seconds under the service's CPU quota. Config writes clear it.
+  const workspaceCache = new Map<string, { timestamp: number; pending: Promise<WorkspaceInfo> }>();
+  async function cachedWorkspaceInfo(op: Operation): Promise<WorkspaceInfo> {
+    const settings = await readSettings(home);
+    // Only Orca spawns; every other frontend answers from the documents just read.
+    if (op.frontend !== "orca") return workspaceInfo(op, settings, hooks.run);
+    const key = `${op.frontend}\0${op.repo}`;
+    const n = now();
+    const hit = workspaceCache.get(key);
+    if (hit && n - hit.timestamp < WORKSPACE_TTL_MS) return hit.pending;
+    const pending = workspaceInfo(op, settings, hooks.run);
+    workspaceCache.set(key, { timestamp: n, pending });
+    return pending;
+  }
   const modelCatalog = createModelCatalog(hooks.run ?? createRun());
   async function projection(opId: string): Promise<Projection> {
     await knownOperation(opId);
@@ -389,7 +405,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       },
       inherited: [...doc.inherited],
       options: { tracker: [...TRACKERS], fleet: [...FLEETS], frontend: [...FRONTENDS], delivery: [...DELIVERIES] },
-      workspace: await workspaceInfo(op, await readSettings(home), hooks.run),
+      workspace: await cachedWorkspaceInfo(op),
     };
   }
   function projectConfigOf(project: Project, workspace: WorkspaceInfo | null, graph: DoltState): ProjectConfig {
@@ -423,7 +439,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
     const run = hooks.run ?? createRun();
     return projectConfigOf(
       project,
-      await workspaceInfo(stub, await readSettings(home), hooks.run),
+      await cachedWorkspaceInfo(stub),
       await doltState(project.id, project.repo, { run }),
     );
   }
@@ -432,6 +448,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
     settings: settingsView,
     async setSetting(key, value) {
       await mutateSettings(home, (current) => setSettingKey(current, key, value));
+      workspaceCache.clear();
       return settingsView();
     },
     operationConfig,
@@ -441,6 +458,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         if (value === "") {
           // Detach: the resolved values become the operation's own, so nothing changes in effect.
           await mutateOperation(home, opId, (op) => ({ ...op, project: null }));
+          workspaceCache.clear();
           return operationConfig(opId);
         }
         const target = await existingProject(value, 400);
@@ -458,6 +476,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
           }
           return next;
         });
+        workspaceCache.clear();
         return operationConfig(opId);
       }
       if (!(SET_FIELDS as readonly string[]).includes(field)) throw new HttpError(400, `Unknown field "${field}"`);
@@ -465,6 +484,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       // Relative integration paths resolve against the operation's repo: the page has no cwd.
       const next = await mutateOperation(home, opId, (op) => applyOperationField(op, field, value, op.repo, before.project));
       await recordConfigToggles(home, new Date(now()), opId, before.operation, next);
+      workspaceCache.clear();
       return operationConfig(opId);
     },
     async history(opId) {
@@ -668,6 +688,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       await existingProject(id, 404);
       // Project paths are absolute on the wire; resolve("/") is a pass-through for them.
       await mutateProject(home, id, (p) => applyProjectField(p, field, value, "/"));
+      workspaceCache.clear();
       return projectConfig(id);
     },
     async installGraphService(id) {

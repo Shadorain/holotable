@@ -211,6 +211,8 @@ Orca supports the frontend's optional `createWorkspaceWithTerminal` capability. 
 
 Startup is a short `sh <script>` command: a private mode-0700 temporary script contains the shell-quoted environment and argv, removes itself and its directory, then execs the child. This avoids terminal line limits when Orca wraps a long mission command to wait for setup. A script that never starts is retained in the host temp directory. Orca still owns setup ordering and failure behavior; no setup skip, gate approval, tab reaping or runtime restart is added. The execution host's CLI must expose `worktree create --command`; this is not the stock `--agent` launch path, which cannot carry the mission's complete environment.
 
+The operation and project pages show where Orca will put the next lane from `orca repo show --repo path:<repo>` (`adapters/workspace-info.ts`). The board reuses that answer per frontend and repo for 60 seconds, because the CLI takes seconds under the service's CPU quota; any operation, project or settings write through the board drops it, so a changed setting shows on the next read. A change made in Orca itself shows within the minute.
+
 An operation names one adapter per port; all four can be `none`.
 
 ## Data flow

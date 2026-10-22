@@ -226,7 +226,9 @@ test("settings: valid changes persist, invalid ones are a 400 with the reason, c
 test("operation config: Orca's project folder decides where Orca lanes go", async () => {
   const calls: string[][] = [];
   let base: string | null = "/srv/lab/.wt";
+  let clock = Date.parse("2026-01-01T00:00:00.000Z");
   const { api } = await boot({
+    now: () => clock,
     run: async (command, args) => {
       calls.push([command, ...args]);
       return { code: 0, stderr: "", stdout: JSON.stringify({ ok: true, result: { repo: { path: "/tmp/lab", worktreeBasePath: base } } }) };
@@ -237,9 +239,38 @@ test("operation config: Orca's project folder decides where Orca lanes go", asyn
   expect(orca.workspace).toMatchObject({ path: "/srv/lab/.wt", source: "orca-project" });
   expect(calls[0]).toEqual(["orca", "repo", "show", "--repo", "path:/tmp/lab", "--json"]);
   base = null;
+  clock += 60_000;
   const unset = (await (await api("/api/operation-config?op=lab")).json()) as Config;
   expect(unset.workspace.path).toBeNull();
   expect(unset.workspace.note).toContain("Orca's project settings");
+});
+
+test("operation config: Orca's answer is reused for a minute, and a config write asks again", async () => {
+  let spawns = 0;
+  let base = "/srv/first";
+  let clock = Date.parse("2026-01-01T00:00:00.000Z");
+  const { api } = await boot({
+    now: () => clock,
+    run: async () => {
+      spawns += 1;
+      return { code: 0, stderr: "", stdout: JSON.stringify({ ok: true, result: { repo: { path: "/tmp/lab", worktreeBasePath: base } } }) };
+    },
+  });
+  type Config = { workspace: { path: string | null } };
+  const path = async (res: Promise<Response>) => ((await (await res).json()) as Config).workspace.path;
+  const pagePath = async () => ((await (await api("/api/operation?op=lab")).json()) as { cfg: Config }).cfg.workspace.path;
+  expect(await path(api("/api/operation-config?op=lab"))).toBe("/srv/first");
+  base = "/srv/second";
+  clock += 59_000;
+  expect(await path(api("/api/operation-config?op=lab"))).toBe("/srv/first");
+  expect(await pagePath()).toBe("/srv/first");
+  expect(spawns).toBe(1);
+  expect(await path(api("/api/operation-config", { method: "POST", body: { op: "lab", field: "name", value: "Lab two" } }))).toBe("/srv/second");
+  expect(spawns).toBe(2);
+  base = "/srv/third";
+  clock += 60_000;
+  expect(await path(api("/api/operation-config?op=lab"))).toBe("/srv/third");
+  expect(spawns).toBe(3);
 });
 
 test("operation config: a per-operation worktree folder overrides the setting and clears back to it", async () => {
