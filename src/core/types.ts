@@ -445,6 +445,8 @@ export interface ContactStatus {
   coordinator?: { state: "working" | "idle"; since: string } | null;
   /** The pane's open tool-approval prompt while hold is "question"; older panes omit it. */
   approval?: MissionApproval | null;
+  /** The mission's final report (rebuilt on each publish once it has delivery or verification evidence); null/absent = none yet. */
+  report?: MissionReport | null;
   updatedAt: string;
 }
 
@@ -458,6 +460,42 @@ export type AskAnswer = { option: number } | { options: number[] } | { text: str
  * the whole `prompt`, and the pane's choices in order with Deny last. Answered by option label.
  */
 export interface MissionApproval { id: string; tool: string | null; summary: string; prompt: string; options: string[] }
+
+export type ReportWorkState = "done" | "open" | "dropped";
+/** Status `report` v1: a bounded summary of what the mission did, checked and left open. */
+export interface MissionReport {
+  v: 1;
+  at: string;
+  /** The commit the report describes. */
+  revision: string | null;
+  summary: string | null;
+  work: Array<{ title: string; state: ReportWorkState }>;
+  verification: { outcome: "passed" | "failed" | null; detail: string | null; revision: string | null };
+  review: { rounds: number; findings: number; repaired: number; rejected: number; deferred: number; escalated: number } | null;
+  followUps: Array<{ title: string; severity: string | null; source: "deferred" | "escalated" }>;
+  delivery: { outcome: string | null; url: string | null };
+  truncated?: true;
+}
+
+export type CloserVerdict = "ok" | "fixed" | "follow-up" | "not-checked";
+/** The closer's structured review, `operations/<id>/closer/<ticket>.json` (v1). */
+export interface CloserReview {
+  v: 1;
+  summary: string;
+  verification: Array<{ command: string; outcome: "passed" | "failed" | "not-run"; note?: string }>;
+  tickets: Array<{ ticket: string; verdict: CloserVerdict; note?: string }>;
+  fixes: Array<{ title: string; files?: string[]; tickets?: string[]; commit?: string }>;
+  followUps: Array<{ title: string; detail?: string; tickets?: string[]; severity?: "high" | "medium" | "low" }>;
+}
+/** Every ticket the closer had to give a verdict for, against what its review reported. */
+export interface CloserCoverage {
+  tickets: Array<{ ticket: string; title: string | null; verdict: CloserVerdict | "not-reported"; note: string | null }>;
+  total: number;
+  /** Tickets with a verdict other than not-checked. */
+  checked: number;
+  fixed: number;
+  followUps: number;
+}
 
 // ---- delivery (C6) ----
 
@@ -599,6 +637,8 @@ export interface ContactView {
   conflictOf: string | null;
   /** Present while a pending plan awaits approval (status.plan): {revision}; text is GET /api/plan. */
   plan: { revision: string } | null;
+  /** When the mission's live status report was built; the card fetches the report itself via GET /api/report. */
+  reportAt?: string | null;
   options?: string[];
   recommended?: string;
   decision: { choice: string; rationale: string | null; by: "operator" | "agent" | "recommended"; at: string } | null;

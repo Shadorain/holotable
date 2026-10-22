@@ -418,6 +418,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       if (!closer) throw new HttpError(404, "This operation has no closer");
       return closer;
     },
+    "GET /api/report": ({ url }) => service.report(requireParam(url, "op"), requireParam(url, "contact")),
     "PUT /api/brief": async ({ req }) => {
       const body = await readBody(req);
       if (typeof body.text !== "string") throw new HttpError(400, "text must be a string");

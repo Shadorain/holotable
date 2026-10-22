@@ -145,8 +145,8 @@ test("a closer on a Linear operation gets a token-named workspace with no issue 
   expect(t.fake.calls.find((c) => c.method === "createWorkspace")?.args).toMatchObject({ name: "closer-abc123", ticket: null });
   // The fake fleet records the launch input it was given; the closer's carries the generated brief.
   const input = t.fake.calls.find((c) => c.method === "launch")?.args as Parameters<FleetPort["launch"]>[0];
-  const reportPath = join(t.home, "operations", "lab", "closer", "CLOSER.md");
-  expect(input.closerBrief).toContain(`write your report to \`${reportPath}\``);
+  const reportPath = join(t.home, "operations", "lab", "closer", "CLOSER.json");
+  expect(input.closerBrief).toContain(`write your report as JSON to \`${reportPath}\``);
   expect(input.closerBrief).toContain("- CHR-1 (implement) — branch b/chr-1 · landed 2026-01-01 00:30 UTC");
   expect(existsSync(join(t.home, "operations", "lab", "closer"))).toBe(true);
 });

@@ -324,7 +324,7 @@ function historyTab(contact, entries) {
 
 /**
  * What the closer will be told, from GET /api/closer (`data`: null while loading, {error} on failure,
- * else {brief, report}). The brief is rebuilt at launch, so this is what it would get right now.
+ * else {brief, report, review, coverage}). The brief is rebuilt at launch, so this is what it would get right now.
  */
 function closerBriefBox(contact, data) {
   const sec = el("section", "facts-group closer-brief");
@@ -339,7 +339,90 @@ function closerBriefBox(contact, data) {
   return sec;
 }
 
-/** The closer's own report: what it checked, fixed and left as follow-ups. Shown once it has run. */
+const VERDICT_COPY = { ok: "ok", fixed: "fixed", "follow-up": "follow-up", "not-checked": "not checked", "not-reported": "not reported" };
+const RUN_CHIP = { passed: "c-pass", failed: "c-fail", "not-run": "" };
+const SEVERITY_CHIP = { critical: "c-fail", high: "c-fail", medium: "c-pending", low: "" };
+
+/** A titled list inside a report; null when there is nothing to list. */
+function reportList(label, items, row) {
+  if (!items.length) return null;
+  const part = el("div", "report-part");
+  const list = el("ul", "report-list");
+  for (const item of items) list.append(row(item));
+  part.append(el("div", "report-label", label), list);
+  return part;
+}
+
+/** Ticket ids as a quiet trailing tag on a report row. */
+function ticketTag(tickets) {
+  return tickets?.length ? el("span", "dim", tickets.join(", ")) : "";
+}
+
+/**
+ * The closer's JSON review: coverage line, one chip per landed ticket coloured by verdict (a click shows
+ * its note), then the verification it ran, what it fixed and what it left as follow-ups.
+ */
+function closerReview(review, coverage) {
+  const parts = [];
+  const missing = coverage.tickets.filter((t) => t.verdict === "not-reported").length;
+  parts.push(el("div", "next-text", `${coverage.checked}/${coverage.total} tickets checked, ${coverage.fixed} fixed, ${coverage.followUps} follow-up${coverage.followUps === 1 ? "" : "s"}${missing ? ` · ${missing} not reported` : ""}`));
+  if (review.summary) {
+    const summary = el("div", "card-desc report-summary");
+    summary.append(renderMarkdown(review.summary));
+    parts.push(summary);
+  }
+  if (coverage.tickets.length) {
+    const grid = el("div", "verdict-grid");
+    const note = el("div", "verdict-note");
+    note.hidden = true;
+    for (const t of coverage.tickets) {
+      const chip = el("button", `verdict v-${t.verdict}`, t.ticket);
+      chip.type = "button";
+      const label = `${t.ticket}${t.title ? ` · ${t.title}` : ""}: ${VERDICT_COPY[t.verdict]}`;
+      chip.title = t.note ? `${label}. ${t.note}` : label;
+      chip.setAttribute("aria-pressed", "false");
+      chip.addEventListener("click", () => {
+        const open = chip.getAttribute("aria-pressed") !== "true";
+        for (const other of grid.children) other.setAttribute("aria-pressed", "false");
+        chip.setAttribute("aria-pressed", String(open));
+        note.hidden = !open;
+        note.textContent = t.note ? `${label}. ${t.note}` : `${label}. No note.`;
+      });
+      grid.append(chip);
+    }
+    const legend = el("div", "verdict-legend");
+    for (const [verdict, text] of Object.entries(VERDICT_COPY)) {
+      const n = coverage.tickets.filter((t) => t.verdict === verdict).length;
+      if (n) legend.append(el("span", `v-${verdict}`, `${text} ${n}`));
+    }
+    parts.push(grid, legend, note);
+  }
+  parts.push(
+    reportList("Verification", review.verification, (v) => {
+      const li = el("li", "");
+      li.append(el("span", `chip ${RUN_CHIP[v.outcome]}`, v.outcome), el("code", "", v.command));
+      if (v.note) li.append(el("span", "dim", v.note));
+      return li;
+    }),
+    reportList("Fixes", review.fixes, (f) => {
+      const li = el("li", "");
+      li.append(el("span", "", f.title));
+      if (f.files?.length) li.append(el("span", "mono dim", f.files.join(", ")));
+      li.append(ticketTag(f.tickets));
+      return li;
+    }),
+    reportList("Follow-ups", review.followUps, (f) => {
+      const li = el("li", "");
+      if (f.severity) li.append(el("span", `chip ${SEVERITY_CHIP[f.severity]}`, f.severity));
+      li.append(el("span", "", f.title), ticketTag(f.tickets));
+      if (f.detail) li.append(el("div", "dim report-detail", f.detail));
+      return li;
+    }),
+  );
+  return parts.filter(Boolean);
+}
+
+/** The closer's own report: the JSON review when it wrote one, else its Markdown copy. Shown once it has run. */
 function closerReportBox(contact, data) {
   if (!contact.lane) {
     return el("div", "set-note", "Reviews the integrated work once every other contact has landed. Details shows the brief it will launch with.");
@@ -348,16 +431,85 @@ function closerReportBox(contact, data) {
   box.append(el("div", "kicker", "Closer report"));
   if (!data) box.append(el("div", "empty-line", "Loading…"));
   else if (data.error) box.append(el("div", "set-err", data.error));
-  else if (data.report) {
-    const body = el("div", "card-desc");
-    body.append(renderMarkdown(data.report));
-    box.append(body);
-  } else {
-    const done = contact.state === "complete" || contact.state === "landed";
-    box.append(el("div", "next-text", done
-      ? "The closer wrote no report. Its delivery summary is in the mission pane (and the PR, if it opened one)."
-      : "The closer writes its report (checked, fixed, follow-ups) before it delivers."));
+  else {
+    if (data.reviewError) box.append(el("div", "set-err", data.reviewError));
+    if (data.review) box.append(...closerReview(data.review, data.coverage));
+    else if (data.report) {
+      const body = el("div", "card-desc");
+      body.append(renderMarkdown(data.report));
+      box.append(body);
+    } else {
+      const done = contact.state === "complete" || contact.state === "landed";
+      box.append(el("div", "next-text", done
+        ? "The closer wrote no report. Its delivery summary is in the mission pane (and the PR, if it opened one)."
+        : "The closer writes its report (verdict per ticket, fixes, follow-ups) before it delivers."));
+    }
   }
+  return box;
+}
+
+// ---- mission report ----
+
+const VERIFY_CHIP = { passed: ["c-pass", "verified"], failed: ["c-fail", "verification failed"] };
+
+/**
+ * What the mission reports it did, checked and left open, from GET /api/report (`data`: null while loading,
+ * {error} on failure, else {report}). A running mission shows it once it has one, marked in progress.
+ */
+function missionReportBox(contact, data) {
+  if (!data) return null;
+  if (data.error) return el("div", "set-err", `Report: ${data.error}`);
+  const r = data.report;
+  if (!r) return null;
+  const done = contact.state === "complete" || contact.state === "landed";
+  const box = el("section", `next report${done ? "" : " report-running"}`);
+  const head = el("div", "report-head");
+  head.append(el("div", "kicker", done ? "Report" : "Report · in progress"));
+  const when = ago(r.at);
+  if (when) head.append(el("span", "dim", r.revision ? `${when} · ${r.revision.slice(0, 8)}` : when));
+  box.append(head);
+
+  const chips = el("div", "chips");
+  const [verifyCls, verifyText] = VERIFY_CHIP[r.verification.outcome] ?? ["", "not verified"];
+  chips.append(el("span", `chip ${verifyCls}`, verifyText));
+  // Dropped items were given up on purpose: they do not count as work left.
+  const kept = r.work.filter((w) => w.state !== "dropped");
+  if (kept.length) {
+    const finished = kept.filter((w) => w.state === "done").length;
+    chips.append(el("span", `chip ${finished === kept.length ? "c-pass" : ""}`, `${finished}/${kept.length} done`));
+  }
+  if (r.followUps.length) chips.append(el("span", "chip c-pending", `${r.followUps.length} follow-up${r.followUps.length === 1 ? "" : "s"}`));
+  if (r.delivery.outcome) chips.append(el("span", "chip", r.delivery.outcome));
+  if (r.delivery.url) chips.append(safeLink(r.delivery.url, prLabel(r.delivery.url)));
+  box.append(chips);
+
+  if (r.summary) {
+    const summary = el("div", "card-desc report-summary");
+    summary.append(renderMarkdown(r.summary));
+    box.append(summary);
+  }
+  if (r.review) {
+    const v = r.review;
+    const part = el("div", "report-part");
+    part.append(el("div", "report-label", "Review"), el("div", "report-review",
+      `${v.rounds} round${v.rounds === 1 ? "" : "s"} · ${v.findings} finding${v.findings === 1 ? "" : "s"}: ${v.repaired} repaired, ${v.rejected} rejected, ${v.deferred} deferred, ${v.escalated} escalated`));
+    box.append(part);
+  }
+  for (const part of [
+    reportList("Work", r.work, (w) => el("li", `w-${w.state}`, w.state === "done" ? w.title : `${w.title} (${w.state})`)),
+    reportList("Follow-ups", r.followUps, (f) => {
+      const li = el("li", "");
+      if (f.severity) li.append(el("span", `chip ${SEVERITY_CHIP[f.severity] ?? ""}`, f.severity));
+      li.append(el("span", "", f.title), el("span", "dim", f.source));
+      return li;
+    }),
+  ]) if (part) box.append(part);
+  if (r.verification.detail) {
+    const details = el("details", "mission-error");
+    details.append(el("summary", "", "Verification detail"), el("pre", "", r.verification.detail));
+    box.append(details);
+  }
+  if (r.truncated) box.append(el("div", "set-note", "The mission trimmed this report to fit its status file."));
   return box;
 }
 
@@ -578,7 +730,7 @@ export function cardTabs(contact) {
   return CARD_TABS.filter(([id]) => id !== "plan" || contact?.plan);
 }
 
-export function renderCard(root, projection, contact, ctx, tab, entries, plan, closer = null) {
+export function renderCard(root, projection, contact, ctx, tab, entries, plan, closer = null, report = null) {
   root.replaceChildren();
   if (!contact) {
     root.append(el("div", "placeholder", projection.contacts.length ? "Select a contact." : "No contacts yet. Add one with /holotable add <ticket> --zone <id>."));
@@ -648,7 +800,8 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan, c
   const approval = approvalBox(contact, ctx);
   if (approval) body.append(approval);
   if (contact.kind === "closer") body.append(closerReportBox(contact, closer));
-  for (const part of [actionBar(contact, ctx), relations(contact, projection)]) if (part) body.append(part);
+  // The action bar stays above the report: a finished mission's Land must not sink below a long summary.
+  for (const part of [actionBar(contact, ctx), missionReportBox(contact, report), relations(contact, projection)]) if (part) body.append(part);
 }
 
 // The operator's tentative pick on a decision card survives region re-renders; the decision

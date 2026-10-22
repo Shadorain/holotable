@@ -1,6 +1,53 @@
-import { HOLDS, MODES, PROBLEM_KINDS, VERIFIES, type ContactStatus, type Hold, type Mode, type UsageTotals, type Verify } from "./types.ts";
+import { HOLDS, MODES, PROBLEM_KINDS, VERIFIES, type ContactStatus, type Hold, type MissionReport, type Mode, type UsageTotals, type Verify } from "./types.ts";
 import { invalidAt, isRecord } from "./validate.ts";
 import { parseMeasurements, parseUsageEvidence } from "./evaluation.ts";
+
+const MAX_REPORT_WORK = 40;
+const MAX_REPORT_FOLLOW_UPS = 20;
+const MAX_REPORT_SUMMARY = 2000;
+const REVIEW_COUNTS = ["rounds", "findings", "repaired", "rejected", "deferred", "escalated"] as const;
+
+const nullableString = (raw: unknown): raw is string | null => raw === null || typeof raw === "string";
+const isCount = (raw: unknown): raw is number => typeof raw === "number" && Number.isSafeInteger(raw) && raw >= 0;
+
+/**
+ * Status `report` (v1). Lenient: anything off-contract reads as no report (null), never a bad status.
+ * Lists and the summary are held to the contract's bounds; cutting them marks the report truncated.
+ */
+export function parseMissionReport(raw: unknown): MissionReport | null {
+  if (!isRecord(raw) || raw.v !== 1 || typeof raw.at !== "string" || !Number.isFinite(Date.parse(raw.at))) return null;
+  const { revision, summary, work, verification: verify, review, followUps, delivery } = raw;
+  if (!nullableString(revision) || !nullableString(summary)) return null;
+  if (!Array.isArray(work) || !work.every((w) => isRecord(w) && typeof w.title === "string" && (w.state === "done" || w.state === "open" || w.state === "dropped")))
+    return null;
+  if (!isRecord(verify) || !(verify.outcome === null || verify.outcome === "passed" || verify.outcome === "failed") ||
+      !nullableString(verify.detail) || !nullableString(verify.revision))
+    return null;
+  if (review !== null && !(isRecord(review) && REVIEW_COUNTS.every((key) => isCount(review[key])))) return null;
+  if (!Array.isArray(followUps) || !followUps.every((f) => isRecord(f) && typeof f.title === "string" && nullableString(f.severity) &&
+      (f.source === "deferred" || f.source === "escalated")))
+    return null;
+  if (!isRecord(delivery) || !nullableString(delivery.outcome) || !nullableString(delivery.url)) return null;
+
+  const truncated = raw.truncated === true || work.length > MAX_REPORT_WORK || followUps.length > MAX_REPORT_FOLLOW_UPS ||
+    (summary !== null && summary.length > MAX_REPORT_SUMMARY);
+  const items = work as Array<Record<string, unknown>>;
+  const follow = followUps as Array<Record<string, unknown>>;
+  return {
+    v: 1,
+    at: raw.at,
+    revision,
+    summary: summary === null ? null : summary.slice(0, MAX_REPORT_SUMMARY),
+    work: items.slice(0, MAX_REPORT_WORK).map((w) => ({ title: w.title as string, state: w.state as MissionReport["work"][number]["state"] })),
+    verification: { outcome: verify.outcome as MissionReport["verification"]["outcome"], detail: verify.detail as string | null, revision: verify.revision as string | null },
+    review: review === null ? null : Object.fromEntries(REVIEW_COUNTS.map((key) => [key, (review as Record<string, number>)[key]])) as MissionReport["review"],
+    followUps: follow.slice(0, MAX_REPORT_FOLLOW_UPS).map((f) => ({
+      title: f.title as string, severity: f.severity as string | null, source: f.source as "deferred" | "escalated",
+    })),
+    delivery: { outcome: delivery.outcome as string | null, url: delivery.url as string | null },
+    ...(truncated ? { truncated: true as const } : {}),
+  };
+}
 
 /** Producer-written status file contract (C5); unknown fields are ignored. */
 export function validateStatus(
@@ -287,6 +334,7 @@ export function validateStatus(
     ...(value.review === undefined ? {} : { review }),
     ...(value.model === undefined ? {} : { model }),
     ...(value.coordinator === undefined ? {} : { coordinator }),
+    ...(value.report === undefined ? {} : { report: parseMissionReport(value.report) }),
     ...(session === undefined ? {} : { session }),
   };
 }

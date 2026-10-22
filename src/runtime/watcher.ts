@@ -15,6 +15,7 @@ import type {
   DeliveryProbe,
   Event,
   Load,
+  MissionReport,
   Operation,
   Owner,
   SampleFields,
@@ -25,6 +26,7 @@ import type { ProjectionExtras } from "../snapshot.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { decisionsDir, listDecisionPanes, readDecisionDoc, readDecisionPane, removeDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
 import { summarizePaneSessions } from "../store/pane-usage.ts";
+import { saveContactReport } from "../store/reports.ts";
 import { listOperations, readOperation } from "../store/operations.ts";
 import { notifyChanged } from "../core/notify.ts";
 
@@ -68,6 +70,8 @@ interface OpState {
   fp: string;
   /** Signature per .sessions dir; an unchanged dir skips re-parsing its transcripts. */
   paneSigs: Map<string, string>;
+  /** Serialized report last saved per ticket, so an unchanged report costs no file read. */
+  reports: Record<string, string>;
 }
 
 function newOpState(): OpState {
@@ -83,6 +87,7 @@ function newOpState(): OpState {
     integrationDirty: null,
     fp: "",
     paneSigs: new Map(),
+    reports: {},
   };
 }
 
@@ -230,6 +235,14 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     if (fields.mission) seen.missionId = fields.mission.id;
   }
 
+  /** The card shows a mission's report after it lands and its status is gone, so each new one is saved. */
+  async function keepReport(opId: string, ticket: string, report: MissionReport, state: OpState | undefined): Promise<void> {
+    const key = JSON.stringify(report);
+    if (state?.reports[ticket] === key) return;
+    await saveContactReport(deps.home, opId, ticket, report);
+    if (state) state.reports[ticket] = key;
+  }
+
   function statusFields(status: ContactStatus | null, usage: boolean): SampleFields {
     if (!status) return {};
     const mission: NonNullable<SampleFields["mission"]> = { id: status.id, hold: status.hold, verify: status.verify ?? null, complete: status.complete };
@@ -264,6 +277,8 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     const read = await guard(`fleet read ${ticket}`, () => ports.fleet.read({ worktree: lane.worktree }));
     if (read !== undefined) state.statuses[ticket] = read;
     const status = state.statuses[ticket] ?? null;
+    const report = status?.report;
+    if (report) await guard(`report ${ticket}`, () => keepReport(op.id, ticket, report, state));
 
     let owner: Owner = "none";
     const live = status?.ctl ? await guard(`ping ${ticket}`, () => ports.fleet.ping(status)) : false;
@@ -574,6 +589,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
           ? await deps.portsFor(operation, await deps.settings()).fleet.read({ worktree: contact.lane.worktree })
           : status;
         await sample(operation, contact.ticket, seen, statusFields(current, true));
+        if (current?.report) await keepReport(operation.id, contact.ticket, current.report, ops.get(operation.id));
       });
     },
     extras(opId: string): Required<ProjectionExtras> {

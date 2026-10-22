@@ -7,13 +7,14 @@ import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Access, ContactStatus, MissionApproval, MissionCheck, Operation, Settings, TerminalRef, Tracker } from "../src/core/types.ts";
+import type { Access, CloserReview, ContactStatus, MissionApproval, MissionCheck, MissionReport, Operation, Settings, TerminalRef, Tracker } from "../src/core/types.ts";
 import { PortError, type Ports, type Run, type TrackerHit, type TrackerPort } from "../src/ports.ts";
 import { DEFAULT_SETTINGS, settingsFile } from "../src/settings.ts";
 import { readSettings } from "../src/store/settings.ts";
 import { createFromSpec } from "../src/commands.ts";
 import { addContact } from "../src/contacts.ts";
-import { closerReportPath } from "../src/store/closer.ts";
+import { closerReportPath, closerReviewPath } from "../src/store/closer.ts";
+import { saveContactReport } from "../src/store/reports.ts";
 import { appendEvent, readEvents } from "../src/store/events.ts";
 import { mutateOperation, readOperation } from "../src/store/operations.ts";
 import { seedDemo } from "./demo.ts";
@@ -57,6 +58,56 @@ const SIM_CLOSER_REPORT = `## Checked
 
 - \`docs/socket.md\` still describes the pre-herdr frontend list; rewrite it (larger than a closer fix).
 `;
+
+/**
+ * The simulated closer's JSON review: verdicts cycle ok / follow-up / fixed, and the last ticket is left out
+ * so the card shows a "not reported" chip.
+ */
+function simCloserReview(tickets: string[]): CloserReview {
+  const verdicts = ["ok", "follow-up", "fixed"] as const;
+  const reported = tickets.slice(0, Math.max(0, tickets.length - 1));
+  const fixed = reported.filter((_, i) => verdicts[i % verdicts.length] === "fixed");
+  const followUp = reported.filter((_, i) => verdicts[i % verdicts.length] === "follow-up");
+  return {
+    v: 1,
+    summary: "The integrated base passes its full gate. Two contacts each added a retry helper; one copy is left. One doc lags the code and is a follow-up.",
+    verification: [
+      { command: "bun test", outcome: "passed", note: "412 tests" },
+      { command: "bun run typecheck", outcome: "passed" },
+      { command: "bun run lint", outcome: "not-run", note: "the repo has no lint script" },
+    ],
+    tickets: reported.map((ticket, i) => {
+      const verdict = verdicts[i % verdicts.length]!;
+      const note = { ok: "Read with its neighbours; nothing to change.", fixed: "Duplicate retryDelay helper removed.", "follow-up": "docs/socket.md still lists the pre-herdr frontends." }[verdict];
+      return { ticket, verdict, note };
+    }),
+    fixes: fixed.length ? [{ title: "Kept one retryDelay helper", files: ["src/net/retry.ts", "src/socket/client.ts"], tickets: fixed, commit: "3f2c1ab" }] : [],
+    followUps: followUp.length ? [{ title: "Rewrite docs/socket.md for the herdr frontend", detail: "docs/socket.md:12 lists orca only", tickets: followUp, severity: "medium" }] : [],
+  };
+}
+
+/** A simulated status `report`: in progress through review, complete once delivered. */
+function simReport(ticket: string, at: string, complete: boolean, prUrl: string | null): MissionReport {
+  const followUps = hash(ticket) % 2 === 0;
+  return {
+    v: 1,
+    at,
+    revision: (hash(`${ticket}:rev`) >>> 0).toString(16).padStart(8, "0"),
+    summary: complete
+      ? `Delivered **${ticket}**: the change, its tests and the docs that describe it. Verification passed on the delivered revision.`
+      : null,
+    work: [
+      { title: "Survey the checkout and pin the failing case", state: "done" },
+      { title: "Make the change", state: "done" },
+      { title: "Tests for the new path", state: complete ? "done" : "open" },
+      ...(followUps ? [{ title: "Migrate the old callers", state: "dropped" as const }] : []),
+    ],
+    verification: { outcome: "passed", detail: "bun test: 212 pass, 0 fail\nbun run typecheck: ok", revision: null },
+    review: { rounds: complete ? 2 : 1, findings: 5, repaired: 3, rejected: 1, deferred: followUps ? 1 : 0, escalated: 0 },
+    followUps: followUps ? [{ title: "Old callers still use the v1 shape (src/legacy.ts:40)", severity: "medium", source: "deferred" }] : [],
+    delivery: { outcome: complete ? "delivered" : null, url: prUrl },
+  };
+}
 
 interface SimMission {
   id: string;
@@ -134,8 +185,8 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
   /** Panes the simulated frontend lists; a closed pane drops out, so the watcher sees it vanish. */
   const terminals = new Map<string, TerminalRef & { worktree: string }>();
   let counter = 0;
-  /** Where each simulated closer writes its report once it completes, by worktree. */
-  const closerReports = new Map<string, string>();
+  /** Where each simulated closer writes its reports once it completes, and the tickets it reviews, by worktree. */
+  const closerReports = new Map<string, { markdown: string; json: string; tickets: string[] }>();
   const now = () => Date.now();
 
   const born = (worktree: string, branch: string | null): SimMission => {
@@ -188,7 +239,10 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
     else if (m.stage === "review" && age > REVIEW_S) {
       go("complete");
       const report = closerReports.get(m.worktree);
-      if (report) writeFileSync(report, SIM_CLOSER_REPORT);
+      if (report) {
+        writeFileSync(report.markdown, SIM_CLOSER_REPORT);
+        writeFileSync(report.json, `${JSON.stringify(simCloserReview(report.tickets), null, 2)}\n`);
+      }
     }
   };
   const statusOf = (m: SimMission): ContactStatus => {
@@ -211,6 +265,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
         }[m.stage];
     const updatedAt = new Date().toISOString();
     const ageS = Math.max(0, Math.round((now() - m.born) / 1000));
+    const prUrl = m.stage === "complete" ? `https://github.example/demo/pull/${100 + (hash(m.ticket) % 50)}` : null;
     return {
       schema: 1,
       id: m.id,
@@ -225,7 +280,9 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       next,
       actions: m.approval ? ["permit"] : m.quota && m.stage !== "plan" ? ["continue", "retry-model"] : m.resumeHold ? ["continue"] : m.stage === "plan" ? ["plan-approve"] : m.stage === "gate" ? ["approve", "continue"] : m.stage === "execute" ? ["dispatch"] : m.stage === "complete" ? ["check"] : [],
       workers: m.resumeHold ? { live: 0, total: 3 } : m.stage === "execute" ? { live: 2, total: 3 } : m.stage === "plan" ? null : { live: 0, total: 3 },
-      delivery: m.stage === "complete" ? { url: `https://github.example/demo/pull/${100 + (hash(m.ticket) % 50)}`, branch: m.branch } : null,
+      delivery: prUrl ? { url: prUrl, branch: m.branch } : null,
+      // Built from the newest evidence (like omp-mission's `at`): an unchanged mission republishes the same report.
+      report: m.stage === "review" || m.stage === "complete" ? simReport(m.ticket, new Date(m.stageStart).toISOString(), m.stage === "complete", prUrl) : null,
       complete: m.stage === "complete",
       check: m.check,
       revision: updatedAt,
@@ -302,7 +359,14 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
     fleet: {
       id: "omp-mission",
       launch: (i) => {
-        if (i.contact.kind === "closer") closerReports.set(i.worktree, closerReportPath(homeDir, i.operation.id, i.contact.ticket));
+        if (i.contact.kind === "closer") {
+          const tickets = i.operation.contacts.filter((c) => c.kind === "implement" || c.kind === "audit").map((c) => c.ticket);
+          closerReports.set(i.worktree, {
+            markdown: closerReportPath(homeDir, i.operation.id, i.contact.ticket),
+            json: closerReviewPath(homeDir, i.operation.id, i.contact.ticket),
+            tickets,
+          });
+        }
         return { argv: ["omp", "--config", i.overlay], env: { OMP_MISSION_AUTOSTART: `/mission ${i.contact.ticket}${i.operation.pause ? " --pause" : ""}` } };
       },
       read: async ({ worktree }) => (missions.get(worktree)?.closed ? null : statusOf(born(worktree, null))),
@@ -533,7 +597,8 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
         const ref = cwd.includes("charidel") ? "origin/v2/backend-rewrite" : "origin/main";
         return { stdout: `${ref}\n`, stderr: "", code: 0 };
       }
-      if (args[0] === "branch" && args[1] === "--show-current") {
+      // The integration readiness check asks `rev-parse --abbrev-ref HEAD`; both name the base.
+      if ((args[0] === "branch" && args[1] === "--show-current") || (args[0] === "rev-parse" && args[1] === "--abbrev-ref" && args[2] === "HEAD")) {
         const b = cwd.includes("charidel") ? "v2/backend-rewrite" : "main";
         return { stdout: `${b}\n`, stderr: "", code: 0 };
       }
@@ -595,6 +660,9 @@ async function main(): Promise<void> {
   await addContact(home, seededAt, "charidel", { ticket: "CHR-182", zone: "cut", kind: "audit", title: "Cutover dry-run audit", source: "model" });
   // `mission` ends with a closer: it turns ready once socket, status, review and herdr have all landed.
   await addContact(home, seededAt, "mission", { ticket: "CLOSER", kind: "closer" });
+  // Landed before the board started: their status files are long gone, so only the saved report remains.
+  await saveContactReport(home, "charidel", "CHR-153", simReport("CHR-153", ago(70), true, "https://github.com/charidel/app/pull/438"));
+  await saveContactReport(home, "lab", "notes", simReport("notes", ago(90), true, null));
 
   // Auto mode: the board lands finished missions and launches the next one itself.
   // dry-* names are chosen so none hash into the simulator's conflict bucket.

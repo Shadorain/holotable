@@ -496,8 +496,9 @@ function render() {
   const mine = state.cardTab === "history" && state.history ? state.history.filter((h) => h.contact === selected) : null;
   const plan = state.cardTab === "plan" ? planFor(p.operation.id, contact) : null;
   const closer = contact?.kind === "closer" ? closerFor(p, contact) : null;
-  region($("card"), { op: p.operation.id, ai: state.settings?.ai, contact, zones: p.operation.zones, rel: p.contacts.map((c) => [c.ticket, c.state, c.conflictOf, c.blockedBy]), tab: state.cardTab, mine, plan, closer, planUi: contact ? planUiKey(p.operation.id, contact.ticket) : "", busy, c: state.confirming }, (root) =>
-    renderCard(root, p, contact, ctx, state.cardTab, state.cardTab === "history" ? state.history : null, plan, closer));
+  const report = reportFor(p.operation.id, contact);
+  region($("card"), { op: p.operation.id, ai: state.settings?.ai, contact, zones: p.operation.zones, rel: p.contacts.map((c) => [c.ticket, c.state, c.conflictOf, c.blockedBy]), tab: state.cardTab, mine, plan, closer, report, planUi: contact ? planUiKey(p.operation.id, contact.ticket) : "", busy, c: state.confirming }, (root) =>
+    renderCard(root, p, contact, ctx, state.cardTab, state.cardTab === "history" ? state.history : null, plan, closer, report));
   if (state.view === "table") {
     renderRadarOverlay(p, selected);
     region($("stage"), { op: p.operation.id, contacts: p.contacts.map((c) => [c.ticket, c.title, c.zone, c.group, c.state, c.attention, c.detail, c.blockedBy.map(b => [b.ticket, b.landed]), c.conflictOf]), zones: p.operation.zones, selected }, () =>
@@ -807,6 +808,29 @@ function closerFor(p, contact) {
     getJson(`/api/closer?op=${encodeURIComponent(p.operation.id)}`).then((data) => {
       closerCache.set(key, { revision, data });
       closerLoading.delete(key);
+      render();
+    });
+  }
+  return hit?.data ?? null;
+}
+
+// A contact's mission report: complete and landed contacts always ask (a landed one's is saved on the board),
+// a running one once its status carries a report. A new state or report time refetches.
+const reportCache = new Map();
+const reportLoading = new Set();
+function reportFor(opId, contact) {
+  if (!contact || contact.kind === "decision") return null;
+  const finished = contact.state === "complete" || contact.state === "landed";
+  if (!finished && !contact.reportAt) return null;
+  const key = `${opId}/${contact.ticket}`;
+  const revision = `${contact.state}|${contact.reportAt ?? ""}`;
+  const hit = reportCache.get(key);
+  if (hit?.revision === revision) return hit.data;
+  if (!reportLoading.has(key)) {
+    reportLoading.add(key);
+    getJson(`/api/report?op=${encodeURIComponent(opId)}&contact=${encodeURIComponent(contact.ticket)}`).then((data) => {
+      reportCache.set(key, { revision, data });
+      reportLoading.delete(key);
       render();
     });
   }

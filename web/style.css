@@ -474,6 +474,37 @@ details.group > summary .count { margin-left: auto; }
 .chip.c-clean, .chip.c-pass, .chip.c-merged { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .chip.c-conflict, .chip.c-fail, .chip.c-closed { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
 .chip.c-pending { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+/* Mission report and closer review: compact rows that wrap instead of widening the card. */
+.report { --s: var(--ok); }
+.report.report-running { --s: var(--line-2); }
+.report-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 8px; margin-bottom: 6px; }
+.report-head .dim, .report-list .dim { color: var(--dim); font-size: 11.5px; }
+.report-summary { margin-top: 8px; overflow-wrap: anywhere; }
+.report-part { margin-top: 10px; min-width: 0; }
+.report-label { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 3px; }
+.report-review { font-size: 12.5px; }
+.report-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 12.5px; }
+.report-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; overflow-wrap: anywhere; }
+.report-list li[class^="w-"]::before { content: ""; flex: none; align-self: center; width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+.report-list li.w-done::before { background: var(--ok); }
+.report-list li.w-open::before { background: var(--warn); }
+.report-list li.w-dropped { color: var(--dim); }
+.report-list code { font-size: 12px; overflow-wrap: anywhere; }
+.report-detail { flex-basis: 100%; }
+.verdict-grid { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.closer-report .v-ok { --v: var(--ok); }
+.closer-report .v-fixed { --v: var(--info); }
+.closer-report .v-follow-up { --v: var(--warn); }
+.closer-report .v-not-checked { --v: var(--dim); }
+.closer-report .v-not-reported { --v: var(--bad); }
+.verdict { font-family: ui-monospace, monospace; font-size: 11px; border-radius: 4px; padding: 1px 6px; background: transparent; color: var(--v, var(--muted)); border: 1px solid color-mix(in srgb, var(--v, var(--line-2)) 50%, transparent); }
+.verdict.v-not-checked, .verdict.v-not-reported { border-style: dashed; }
+.verdict[aria-pressed="true"] { background: var(--panel-2); border-color: var(--accent); }
+.verdict-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 4px; font-size: 11px; }
+.verdict-legend span { color: var(--v); }
+.verdict-legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 2px; border: 1px solid currentColor; vertical-align: -1px; }
+.verdict-legend .v-not-checked::before, .verdict-legend .v-not-reported::before { border-style: dashed; }
+.verdict-note { margin-top: 6px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
 .timeline-list { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
 .timeline-list li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; color: var(--muted); border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
 .timeline-list time { color: var(--dim); font-family: ui-monospace, monospace; font-size: 11.5px; flex: none; }

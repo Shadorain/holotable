@@ -125,3 +125,40 @@ test("coordinator activity passes through; malformed activity is rejected and ol
   expect(() => validateStatus({ ...makeStatus(), coordinator: { ...coordinator, state: "sleeping" } })).toThrow();
   expect(() => validateStatus({ ...makeStatus(), coordinator: { ...coordinator, since: "a while ago" } })).toThrow();
 });
+
+describe("status report", () => {
+  const report = {
+    v: 1, at: "2026-01-01T00:05:00.000Z", revision: "abc123", summary: "Delivered the change.",
+    work: [{ title: "Make the change", state: "done" }, { title: "Docs", state: "open" }, { title: "Old path", state: "dropped" }],
+    verification: { outcome: "passed", detail: "bun test: 12 pass", revision: "abc123" },
+    review: { rounds: 2, findings: 5, repaired: 3, rejected: 1, deferred: 1, escalated: 0 },
+    followUps: [{ title: "Migrate callers", severity: "medium", source: "deferred" }],
+    delivery: { outcome: "delivered", url: "https://github.com/o/r/pull/1" },
+  };
+
+  test("a Contract 1 report passes through; older producers omit it", () => {
+    expect(validateStatus({ ...makeStatus(), report }).report).toEqual(report as never);
+    expect(validateStatus({ ...makeStatus(), report: { ...report, review: null, truncated: true } }).report).toMatchObject({ review: null, truncated: true });
+    expect("report" in validateStatus(makeStatus())).toBe(false);
+    expect(validateStatus({ ...makeStatus(), report: null }).report).toBeNull();
+  });
+
+  test("a malformed report reads as none and never rejects the status", () => {
+    for (const broken of [
+      "text", { ...report, v: 2 }, { ...report, at: "soon" }, { ...report, work: [{ title: "x", state: "half" }] },
+      { ...report, verification: { outcome: "ok", detail: null, revision: null } }, { ...report, review: { rounds: -1 } },
+      { ...report, followUps: [{ title: "x", severity: null, source: "elsewhere" }] }, { ...report, delivery: null },
+    ]) {
+      const s = validateStatus({ ...makeStatus(), report: broken });
+      expect(s.report).toBeNull();
+      expect(s.phase).toBe("work");
+    }
+  });
+
+  test("lists and summary are held to the contract's bounds, marked truncated", () => {
+    const long = { ...report, summary: "s".repeat(2500), work: Array.from({ length: 45 }, (_, i) => ({ title: `w${i}`, state: "done" })),
+      followUps: Array.from({ length: 25 }, (_, i) => ({ title: `f${i}`, severity: null, source: "escalated" })) };
+    const r = validateStatus({ ...makeStatus(), report: long }).report!;
+    expect([r.summary?.length, r.work.length, r.followUps.length, r.truncated]).toEqual([2000, 40, 20, true]);
+  });
+});

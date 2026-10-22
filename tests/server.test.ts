@@ -310,6 +310,37 @@ test("POST /api/contacts adds a closer with neither ticket nor zone; GET /api/cl
   expect((await api("/api/contacts", { method: "POST", body: { op: "lab", ticket: "t2" } })).status).toBe(400);
 });
 
+test("GET /api/closer carries the JSON review with coverage of every landed ticket, or says why it cannot read it", async () => {
+  const { api, home } = await boot();
+  await api("/api/contacts", { method: "POST", body: { op: "lab", kind: "closer" } });
+  for (const ticket of ["a", "b"]) await appendEvent(home, "lab", { v: 1, at: "2026-01-01T00:01:00.000Z", kind: "landed", contact: ticket, via: "pr" });
+  const dir = join(home, "operations", "lab", "closer");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "CLOSER.json"), JSON.stringify({ v: 1, summary: "Fine.", tickets: [{ ticket: "a", verdict: "ok" }], followUps: [{ title: "Later" }] }));
+  const view = (await (await api("/api/closer?op=lab")).json()) as { review: { summary: string }; reviewError: null; coverage: { tickets: Array<{ ticket: string; verdict: string }>; checked: number; total: number; followUps: number } };
+  expect(view.review.summary).toBe("Fine.");
+  expect(view.reviewError).toBeNull();
+  expect(view.coverage.tickets.map((t) => [t.ticket, t.verdict])).toEqual([["a", "ok"], ["b", "not-reported"]]);
+  expect(view.coverage).toMatchObject({ checked: 1, total: 2, followUps: 1 });
+  writeFileSync(join(dir, "CLOSER.json"), "{");
+  const broken = (await (await api("/api/closer?op=lab")).json()) as { review: null; reviewError: string; coverage: null };
+  expect(broken).toMatchObject({ review: null, coverage: null });
+  expect(broken.reviewError).toContain("CLOSER.json");
+});
+
+test("GET /api/report answers the saved report, else the live status's; unknown contacts 404, a missing param 400", async () => {
+  const live = { v: 1, at: "2026-01-01T00:05:00.000Z", revision: null, summary: "Live.", work: [], verification: { outcome: null, detail: null, revision: null }, review: null, followUps: [], delivery: { outcome: null, url: null } } as const;
+  const { api, home } = await boot({ extras: () => ({ statuses: { a: { report: live } as never } }) });
+  expect(await (await api("/api/report?op=lab&contact=a")).json()).toEqual({ ticket: "a", report: live });
+  expect(await (await api("/api/report?op=lab&contact=b")).json()).toEqual({ ticket: "b", report: null });
+  const saved = { ...live, summary: "Saved." };
+  mkdirSync(join(home, "operations", "lab", "reports"), { recursive: true });
+  writeFileSync(join(home, "operations", "lab", "reports", "a.json"), JSON.stringify(saved));
+  expect(((await (await api("/api/report?op=lab&contact=a")).json()) as { report: { summary: string } }).report.summary).toBe("Saved.");
+  expect((await api("/api/report?op=lab&contact=zz")).status).toBe(404);
+  expect((await api("/api/report?op=lab")).status).toBe(400);
+});
+
 test("GET/PUT /api/brief round-trips markdown; bad ops are 404", async () => {
   const { api } = await boot();
   const empty = (await (await api("/api/brief?op=lab")).json()) as { brief: string | null; seed: null; createdAt: string };

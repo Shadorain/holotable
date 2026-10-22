@@ -61,6 +61,7 @@ interface ContactStatus {
     prompt: string;                 // the whole prompt (command, path, content), at most 4000 chars plus "…"
     options: string[];              // the pane's choices in order; Deny is always last
   } | null;
+  report?: MissionReport | null;   // the mission's final report, below; null = none yet; absent = older producer
   plan?: { path: string; revision: string } | null;   // pending plan awaiting approval; revision bumps on every edit
   mode?: "auto" | "pause" | "force" | null;           // the mission's review mode (the planned one while a plan is pending)
   problem?: {
@@ -112,6 +113,27 @@ While the main mission agent's `ask` tool is waiting, `hold: question` replaces 
 
 A tool-approval prompt open in the pane (OMP's `ui.approve`, wrapped by omp-mission on OMP 18.11.3 and later) also publishes `hold: question`, with the prompt's summary in `next`, `approval` set, and `permit` in `actions`. `ask` and `approval` can be open together, and then `actions` lists both `answer` and `permit`. The `permit` op (`{id, answer: <one of approval.options>}`, operator) answers the prompt as if that choice was picked in the pane and closes the pane's prompt. A changed `id` is `stale`, and a label the prompt does not offer is `rejected`, never read as Deny. Answering or the pane settling the prompt clears `approval`. The producer refuses every other mutation with `question-waiting` while a prompt is open, because a message steered into the pane would deny the call. Only the operator sends `permit`. Auto mode and Recovery never do.
 
+### Mission report (v1)
+
+```ts
+interface MissionReport {
+  v: 1;
+  at: string;                        // ISO time of the newest evidence it describes (delivery, verification, a valid review round), not of publication
+  revision: string | null;           // the commit it describes: delivery evidence's revision, else verification's
+  summary: string | null;            // the delivery summary (record_delivery detail), ≤ 2000 chars
+  work: Array<{ title: string; state: "done" | "open" | "dropped" }>;   // graph leaves, ≤ 40
+  verification: { outcome: "passed" | "failed" | null; detail: string | null; revision: string | null };  // detail ≤ 1000 chars
+  review: { rounds: number; findings: number; repaired: number; rejected: number; deferred: number; escalated: number } | null;
+  followUps: Array<{ title: string; severity: string | null; source: "deferred" | "escalated" }>;   // ≤ 20
+  delivery: { outcome: string | null; url: string | null };
+  truncated?: true;                  // the producer cut lists or strings to stay within 8 KiB
+}
+```
+
+The producer publishes `report` once the mission has delivery or verification evidence and rebuilds it on every publish; since `at` is the newest evidence's time, an unchanged mission republishes an identical report. As implemented by `omp-mission`, `followUps[].severity` is always set, and `work` is always `[]` for local-graph missions and briefly `[]` for a beads pane after a restart.
+
+The board reads it leniently: a `report` that does not match this shape is null, never a rejected status. It holds lists and `summary` to the bounds above (marking `truncated`). Each watcher pass saves a changed report to `operations/<id>/reports/<ticket>.json`, so the card keeps showing it after the contact lands and its status file is gone; an empty `work` keeps the saved list of the same `revision`.
+
 ### Optional evaluation evidence (v1)
 
 The two new status groups together are at most 4 KiB after normalization. Counts are nonnegative safe integers, USD estimates finite and nonnegative or null, timestamps at most 64 characters, and opaque source ids at most 128 characters. No transcripts, paths, finding text or model-generated summaries are copied. Older producers may omit both groups.
@@ -157,6 +179,23 @@ Missing/unsupported source counts and backlog are current-run gauges: fully reco
 Scoped `usage.byPhase` deltas use operation-wide `(role,id)` high-water marks, so shared coordinator snapshots cannot charge two contacts' phases for the same increase. Attribution follows the first observing contact, not exclusive worker ownership. Initial cumulative baselines are unassigned; counter recovery below an earlier high-water mark does not create new spend. Mission replacement preserves prior attributed totals.
 
 The existing watcher records `mission: {id, hold, verify, complete, problem?}` and changed counters before the slow sampling gate. `problem` keeps only the status problem's `kind`, `source` and `retryAt` (never `detail`, `attempt` or progress counts), so a retry that only rewords its failure appends nothing; it is `null` when the status reports no problem or the mission is complete, and absent when the status omits the field. Usage stays on that gate except final capture. Each group deduplicates by its values, not publication timestamps or JSON key order; restart seeds from the folded merged sample. Mission changes clear the previous run's sampled counters/usage. Land captures after merge verification, Done before `landed`, and Reap/Close/Abort before closing each unreaped pane. Capture shares the watcher serialization chain, reads only the target status when needed, and performs no ping, tracker, delivery or terminal scan. An already-closed recovery uses persisted history only. Capture failure is warned and cannot prevent the requested action.
+
+## Closer report (v1)
+
+The closer mission writes `operations/<id>/closer/<ticket>.json` under the holotable home; the brief gives the path, the format and every ticket it must cover. Holotable owns this format.
+
+```ts
+interface CloserReview {
+  v: 1;
+  summary: string;
+  verification: Array<{ command: string; outcome: "passed" | "failed" | "not-run"; note?: string }>;
+  tickets: Array<{ ticket: string; verdict: "ok" | "fixed" | "follow-up" | "not-checked"; note?: string }>;  // one per landed ticket
+  fixes: Array<{ title: string; files?: string[]; tickets?: string[]; commit?: string }>;
+  followUps: Array<{ title: string; detail?: string; tickets?: string[]; severity?: "high" | "medium" | "low" }>;
+}
+```
+
+A model writes it, so the reader is lenient: a file that is not an object with `v: 1` and a string `summary` (or not JSON, or over 64 KiB) is reported on the card as unreadable; a missing list reads as empty; an entry without its required fields or with an unknown `outcome`/`verdict` is dropped; a malformed optional field is left out. The first verdict for a ticket counts. A landed implement or audit contact with no verdict is `not reported`; verdicts for other tickets are ignored. Older closers wrote only `<ticket>.md`, which still renders when there is no JSON.
 
 ## Comparison manifest (v1)
 

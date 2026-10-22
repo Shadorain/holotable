@@ -19,8 +19,8 @@ import {
 import { addContact as addContactStore, type NewContact } from "./contacts.ts";
 import { history } from "./core/projection.ts";
 import { closerOf } from "./core/closer.ts";
-import { closerBriefFor } from "./runtime/closer.ts";
-import { readCloserReport } from "./store/closer.ts";
+import { closerView, type CloserView } from "./runtime/closer.ts";
+import { readContactReport } from "./store/reports.ts";
 import type { UsageReport } from "./core/usage.ts";
 import { foldEvents } from "./core/fold.ts";
 import { evaluateOperation, type Evaluation } from "./core/evaluation.ts";
@@ -37,6 +37,7 @@ import {
   type ClosedOutcome,
   type Frontend,
   type HistoryEntry,
+  type MissionReport,
   type Operation,
   type Project,
   type Projection,
@@ -170,8 +171,10 @@ export interface BoardService {
   usage?(opId: string | null): Promise<UsageReport>;
   brief(opId: string): Promise<{ brief: string | null; seed: { text: string } | null; createdAt: string }>;
   setBrief(opId: string, text: string): Promise<void>;
-  /** The operation's closer: its review brief as it would launch now, and its report once written; null without one. */
-  closer(opId: string): Promise<{ ticket: string; brief: string; report: string | null } | null>;
+  /** The operation's closer: its review brief as it would launch now, its report and ticket coverage once written; null without one. */
+  closer(opId: string): Promise<CloserView | null>;
+  /** A contact's mission report: the saved one (kept after it lands), else its live status's. */
+  report(opId: string, ticket: string): Promise<{ ticket: string; report: MissionReport | null }>;
   /** `zone` subcommand over HTTP. */
   /** Adds a zone; its id is derived from the label. Returns the id. */
   addZone(opId: string, label: string): Promise<string>;
@@ -494,11 +497,14 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       const operation = await readOperation(home, opId);
       const closer = closerOf(operation);
       if (!closer) return null;
-      const [brief, report] = await Promise.all([
-        closerBriefFor(home, operation, closer, now()),
-        readCloserReport(home, opId, closer.ticket),
-      ]);
-      return { ticket: closer.ticket, brief, report };
+      return closerView(home, operation, closer, now());
+    },
+    async report(opId, ticket) {
+      await knownOperation(opId);
+      const operation = await readOperation(home, opId);
+      if (!operation.contacts.some((contact) => contact.ticket === ticket)) throw new HttpError(404, `No contact "${ticket}"`);
+      const saved = await readContactReport(home, opId, ticket);
+      return { ticket, report: saved ?? hooks.extras?.(opId).statuses?.[ticket]?.report ?? null };
     },
     async addZone(opId, label) {
       await knownOperation(opId);

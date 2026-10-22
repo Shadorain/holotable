@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { closerBrief } from "../../src/core/closer.ts";
+import { closerBrief, closerCoverage, closerTickets, parseCloserReview } from "../../src/core/closer.ts";
+import { foldEvents } from "../../src/core/fold.ts";
 import { project } from "../../src/core/projection.ts";
 import type { Contact, Event, Operation, ProjectionInput } from "../../src/core/types.ts";
 import { validateOperation } from "../../src/core/validate-operation.ts";
@@ -127,7 +128,7 @@ describe("closer brief", () => {
     return closerBrief({
       operation: op, closer: op.contacts.at(-1)!, events, briefText: "# Ledger\n\nAcceptance: totals match.",
       notesText: "## Plan\n\n- [x] API shipped\n- [ ] Docs updated\n```\n- [ ] not a task\n```", recommendations: ["One", "Two", "Three", "Four"],
-      reportPath: "/home/op/closer/CLOSER.md", ...over,
+      reportPath: "/home/op/closer/CLOSER.json", markdownPath: "/home/op/closer/CLOSER.md", ...over,
     });
   };
 
@@ -144,7 +145,12 @@ describe("closer brief", () => {
     expect(text).not.toContain("- Four");
     expect(text).toContain("## Operator notes for this review\n\nPay attention to the migration order.");
     expect(text).toContain("## Operation brief\n\n# Ledger\n\nAcceptance: totals match.");
-    expect(text).toContain("write your report to `/home/op/closer/CLOSER.md`");
+    expect(text).toContain("write your report as JSON to `/home/op/closer/CLOSER.json`");
+    expect(text).toContain("Markdown copy to `/home/op/closer/CLOSER.md`");
+  });
+
+  test("names every landed mission the report must give a verdict for, conflicts and decisions excluded", () => {
+    expect(build()).toContain("## Tickets to report (2)\n\napi, ui\n");
   });
 
   test("states the review instructions and the delivery the operation uses", () => {
@@ -167,13 +173,58 @@ describe("closer brief", () => {
     const op = makeOp([...many, closer()], stack);
     const text = closerBrief({
       operation: op, closer: op.contacts.at(-1)!, events: many.map((c, i) => landed(i, c.ticket)),
-      briefText: "x".repeat(7000), notesText: Array.from({ length: 50 }, (_, i) => `- [ ] task ${i}`).join("\n"), recommendations: [], reportPath: "/r.md",
+      briefText: "x".repeat(7000), notesText: Array.from({ length: 50 }, (_, i) => `- [ ] task ${i}`).join("\n"), recommendations: [], reportPath: "/r.json", markdownPath: "/r.md",
     });
     expect(text).toContain("## Landed work (55)");
-    expect(text).toContain("- … and 15 more\n\n## Decisions");
+    expect(text).toContain("- … and 15 more\n\n## Tickets to report (55)");
+    // The verdict list is never capped: a ticket left out of it would read as "not reported".
+    expect(text).toContain(`## Tickets to report (55)\n\n${many.map((c) => c.ticket).join(", ")}\n\n## Decisions`);
     expect(text).toContain("- [ ] task 39\n- … and 10 more");
     expect(text).toContain("(brief truncated: 1000 more characters in the operation's brief.md)");
     expect(text).not.toContain("Open Intel recommendations");
-    expect(text.length).toBeLessThan(12_000);
+    // The report format and the uncapped ticket list add about a kilobyte over the capped sections.
+    expect(text.length).toBeLessThan(13_000);
+  });
+});
+
+describe("closer review", () => {
+  const full = {
+    v: 1,
+    summary: "All good but one doc.",
+    verification: [{ command: "bun test", outcome: "passed", note: "412 tests" }, { command: "bun run lint", outcome: "not-run" }],
+    tickets: [{ ticket: "a", verdict: "ok" }, { ticket: "b", verdict: "fixed", note: "helper deduped" }, { ticket: "c", verdict: "follow-up" }, { ticket: "d", verdict: "not-checked", note: "no access" }],
+    fixes: [{ title: "One retry helper", files: ["src/retry.ts"], tickets: ["b"], commit: "abc123" }],
+    followUps: [{ title: "Rewrite socket doc", detail: "docs/socket.md:12", tickets: ["c"], severity: "medium" }],
+  };
+
+  test("reads a Contract 2 report as written", () => {
+    expect(parseCloserReview(full)).toEqual(full as never);
+  });
+
+  test("a report it cannot use is null; a bad entry is dropped and a missing list is empty", () => {
+    for (const bad of [null, "text", [], { ...full, v: 2 }, { ...full, summary: 3 }]) expect(parseCloserReview(bad)).toBeNull();
+    const loose = parseCloserReview({
+      v: 1, summary: "s",
+      tickets: [{ ticket: "a", verdict: "great" }, { verdict: "ok" }, "b", { ticket: "c", verdict: "ok", note: 5 }],
+      fixes: [{ title: "f", files: ["x", 3], commit: null }],
+      followUps: [{ title: "u", severity: "urgent" }, { detail: "no title" }],
+    });
+    expect(loose).toEqual({ v: 1, summary: "s", verification: [], tickets: [{ ticket: "c", verdict: "ok" }], fixes: [{ title: "f", files: ["x"] }], followUps: [{ title: "u" }] });
+  });
+
+  test("coverage: every landed ticket against its verdict, missing ones not reported, other tickets ignored", () => {
+    const review = parseCloserReview({ ...full, tickets: [...full.tickets, { ticket: "zzz", verdict: "ok" }, { ticket: "a", verdict: "fixed" }] })!;
+    const landed = ["a", "b", "c", "d", "e"].map((ticket) => ({ ticket, title: ticket === "e" ? "Late one" : null }));
+    const coverage = closerCoverage(landed, review);
+    expect(coverage.tickets.map((t) => [t.ticket, t.verdict])).toEqual([["a", "ok"], ["b", "fixed"], ["c", "follow-up"], ["d", "not-checked"], ["e", "not-reported"]]);
+    expect(coverage.tickets[1]?.note).toBe("helper deduped");
+    expect(coverage.tickets[4]).toEqual({ ticket: "e", title: "Late one", verdict: "not-reported", note: null });
+    expect(coverage).toMatchObject({ total: 5, checked: 3, fixed: 1, followUps: 1 });
+  });
+
+  test("the tickets to cover are the landed implement and audit contacts, oldest landing first", () => {
+    const op = makeOp([makeContact("late"), makeContact("early", { kind: "audit" }), makeContact("open"), makeContact("d", { kind: "decision" }), closer()], stack);
+    const derived = foldEvents([landed(5, "late"), landed(2, "early"), ev(3, "d", "landed", { via: "manual" }), landed(6, "CLOSER")]);
+    expect(closerTickets(op, derived, "CLOSER").map((c) => c.ticket)).toEqual(["early", "late"]);
   });
 });

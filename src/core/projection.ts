@@ -392,6 +392,7 @@ function contactView(
       ? { worktree: contact.lane.worktree, branch: contact.lane.branch, frontend: contact.lane.frontend, terminal: contact.lane.terminal !== null }
       : null,
     plan: status?.hold === "plan-approval" && status.plan ? { revision: status.plan.revision } : null,
+    reportAt: status?.report?.at ?? null,
     options: contact.options,
     review,
     model: status?.model ?? null,
