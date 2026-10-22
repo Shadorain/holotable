@@ -222,12 +222,13 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
   let currentUrl = "";
   let actualPort = 0;
   let currentServer: Server;
-  const streams = new Set<ServerResponse>();
+  /** Open event streams and the cleanup that stops their timers and change listener. */
+  const streams = new Map<ServerResponse, () => void>();
   const pending = new Set<Promise<void | ServerResponse>>();
 
   const routes: Record<string, Route> = {
     // Push channel: one event per change, debounced; the page refetches on receipt.
-    "GET /api/stream": ({ res }) => {
+    "GET /api/stream": ({ req, res }) => {
       res.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-store",
@@ -257,15 +258,19 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         if (!res.destroyed && !res.writableEnded && !blocked)
           blocked = !res.write(": ping\n\n");
       }, 25_000);
-      res.once("close", () => {
+      const stop = () => {
         off();
         clearInterval(heartbeat);
         clearTimeout(pushTimer);
-      });
+        streams.delete(res);
+      };
+      // Bun's node:http does not emit the response's "close" when the client goes away, only the
+      // request's: without both, a dropped stream's heartbeat outlives it and keeps the process up.
+      req.once("close", stop);
+      res.once("close", stop);
       // Long-lived: closeAllConnections does not reap streaming responses, so the
       // server tracks and ends them itself on close and rebind.
-      streams.add(res);
-      res.once("close", () => streams.delete(res));
+      streams.set(res, stop);
     },
 
     "GET /api/service": () => ({ pid: process.pid, instance }),
@@ -618,7 +623,10 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
   }
   // end(), not destroy(): an aborted chunked body can hand the client a stray chunk instead of EOF.
   function endStreams(): void {
-    for (const res of streams) res.end();
+    for (const [res, stop] of streams) {
+      stop();
+      res.end();
+    }
   }
 
   async function doRebind(newSettings: { access: Access; port: number }): Promise<{ url: string; urls: string[] }> {

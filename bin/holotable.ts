@@ -72,6 +72,8 @@ ${HELP.replaceAll("/holotable", "holotable")}` });
       const board = await startBoard({ home, access, port, signals: true });
       print({ message: `Board:\n${formatUrls(board.urls)}\nKeep the full URL private. HTTP is unencrypted; use a trusted network or SSH tunnel.` });
       await board.closed;
+      // The board has drained; a handle something forgot to release must not keep a stopped service up.
+      setTimeout(() => process.exit(0), 3000).unref();
       return;
     }
     case undefined:
