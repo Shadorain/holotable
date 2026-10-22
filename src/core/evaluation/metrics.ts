@@ -3,7 +3,7 @@ import { evaluateContacts } from "./contacts.ts";
 import { accrue, createFoldEvaluation } from "./fold.ts";
 import { evaluationEvidence, recommendEvaluation } from "./recommend.ts";
 import { addAge, DECISION_PHASE, distribution, emptyAge, emptySeverity, emptyTokens, HISTORICAL_COUNTS, isNonnegative, isWork, MS_PER_HOUR, SEVERITIES, TOKEN_KEYS } from "./shared.ts";
-import { evaluateActivity, evaluateConflicts, evaluateSeries, evaluateStalls } from "./trends.ts";
+import { evaluateActivity, evaluateConflicts, evaluateLaunchCohorts, evaluateSeries, evaluateStalls } from "./trends.ts";
 import type { Evaluation, FoldEvaluation, Timeline, UsageEvaluation } from "./types.ts";
 
 function emptyEvaluation(fold: FoldEvaluation, clock: number): Evaluation {
@@ -215,6 +215,7 @@ export function evaluateOperation(operation: Operation, derived: Derived, now: n
   evaluateSeries(result, timelines, fold, createdAt, clock);
   evaluateStalls(result, timelines, fold, clock);
   evaluateConflicts(result, timelines, fold);
+  evaluateLaunchCohorts(result);
   const autoLand = operation.auto?.enabled === true && operation.auto.land === true;
   result.recommendations = recommendEvaluation(result, evaluationEvidence(operation, derived, clock), { autoLand });
   return result;

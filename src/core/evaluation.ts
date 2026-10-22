@@ -13,8 +13,10 @@
  * - rework & review — quality counters and fleet dispatch from producer measurements → `evaluateQuality`
  * - per contact, operator wait, spend split — contacts, operatorWait, usage.spend → `evaluateContacts`
  *   (evaluation/contacts.ts)
- * - trends — activity (active-hour throughput), series, stalls, conflict detail → evaluation/trends.ts
- * - recommendations — threshold rules over the above, ranked by stake, with cited events → evaluation/recommend.ts
+ * - trends — activity (active-hour throughput), series, stalls, conflict detail, early vs recent launch cohorts
+ *   → evaluation/trends.ts
+ * - recommendations — threshold rules over the above, ranked by stake, with cited events; per-contact count
+ *   rules judge the recent launch window when cohorts exist → evaluation/recommend.ts
  *
  * Distribution and age helpers live in evaluation/shared.ts; payload validation in evaluation/parse.ts.
  */

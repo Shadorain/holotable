@@ -5,7 +5,8 @@ export interface Timeline { contact: Contact; state: ContactEvaluation }
 export interface Distribution { n: number; medianMs: number | null; p90Ms: number | null }
 export interface AgeSummary { n: number; totalMs: number; maxMs: number | null }
 export interface Recommendation {
-  id: string; ruleVersion: 1; level: "info" | "warning"; message: string;
+  /** Bumped when a rule's judgement changes; stays 1 for rules unchanged since evaluations first shipped. */
+  id: string; ruleVersion: number; level: "info" | "warning"; message: string;
   evidence: { numerator: number; denominator: number | null; observedMs: number | null; contacts: string[]; eventIndexes: number[] };
   caveat: string;
   /**
@@ -137,6 +138,28 @@ export interface ConflictEvaluation {
   /** More distinct paths conflicted than the fold tracks; `paths` may miss some. */
   truncated: boolean;
 }
+/** Landed work contacts launched in one stretch of the operation. Per-contact rates divide by `n` unless noted. */
+export interface LaunchCohort {
+  n: number;
+  /** The cohort's first and last first-launch times. */
+  firstLaunchAt: number; lastLaunchAt: number;
+  /** Median contact spend (the contacts table's `spend.costUsd`) over the `priced` contacts with a known cost. */
+  medianUsd: number | null; priced: number;
+  medianActiveMs: number;
+  /** Median first launch → landed. */
+  medianDeliveryMs: number;
+  relaunchesPerContact: number;
+  launchFailuresPerContact: number;
+  /** Completed review rounds per contact with producer measurements (`reviewed`); null when none has them. */
+  reviewRoundsPerContact: number | null; reviewed: number;
+  /** Summed conflicts over summed land attempts; null without land attempts. */
+  conflictsPerLandAttempt: number | null;
+}
+/**
+ * The first and last third of landed implement/audit/closer contacts by first launch (declaration order breaks ties),
+ * so improvements show instead of drowning in cumulative totals.
+ */
+export interface LaunchCohorts { early: LaunchCohort; recent: LaunchCohort }
 export interface ActivityEvaluation {
   /** Time at least one declared contact was queued or live. */
   activeMs: number;
@@ -170,6 +193,8 @@ export interface Evaluation {
   series?: SeriesEvaluation;
   stalls?: StallEvaluation;
   conflicts?: ConflictEvaluation;
+  /** Null until each third holds at least three landed work contacts. */
+  launchCohorts?: LaunchCohorts | null;
 }
 export interface WaitAccount { operatorMs: number; automationMs: number; waits: number }
 export interface LaunchRefusals { memory: number; sessionCap: number; refused: number; gaveUp: number }

@@ -190,7 +190,7 @@
    },
    {
     "id": "repeat-verification",
-    "ruleVersion": 1,
+    "ruleVersion": 2,
     "level": "warning",
     "message": "Inspect repeated verification evidence and repair scope.",
     "evidence": {
@@ -265,7 +265,7 @@
    },
    {
     "id": "review-retries",
-    "ruleVersion": 1,
+    "ruleVersion": 2,
     "level": "warning",
     "message": "Inspect reviewer failure evidence, provider capacity and revision churn.",
     "evidence": {
@@ -288,7 +288,7 @@
    },
    {
     "id": "relaunch-churn",
-    "ruleVersion": 1,
+    "ruleVersion": 2,
     "level": "warning",
     "message": "Inspect relaunch causes before assuming restarts are routine.",
     "evidence": {
@@ -883,7 +883,8 @@
     }
    ],
    "truncated": false
-  }
+  },
+  "launchCohorts": null
  },
  "evidence": {
   "runs": [
@@ -1461,7 +1462,7 @@
    },
    {
     "id": "repeat-verification",
-    "ruleVersion": 1,
+    "ruleVersion": 2,
     "level": "warning",
     "message": "Inspect repeated verification evidence and repair scope.",
     "evidence": {
@@ -1536,7 +1537,7 @@
    },
    {
     "id": "review-retries",
-    "ruleVersion": 1,
+    "ruleVersion": 2,
     "level": "warning",
     "message": "Inspect reviewer failure evidence, provider capacity and revision churn.",
     "evidence": {
@@ -1559,7 +1560,7 @@
    },
    {
     "id": "relaunch-churn",
-    "ruleVersion": 1,
+    "ruleVersion": 2,
     "level": "warning",
     "message": "Inspect relaunch causes before assuming restarts are routine.",
     "evidence": {
@@ -2154,7 +2155,8 @@
     }
    ],
    "truncated": false
-  }
+  },
+  "launchCohorts": null
  },
  "quiet": {
   "v": 1,
@@ -2869,6 +2871,68 @@
    "paths": [],
    "contacts": [],
    "truncated": false
-  }
+  },
+  "launchCohorts": null
+ },
+ "phased": {
+  "launchCohorts": {
+   "early": {
+    "n": 3,
+    "firstLaunchAt": 1767225600000,
+    "lastLaunchAt": 1767226800000,
+    "medianUsd": 20,
+    "priced": 3,
+    "medianActiveMs": 420000,
+    "medianDeliveryMs": 420000,
+    "relaunchesPerContact": 3,
+    "launchFailuresPerContact": 1,
+    "reviewRoundsPerContact": 1,
+    "reviewed": 3,
+    "conflictsPerLandAttempt": 0
+   },
+   "recent": {
+    "n": 3,
+    "firstLaunchAt": 1767229200000,
+    "lastLaunchAt": 1767230400000,
+    "medianUsd": 80,
+    "priced": 3,
+    "medianActiveMs": 780000,
+    "medianDeliveryMs": 780000,
+    "relaunchesPerContact": 3,
+    "launchFailuresPerContact": 1,
+    "reviewRoundsPerContact": 1,
+    "reviewed": 3,
+    "conflictsPerLandAttempt": 0.5
+   }
+  },
+  "recommendations": [
+   {
+    "id": "relaunch-churn",
+    "ruleVersion": 2,
+    "level": "warning",
+    "message": "Inspect relaunch causes before assuming restarts are routine.",
+    "evidence": {
+     "numerator": 9,
+     "denominator": 12,
+     "observedMs": null,
+     "contacts": [
+      "w6",
+      "w7",
+      "w8"
+     ],
+     "eventIndexes": [
+      47,
+      56,
+      65
+     ]
+    },
+    "caveat": "Judged on the 3 contacts first launched since the recent cohort began; earlier contacts are left out. Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution.",
+    "impact": {
+     "ms": 0,
+     "usd": null,
+     "scoreMs": 0
+    }
+   }
+  ]
  }
 }

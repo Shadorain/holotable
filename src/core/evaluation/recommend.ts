@@ -19,6 +19,8 @@ const RULES = {
   dependencyWait: { minBlockedMs: TEN_MINUTES_MS, minShareOfLifetime: .5 },
   phaseCost: { minAttributedTokens: 100_000_000, minReviewShare: .4 },
 } as const;
+/** Rules whose judgement changed since evaluations shipped; the rest stay at version 1. v2: judge the recent window. */
+const RULE_VERSIONS: Partial<Record<string, number>> = { "repeat-verification": 2, "review-retries": 2, "relaunch-churn": 2 };
 
 function contactEvidence(contact: Contact, state: ContactEvaluation | undefined, clock: number): ContactEvidence {
   const ticket = contact.ticket;
@@ -63,7 +65,7 @@ type Stake = NonNullable<Recommendation["impact"]>;
 function recommendation(id: string, level: Recommendation["level"], message: string, numerator: number, denominator: number | null, observedMs: number | null, rows: EventRef[], caveat: string, impact: Stake): Recommendation {
   const contacts = [...new Set(rows.map(row => row.contact))].slice(0, MAX_CITED);
   const eventIndexes = rows.slice(0, MAX_CITED).map(row => row.index);
-  return { id, ruleVersion: 1, level, message, evidence: { numerator, denominator, observedMs, contacts, eventIndexes }, caveat, impact };
+  return { id, ruleVersion: RULE_VERSIONS[id] ?? 1, level, message, evidence: { numerator, denominator, observedMs, contacts, eventIndexes }, caveat, impact };
 }
 
 /** Cites each contact's newest event first, highest score first, then their older events. */
@@ -98,12 +100,21 @@ function sumKnown(values: Array<number | null>): number | null {
 /**
  * Every rule is a threshold check; those that fire are ranked by what they put at stake (time, or known spend
  * converted to time at the operation's spend per active hour), ties in rule order, and the top MAX_RECOMMENDATIONS kept.
+ * With launch cohorts, the per-contact count rules (repeat verification, review retries, relaunch churn) judge only
+ * contacts first launched since the recent cohort's first launch, open and abandoned ones included, so history the
+ * operation has moved past stops firing; Early vs recent keeps it visible.
  */
 export function recommendEvaluation(evaluation: Evaluation, proof: EvaluationEvidence, opts: { autoLand?: boolean } = {}): Recommendation[] {
   const { attempts, coverage, usage } = evaluation;
   const timed = proof.contacts.filter(contact => contact.lifetimeMs !== null);
   const lifetimeMs = timed.reduce((total, contact) => total + contact.lifetimeMs!, 0);
   const reports = evaluation.contacts ?? [];
+  const recent = evaluation.launchCohorts?.recent;
+  const recentTickets = recent ? new Set(reports.filter(row => row.launchedAt !== null && row.launchedAt >= recent.firstLaunchAt).map(row => row.ticket)) : null;
+  const inWindow = (ticket: string) => recentTickets === null || recentTickets.has(ticket);
+  const windowed = (caveat: string) => recentTickets === null ? caveat
+    : `Judged on the ${recentTickets.size} contacts first launched since the recent cohort began; earlier contacts are left out. ${caveat}`;
+  const recentRuns = proof.runs.filter(run => inWindow(run.contact));
   const activeMs = evaluation.activity?.activeMs ?? 0;
   const usdPerMs = usage.knownCostUsd !== null && usage.knownCostUsd > 0 && activeMs > 0 ? usage.knownCostUsd / activeMs : null;
   const stake = (ms: number | null, usd: number | null): Stake => ({
@@ -117,18 +128,18 @@ export function recommendEvaluation(evaluation: Evaluation, proof: EvaluationEvi
       stake(null, null));
   };
   const repeatVerification = (): Recommendation | null => {
-    const run = worstRun(proof.runs, "repeatedFailedRevision");
+    const run = worstRun(recentRuns, "repeatedFailedRevision");
     if (!run || run.measurements.repeatedFailedRevision < RULES.repeatVerification.minRepeats) return null;
     const contact = reports.find(row => row.ticket === run.contact);
     return recommendation("repeat-verification", "warning", "Inspect repeated verification evidence and repair scope.", run.measurements.repeatedFailedRevision, run.measurements.recordedFailed, null, runRefs(run),
-      "Consecutive failed records share a fingerprint, not necessarily a root cause.", stake(contact?.activeMs ?? null, contact?.spend.costUsd ?? null));
+      windowed("Consecutive failed records share a fingerprint, not necessarily a root cause."), stake(contact?.activeMs ?? null, contact?.spend.costUsd ?? null));
   };
   const reviewRetries = (): Recommendation | null => {
-    const run = worstRun(proof.runs, "reviewFailures");
+    const run = worstRun(recentRuns, "reviewFailures");
     if (!run || run.measurements.reviewFailures < RULES.reviewRetries.minFailures) return null;
     const reviewMs = reports.find(row => row.ticket === run.contact)?.phaseMs.review ?? null;
     return recommendation("review-retries", "warning", "Inspect reviewer failure evidence, provider capacity and revision churn.", run.measurements.reviewFailures, null, null, runRefs(run),
-      "Failed review operations are not completed rounds or proof of defects.", stake(reviewMs, null));
+      windowed("Failed review operations are not completed rounds or proof of defects."), stake(reviewMs, null));
   };
   const integrationConflicts = (): Recommendation | null => {
     const rule = RULES.integrationConflicts;
@@ -140,12 +151,15 @@ export function recommendEvaluation(evaluation: Evaluation, proof: EvaluationEvi
   };
   const relaunchChurn = (): Recommendation | null => {
     const rule = RULES.relaunchChurn;
-    if (attempts.launches < rule.minLaunches || attempts.relaunches < rule.minRelaunches || attempts.relaunches / attempts.launches < rule.minShare) return null;
     const launches = (contact: ContactEvidence) => contact.launches ?? contact.launchEventIndexes.length;
-    const relaunched = proof.contacts.filter(contact => launches(contact) > 1);
-    return recommendation("relaunch-churn", "warning", "Inspect relaunch causes before assuming restarts are routine.", attempts.relaunches, attempts.launches, null, rankContacts(relaunched, launches, contact => contact.launchEventIndexes),
-      "Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution.",
-      stake(sumKnown(reports.filter(contact => contact.relaunches.total > 0).map(contact => contact.offlineMs)), null));
+    const judged = proof.contacts.filter(contact => inWindow(contact.ticket));
+    const launched = judged.reduce((total, contact) => total + launches(contact), 0);
+    const relaunches = judged.reduce((total, contact) => total + Math.max(0, launches(contact) - 1), 0);
+    if (launched < rule.minLaunches || relaunches < rule.minRelaunches || relaunches / launched < rule.minShare) return null;
+    const relaunched = judged.filter(contact => launches(contact) > 1);
+    return recommendation("relaunch-churn", "warning", "Inspect relaunch causes before assuming restarts are routine.", relaunches, launched, null, rankContacts(relaunched, launches, contact => contact.launchEventIndexes),
+      windowed("Recorded relaunches include deliberate operator relaunches; churn does not prove pane death or wasted execution."),
+      stake(sumKnown(reports.filter(contact => contact.relaunches.total > 0 && inWindow(contact.ticket)).map(contact => contact.offlineMs)), null));
   };
   const approvalWait = (): Recommendation | null => {
     const rule = RULES.approvalWait;

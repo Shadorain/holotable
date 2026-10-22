@@ -32,6 +32,7 @@ export function buildReviewPrompt(evidence) {
   const tokens = value => fields(value, TOKEN_KEYS);
   const pane = value => fields(value, "tokens costUsd sessions partial");
   const SPEND = "landedUsd landedPriced perLandedUsd supportUsd openUsd abandonedUsd paneUsd wastedUsd knownShare pricedShare";
+  const LAUNCH_COHORT = "n firstLaunchAt lastLaunchAt medianUsd priced medianActiveMs medianDeliveryMs relaunchesPerContact launchFailuresPerContact reviewRoundsPerContact reviewed conflictsPerLandAttempt";
   const WAIT = "operatorMs automationMs pendingMs waits";
   const operatorWait = value => value == null ? null : {
     ...fields(value, `${WAIT} missionMs`),
@@ -77,6 +78,7 @@ export function buildReviewPrompt(evidence) {
           paths: rows("metrics.conflicts.paths", e.conflicts.paths, p => ({ path: text(p.path), conflicts: p.conflicts }), 5),
           contacts: rows("metrics.conflicts.contacts", e.conflicts.contacts, c => fields(c, "ticket conflicts landAttempts"), 5),
         },
+        launchCohorts: e.launchCohorts == null ? null : Object.fromEntries(["early", "recent"].map(key => [key, fields(e.launchCohorts[key], LAUNCH_COHORT)])),
       },
       // The longest-active contacts; the rest are counted in omittedRows.
       contacts: e.contacts == null ? null : rows("contacts", [...e.contacts].sort((a, b) => b.activeMs - a.activeMs), c => ({

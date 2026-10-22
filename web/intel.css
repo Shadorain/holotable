@@ -35,6 +35,9 @@
 .intel-metric-table th { text-align: left; color: var(--muted); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); }
 .intel-metric-table td { padding: 10px 10px 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 .intel-metric-table td:not(:first-child) { white-space: nowrap; }
+/* Early vs recent: the change column says the direction in words; colour only reinforces it. */
+.intel-metric-table td.intel-better { color: var(--ok); }
+.intel-metric-table td.intel-worse { color: var(--bad); }
 .intel-more { margin-top: 12px; }
 .intel-more summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 

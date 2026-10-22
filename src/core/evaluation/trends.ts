@@ -1,6 +1,6 @@
 import { RECOVERY_DEFERRALS } from "../types.ts";
-import { isWork, MS_PER_HOUR } from "./shared.ts";
-import type { Evaluation, FoldEvaluation, SeriesBucket, StallEvaluation, Timeline } from "./types.ts";
+import { distribution, isWork, MS_PER_HOUR } from "./shared.ts";
+import type { ContactReport, Evaluation, FoldEvaluation, LaunchCohort, SeriesBucket, StallEvaluation, Timeline } from "./types.ts";
 
 const MS_PER_DAY = 24 * MS_PER_HOUR;
 const MS_PER_WEEK = 7 * MS_PER_DAY;
@@ -9,6 +9,8 @@ const BUCKET_WIDTHS = [MS_PER_HOUR, MS_PER_DAY, MS_PER_WEEK] as const;
 const MAX_BUCKETS = 168;
 const TOP_PATHS = 10;
 const TOP_CONTACTS = 5;
+/** Each cohort is a third of the landed work contacts; below this a third is anecdote, not a cohort. */
+const MIN_COHORT = 3;
 
 const STALL_CAVEAT = "Missions whose samples carry no problem (logs and producers from before it was recorded) count every quota hold as quota, provider rate limits included. Capacity waits and Recovery deferrals are timed from the events the board appends: nothing before they were recorded counts, and board downtime inside an open wait does. Launch refusals count only attempts that failed. Producer review failures can include provider-capacity failures. Offline, problem and deferral time can overlap.";
 
@@ -107,4 +109,32 @@ export function evaluateConflicts(result: Evaluation, timelines: readonly Timeli
     rate: attempts.landAttempts > 0 ? attempts.conflicts / attempts.landAttempts : null,
     unpathed: fold.unpathedConflicts, paths, contacts, truncated: fold.droppedPaths > 0,
   };
+}
+
+function launchCohort(reports: readonly ContactReport[]): LaunchCohort {
+  const n = reports.length;
+  const total = (value: (report: ContactReport) => number) => reports.reduce((sum, report) => sum + value(report), 0);
+  const prices = reports.flatMap(report => report.spend.costUsd === null ? [] : [report.spend.costUsd]);
+  const reviewed = reports.flatMap(report => report.review === null ? [] : [report.review.rounds]);
+  const landAttempts = total(report => report.conflicts.landAttempts);
+  return {
+    n, firstLaunchAt: reports[0]!.launchedAt!, lastLaunchAt: reports[n - 1]!.launchedAt!,
+    medianUsd: distribution(prices).medianMs, priced: prices.length,
+    medianActiveMs: distribution(reports.map(report => report.activeMs)).medianMs!,
+    medianDeliveryMs: distribution(reports.map(report => Math.max(0, report.landedAt! - report.launchedAt!))).medianMs!,
+    relaunchesPerContact: total(report => report.relaunches.total) / n,
+    launchFailuresPerContact: total(report => report.launchFailures) / n,
+    reviewRoundsPerContact: reviewed.length ? reviewed.reduce((sum, rounds) => sum + rounds, 0) / reviewed.length : null,
+    reviewed: reviewed.length,
+    conflictsPerLandAttempt: landAttempts > 0 ? total(report => report.conflicts.count) / landAttempts : null,
+  };
+}
+
+/** Early vs recent: the first and last third of landed work contacts by first launch, from the per-contact reports. */
+export function evaluateLaunchCohorts(result: Evaluation): void {
+  const landed = (result.contacts ?? [])
+    .filter(report => report.outcome === "landed" && report.launchedAt !== null && isWork(report))
+    .sort((a, b) => a.launchedAt! - b.launchedAt!);
+  const size = Math.floor(landed.length / 3);
+  result.launchCohorts = size < MIN_COHORT ? null : { early: launchCohort(landed.slice(0, size)), recent: launchCohort(landed.slice(-size)) };
 }

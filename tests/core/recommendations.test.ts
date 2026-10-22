@@ -81,7 +81,7 @@ test("rules rank by stake with ties in rule order, select strongest run evidence
  expect(repeat.evidence.contacts).toEqual(["z"]);expect(repeat.evidence.numerator).toBe(4);
  expect(repeat.evidence.eventIndexes).toEqual([7,6,5]);
  for(const r of e.recommendations){
-  expect(r.ruleVersion).toBe(1);expect(r.evidence.contacts.length).toBeLessThanOrEqual(3);expect(r.evidence.eventIndexes.length).toBeLessThanOrEqual(3);
+  expect(Number.isSafeInteger(r.ruleVersion)&&r.ruleVersion>=1).toBe(true);expect(r.evidence.contacts.length).toBeLessThanOrEqual(3);expect(r.evidence.eventIndexes.length).toBeLessThanOrEqual(3);
   for(const index of r.evidence.eventIndexes)expect(index).toBeLessThan(events.length);
  }
 });

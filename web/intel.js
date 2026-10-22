@@ -341,6 +341,53 @@ function trendSection(series) {
   return section;
 }
 
+/** Early vs recent rows: [label, field, format]. Lower is better for every measure, so a drop reads as improvement. */
+const COHORT_ROWS = [
+  ["Median spend per contact", "medianUsd", money],
+  ["Median active time", "medianActiveMs", duration],
+  ["Median launch → land", "medianDeliveryMs", duration],
+  ["Relaunches per contact", "relaunchesPerContact", decimal],
+  ["Launch failures per contact", "launchFailuresPerContact", decimal],
+  ["Review rounds per contact", "reviewRoundsPerContact", r => r == null ? "Not measured" : decimal(r)],
+  ["Conflicts per land attempt", "conflictsPerLandAttempt", r => r == null ? "No attempts" : percent(r)],
+];
+/** "Down 92%", "Up 20%", "Same", or a dash when either side is unknown; class marks better or worse. */
+function changeCell(early, recent) {
+  if (early == null || recent == null) return el("td", "", "—");
+  if (early === recent) return el("td", "", "Same");
+  const ratio = early ? ` ${percent(Math.abs(recent - early) / early)}` : "";
+  return recent < early ? el("td", "intel-better", `Down${ratio}`) : el("td", "intel-worse", `Up${ratio}`);
+}
+/** The first and last third of landed work by first launch, so improvements are not buried in cumulative totals. */
+function cohortSection(lc) {
+  const section = panel("Early vs recent", "Landed work contacts by first launch: the first third against the last third. Relaunch, review-failure and repeated-verification recommendations judge only contacts launched since the recent third began.");
+  if (!lc) {
+    section.append(emptyNote("Fills in once nine work contacts have landed, three per third."));
+    return section;
+  }
+  const { early, recent } = lc;
+  // The launch windows sit above the table so its four columns fit a phone without scrolling.
+  const launches = c => `${plural(c.n, "contact")} first launched ${shortDate(c.firstLaunchAt)}–${shortDate(c.lastLaunchAt)}`;
+  section.append(el("p", "intel-muted intel-note", `Early: ${launches(early)}. Recent: ${launches(recent)}.`));
+  const table = el("table", "intel-metric-table");
+  const head = el("tr");
+  for (const col of ["Measure", "Early", "Recent", "Change"]) head.append(el("th", "", col));
+  const thead = el("thead"); thead.append(head); table.append(thead);
+  const body = el("tbody");
+  for (const [label, key, format] of COHORT_ROWS) {
+    const row = el("tr");
+    row.append(el("td", "", label), el("td", "", format(early[key])), el("td", "", format(recent[key])), changeCell(early[key], recent[key]));
+    body.append(row);
+  }
+  table.append(body);
+  section.append(tableContainer(table, "Early vs recent landed contacts"));
+  const notes = [];
+  if (early.priced < early.n || recent.priced < recent.n) notes.push(`Spend medians cover priced contacts only (${early.priced} early, ${recent.priced} recent).`);
+  if (early.reviewed < early.n || recent.reviewed < recent.n) notes.push(`Review rounds cover contacts with producer measurements (${early.reviewed} early, ${recent.reviewed} recent).`);
+  if (notes.length) section.append(el("p", "intel-muted intel-note", notes.join(" ")));
+  return section;
+}
+
 const OUTCOME_RANK = { open: 0, landed: 1, abandoned: 2 };
 /** Sortable contact measures; `value` is null when the contact has none (sorted last either way). */
 const CONTACT_SORTS = [
@@ -824,6 +871,7 @@ function renderSnapshot(root, snapshot, open, opId, auto) {
   }
   if (e.operatorWait) root.append(timeSection(e.operatorWait));
   if (e.series) root.append(trendSection(e.series));
+  if (e.launchCohorts !== undefined) root.append(cohortSection(e.launchCohorts));
   if (e.contacts) root.append(contactsSection(e.contacts, open, opId));
   if (e.usage.spend) root.append(spendSection(e.usage.spend, e.usage.knownCostUsd, e.usage.partial));
   if (e.stalls || e.conflicts) {

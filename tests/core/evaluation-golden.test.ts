@@ -68,6 +68,29 @@ function fixture() {
   return { operation, events };
 }
 
+/**
+ * Nine work contacts launched ten minutes apart, enough for early and recent launch cohorts: the first three relaunch
+ * three times and fail review three times, the last three relaunch and conflict too, so the count rules judge only them.
+ */
+function phased() {
+  const work = Array.from({ length: 9 }, (_, i) => `w${i}`);
+  const events: Event[] = [];
+  for (const [i, ticket] of work.entries()) {
+    const start = i * 10 * MIN, early = i < 3, recent = i >= 6;
+    events.push(ev(0, ticket, "queued"), launched(start, ticket));
+    if (early || recent) events.push(launched(start + 1, ticket), launched(start + 2, ticket), launched(start + 3, ticket), ev(start + 3, ticket, "launch-failed", { step: "spawn", error: "x" }));
+    events.push(
+      ev(start + 4, ticket, "sample", { mission: mission(`m-${ticket}`, "none", true), usageEvidence: bigUsage(1_000 * (i + 1), `coordinator-${ticket}`), measurements: makeMeasurements({ completedRounds: i % 3, reviewFailures: early ? 3 : 0 }) }),
+      ...(recent ? [ev(start + 5 * MIN, ticket, "land-attempt", { outcome: "conflict" })] : []),
+      ev(start + 6 * MIN, ticket, "land-attempt", { outcome: "clean" }),
+      ev(start + (6 + i) * MIN, ticket, "landed", { via: "merge" }),
+    );
+  }
+  events.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const e = evaluateOperation(makeOp(work.map(ticket => makeContact(ticket))), foldEvents(events), T0 + 120 * MIN);
+  return { launchCohorts: e.launchCohorts, recommendations: e.recommendations };
+}
+
 function payload() {
   const { operation, events } = fixture();
   const derived = foldEvents(events);
@@ -81,7 +104,7 @@ function payload() {
     .filter(e => !(e.kind === "launched" && Date.parse(e.at) >= T0 + 50 * MIN))
     .map(e => e.kind === "sample" ? { ...e, measurements: undefined, usage: undefined } : e);
   const quiet = evaluateOperation(operation, foldEvents(quietEvents), T0 + 90 * MIN);
-  return { open, evidence: evaluationEvidence(operation, derived, T0 + 90 * MIN), closed, quiet };
+  return { open, evidence: evaluationEvidence(operation, derived, T0 + 90 * MIN), closed, quiet, phased: phased() };
 }
 
 test("the intel payload for a representative operation is unchanged", () => {

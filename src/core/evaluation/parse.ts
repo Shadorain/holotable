@@ -165,8 +165,15 @@ function isContactReport(value: unknown): boolean {
   return isRecord(spend) && fieldsAre(spend, ["tokens", "costUsd"], isNullableNumber) && typeof spend.complete === "boolean";
 }
 
+function isLaunchCohort(value: unknown): boolean {
+  if (!fieldsAre(value, ["n", "priced", "reviewed"], isCount)) return false;
+  return fieldsAre(value, ["firstLaunchAt", "lastLaunchAt", "medianActiveMs", "medianDeliveryMs", "relaunchesPerContact", "launchFailuresPerContact"], isNonnegative) &&
+    fieldsAre(value, ["medianUsd", "reviewRoundsPerContact", "conflictsPerLandAttempt"], isNullableNumber);
+}
+const isLaunchCohorts = (value: unknown): boolean => value === null || (isRecord(value) && isLaunchCohort(value.early) && isLaunchCohort(value.recent));
+
 function isRecommendation(value: unknown): boolean {
-  if (!isRecord(value) || value.ruleVersion !== 1) return false;
+  if (!isRecord(value) || !isCount(value.ruleVersion) || value.ruleVersion < 1) return false;
   if (typeof value.id !== "string" || typeof value.message !== "string" || typeof value.caveat !== "string") return false;
   if (typeof value.level !== "string" || !["info", "warning"].includes(value.level)) return false;
   const impact = value.impact;
@@ -208,5 +215,6 @@ export function parseEvaluation(value: unknown): Evaluation | null {
   if (value.series !== undefined && !isSeries(value.series)) return null;
   if (value.stalls !== undefined && !isStalls(value.stalls)) return null;
   if (value.conflicts !== undefined && !isConflicts(value.conflicts)) return null;
+  if (value.launchCohorts !== undefined && !isLaunchCohorts(value.launchCohorts)) return null;
   return value as unknown as Evaluation;
 }
