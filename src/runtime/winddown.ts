@@ -1,8 +1,7 @@
-import { foldEvents } from "../core/fold.ts";
 import type { Contact, ContactStatus, Operation, Settings } from "../core/types.ts";
 import { messageOf } from "../core/errors.ts";
 import { PortError, type Ports, type Run } from "../ports.ts";
-import { appendEvent, readEvents } from "../store/events.ts";
+import { appendEvent, readFolded } from "../store/events.ts";
 import { readOperation } from "../store/operations.ts";
 
 export interface WinddownDeps {
@@ -26,7 +25,7 @@ export interface WinddownDeps {
  */
 export async function windDown(deps: WinddownDeps, opId: string, op: "abort" | "close"): Promise<void> {
   const operation = await readOperation(deps.home, opId);
-  const derived = foldEvents(await readEvents(deps.home, opId));
+  const { derived } = await readFolded(deps.home, opId);
   const at = () => deps.now().toISOString();
   const fail = async (ticket: string, error: unknown) =>
     appendEvent(deps.home, opId, {

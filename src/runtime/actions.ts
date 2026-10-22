@@ -4,9 +4,8 @@ import type { Contact, ContactStatus, ControlOp, Operation } from "../core/types
 import { askAnswers } from "../core/ask.ts";
 import { messageOf } from "../core/errors.ts";
 import { PortError, type FleetPort } from "../ports.ts";
-import { foldEvents } from "../core/fold.ts";
 import { contactOf } from "../core/projection.ts";
-import { appendEvent, readEvents } from "../store/events.ts";
+import { appendEvent, readEvents, readFolded } from "../store/events.ts";
 import { readBrief } from "../store/brief.ts";
 import { decisionPrompt, decisionSessionsDir, readDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
 import { readNotes } from "../store/notes.ts";
@@ -164,7 +163,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
   async function reap(opId: string, ticket: string): Promise<void> {
     const operation = await readOperation(deps.home, opId);
     const { contact, lane, terminal } = paneOf(operation, ticket);
-    const derived = foldEvents(await readEvents(deps.home, opId));
+    const { derived } = await readFolded(deps.home, opId);
     if (derived.contacts[ticket]?.reaped) throw new ActionError(409, "refused", "already reaped");
     const settings = await deps.settings();
     // A completed conflict mission's branch is the target's pending resolution; only an unfinished one is abandoned.

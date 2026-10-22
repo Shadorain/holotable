@@ -1,10 +1,9 @@
 import { actionOf, canDo, contactOf } from "../core/projection.ts";
 import type { ActionRequest } from "../board.ts";
 import type { ContactView, Event, Operation, Settings } from "../core/types.ts";
-import { foldEvents } from "../core/fold.ts";
 import { messageOf } from "../core/errors.ts";
 import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
-import { appendEvent, readEvents } from "../store/events.ts";
+import { appendEvent, readFolded } from "../store/events.ts";
 import { listOperations, mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
 import { PortError } from "../ports.ts";
@@ -102,7 +101,7 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
   /** Appends `capacity-wait` only when auto mode starts or stops waiting for provider capacity. */
   async function recordCapacityWait(opId: string, waiting: boolean): Promise<void> {
     let recorded = capacityRecorded.get(opId);
-    recorded ??= foldEvents(await readEvents(deps.home, opId)).evaluation!.capacity.from !== null;
+    recorded ??= (await readFolded(deps.home, opId)).derived.evaluation!.capacity.from !== null;
     if (recorded !== waiting)
       await appendEvent(deps.home, opId, { v: 1, at: deps.now().toISOString(), kind: "capacity-wait", waiting });
     capacityRecorded.set(opId, waiting);
@@ -119,6 +118,12 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
   }
 
   async function runOp(opId: string): Promise<void> {
+    // Off needs no projection; when on, the projected `auto` carries capacityWait.
+    if (!(await readOperation(deps.home, opId)).auto?.enabled) {
+      await recordCapacityWait(opId, false);
+      landingWaits.delete(opId);
+      return;
+    }
     const projection = await loadProjection(deps.home, opId, await deps.settings(), deps.now().getTime(), deps.extras(opId));
     const auto = projection.operation.auto;
     await recordCapacityWait(opId, auto?.enabled === true && !!auto.capacityWait);
@@ -129,11 +134,11 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
       await pause(opId, "every contact landed");
       return;
     }
-    const events = await readEvents(deps.home, opId);
+    const { events, derived } = await readFolded(deps.home, opId);
     const now = deps.now().getTime();
     const allowed = (ticket: string, op: string) => autoRetryAllowed(events, ticket, op, now);
     // Slots Recovery is about to reuse for crashed missions; new work must not take them.
-    const reserved = relaunchesPending(projection, deps.extras(opId), events, now).length;
+    const reserved = relaunchesPending(projection, deps.extras(opId), events, derived, now).length;
     /** The runner already recorded the failure as an `operator` event; the backoff reads it from there. */
     const attempt = async (req: Omit<ActionRequest, "op" | "by">): Promise<boolean> => {
       try {

@@ -1,11 +1,10 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { foldEvents } from "../core/fold.ts";
 import { buildReport } from "../core/report.ts";
 import type { ClosedOutcome, Operation } from "../core/types.ts";
 import { operationDir } from "../paths.ts";
 import { writeReport } from "../store/archive.ts";
-import { appendEvent, readEvents } from "../store/events.ts";
+import { appendEvent, readEvents, readFolded } from "../store/events.ts";
 import { archiveOperation, mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
 import { windDown, type WinddownDeps } from "./winddown.ts";
@@ -26,7 +25,7 @@ export interface AbortPreview {
  */
 export async function abortPreview(deps: WinddownDeps, opId: string): Promise<AbortPreview> {
   const operation = await readOperation(deps.home, opId);
-  const derived = foldEvents(await readEvents(deps.home, opId));
+  const { derived } = await readFolded(deps.home, opId);
 
   const terminals: string[] = [];
   const worktrees: AbortPreview["worktrees"] = [];
@@ -71,7 +70,7 @@ export async function endOperation(deps: WinddownDeps, opId: string, outcome: Cl
     if (error instanceof Error && error.message.startsWith("Cannot read")) throw new ActionError(404, "unknown", `No open operation "${opId}"`);
     throw error;
   }
-  const events = await readEvents(deps.home, opId);
+  const { events, derived } = await readFolded(deps.home, opId);
   // `closed` inside a still-open directory is a crashed end: resume at the report step.
   const resume = events.some((e) => e.kind === "closed");
   // An action already running can still record a lane/terminal after the wind-down read.
@@ -79,7 +78,6 @@ export async function endOperation(deps: WinddownDeps, opId: string, outcome: Cl
     throw new ActionError(409, "busy", "an action is running for this operation");
   if (!resume) {
     if (outcome === "landed") {
-      const derived = foldEvents(events);
       const unlanded = operation.contacts.filter((c) => !derived.contacts[c.ticket]?.landed).length;
       if (unlanded > 0) throw new ActionError(409, "refused", `${unlanded} contacts have not landed`);
     }

@@ -1,11 +1,10 @@
 import type { ActionRequest } from "../board.ts";
 import { loadProjection, type ProjectionExtras } from "../snapshot.ts";
-import { foldEvents } from "../core/fold.ts";
 import { canDo, contactOf } from "../core/projection.ts";
-import type { ContactStatus, ContactView, Event, Projection, RecoveryDeferral, RecoveryWait, Settings } from "../core/types.ts";
+import type { ContactStatus, ContactView, Derived, Event, Projection, RecoveryDeferral, RecoveryWait, Settings } from "../core/types.ts";
 import { messageOf } from "../core/errors.ts";
-import { appendEvent, readEvents } from "../store/events.ts";
-import { listOperations } from "../store/operations.ts";
+import { appendEvent, readFolded } from "../store/events.ts";
+import { listOperations, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
 import { memoryLaunchRefusal } from "../core/policy.ts";
 
@@ -93,9 +92,8 @@ function deadPane(contact: ContactView, status: ContactStatus | null, extras: Re
  * them their slots: otherwise a crashed mission's slot goes to new work while it waits out the grace.
  * A contact whose last restart was refused is not reserved for: the refusal can last (a pane someone reopened).
  */
-export function relaunchesPending(projection: Projection, extras: Required<ProjectionExtras>, events: Event[], now: number): string[] {
+export function relaunchesPending(projection: Projection, extras: Required<ProjectionExtras>, events: Event[], folded: Derived, now: number): string[] {
   if (projection.operation.recover !== true) return [];
-  const folded = foldEvents(events);
   return projection.contacts
     .filter((c) => {
       if (!deadPane(c, extras.statuses[c.ticket] ?? null, extras, folded.contacts[c.ticket]?.reaped === true)) return false;
@@ -126,7 +124,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
     let known = recorded.get(opId);
     if (!known) {
       known = {};
-      for (const [ticket, contact] of Object.entries(foldEvents(await readEvents(deps.home, opId)).evaluation!.contacts))
+      for (const [ticket, contact] of Object.entries((await readFolded(deps.home, opId)).derived.evaluation!.contacts))
         if (contact.deferral !== null) known[ticket] = contact.deferral;
       recorded.set(opId, known);
     }
@@ -148,7 +146,7 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
     relaunchChain = relaunchChain.then(async () => {
       const extras = deps.extras(opId);
       const projection = await loadProjection(deps.home, opId, await deps.settings(), deps.now().getTime(), extras);
-      const folded = foldEvents(await readEvents(deps.home, opId));
+      const folded = (await readFolded(deps.home, opId)).derived;
       const contact = contactOf(projection, ticket);
       if (!projection.operation.recover || folded.closed || folded.contacts[ticket]?.reaped ||
           contact?.state !== "offline" || !contact.lane?.terminal || extras.statuses[ticket]?.hold === "quota" || extras.statuses[ticket]?.hold === "question") return;
@@ -202,11 +200,10 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
   async function runOp(opId: string): Promise<void> {
     deferred.set(opId, {});
     const now = deps.now();
+    if ((await readOperation(deps.home, opId)).recover !== true) return;
     const projection = await loadProjection(deps.home, opId, await deps.settings(), now.getTime(), deps.extras(opId));
-    if (projection.operation.recover !== true) return;
     const extras = deps.extras(opId);
-    const events = await readEvents(deps.home, opId);
-    const folded = foldEvents(events);
+    const { events, derived: folded } = await readFolded(deps.home, opId);
 
     for (const contact of projection.contacts) {
       const status = extras.statuses[contact.ticket] ?? null;

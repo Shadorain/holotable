@@ -1,7 +1,7 @@
-import { foldEvents, liveCount } from "./core/fold.ts";
+import { liveCount } from "./core/fold.ts";
 import { project } from "./core/projection.ts";
 import type { ContactStatus, DeliveryProbe, Load, Owner, Projection, RecoveryWait, Settings } from "./core/types.ts";
-import { readEvents } from "./store/events.ts";
+import { readFolded } from "./store/events.ts";
 import { readNotes } from "./store/notes.ts";
 import { readOperationDoc } from "./store/operations.ts";
 
@@ -29,12 +29,13 @@ export async function loadProjection(
   extras: ProjectionExtras = {},
   recoveryWaits?: Readonly<Record<string, RecoveryWait>>,
 ): Promise<Projection> {
-  const [doc, events, notes] = await Promise.all([readOperationDoc(home, id), readEvents(home, id), readNotes(home, id)]);
-  const own = liveCount(doc.operation, foldEvents(events));
+  const [doc, { events, derived }, notes] = await Promise.all([readOperationDoc(home, id), readFolded(home, id), readNotes(home, id)]);
+  const own = liveCount(doc.operation, derived);
   return project({
     operation: doc.operation,
     project: doc.project === null ? null : { id: doc.project.id, name: doc.project.name },
     events,
+    derived,
     statuses: extras.statuses ?? {},
     owners: extras.owners ?? {},
     probes: extras.probes ?? {},

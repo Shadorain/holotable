@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { foldEvents, holdsSlot } from "../core/fold.ts";
+import { holdsSlot } from "../core/fold.ts";
 import { contactOf } from "../core/projection.ts";
 import { unmetBlockers } from "../core/graph.ts";
 import { trackerTicket } from "../core/validate-operation.ts";
@@ -23,7 +23,7 @@ import type {
 } from "../core/types.ts";
 import type { ListedTerminal, Ports, Run } from "../ports.ts";
 import type { ProjectionExtras } from "../snapshot.ts";
-import { appendEvent, readEvents } from "../store/events.ts";
+import { appendEvent, readFolded } from "../store/events.ts";
 import { decisionsDir, listDecisionPanes, readDecisionDoc, readDecisionPane, removeDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
 import { summarizePaneSessions } from "../store/pane-usage.ts";
 import { saveContactReport } from "../store/reports.ts";
@@ -530,8 +530,8 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     for (const row of rows) {
       const read = await guard(`operation ${row.id}`, async () => {
         const op = await readOperation(deps.home, row.id);
-        const events = await readEvents(deps.home, row.id);
-        return { op, events };
+        const { events, derived: folded } = await readFolded(deps.home, row.id);
+        return { op, events, folded };
       });
       if (!read) continue;
       const state = ops.get(row.id) ?? newOpState();
@@ -540,11 +540,10 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       state.decisionPanes = listsPanes
         ? new Set(await listDecisionPanes(deps.home, row.id).catch(() => [...state.decisionPanes]))
         : new Set<string>();
-      const folded = foldEvents(read.events);
-      clearStaleVanished(read.op, folded, state);
+      clearStaleVanished(read.op, read.folded, state);
       for (const ticket of [...state.gone]) if (!contactOf(read.op, ticket)) state.gone.delete(ticket);
-      state.open = openCount(read.op, folded, state);
-      loaded.push({ ...read, state, folded });
+      state.open = openCount(read.op, read.folded, state);
+      loaded.push({ ...read, state });
     }
     const omp = loaded.reduce((sum, item) => sum + item.state.open, 0);
     const terminalCache = new Map<string, Promise<ListedTerminal[] | null>>();
@@ -582,9 +581,9 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     capture(operation, contact, status) {
       return enqueue(async () => {
         if (!contact.lane) return;
-        const events = await readEvents(deps.home, operation.id);
+        const { events, derived } = await readFolded(deps.home, operation.id);
         if (events.some((e) => e.kind === "closed")) return;
-        const seen = seedAll(events, foldEvents(events))(contact.ticket);
+        const seen = seedAll(events, derived)(contact.ticket);
         const current = status === undefined
           ? await deps.portsFor(operation, await deps.settings()).fleet.read({ worktree: contact.lane.worktree })
           : status;

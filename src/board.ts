@@ -22,7 +22,6 @@ import { closerOf } from "./core/closer.ts";
 import { archivedCloserView, closerView, type CloserReportView, type CloserView } from "./runtime/closer.ts";
 import { readContactReport } from "./store/reports.ts";
 import type { UsageReport } from "./core/usage.ts";
-import { foldEvents } from "./core/fold.ts";
 import { evaluateOperation, type Evaluation } from "./core/evaluation.ts";
 import { computeRollup, type IntelRollup, type RollupEntry } from "./core/rollup.ts";
 import type { OperationReport } from "./core/report.ts";
@@ -56,7 +55,7 @@ import { normalizeTicket } from "./core/validate-operation.ts";
 import type { FrontendPort, Run, TrackerHit, TrackerPort } from "./ports.ts";
 import { listArchive, readArchive, readArchiveReport } from "./store/archive.ts";
 import { readBrief, writeBrief } from "./store/brief.ts";
-import { readEvents } from "./store/events.ts";
+import { readEvents, readFolded } from "./store/events.ts";
 import { displaySettingsPath, setSettingKey } from "./settings.ts";
 import { readBoardInfo } from "./store/board.ts";
 import { mutateSettings, readSettings } from "./store/settings.ts";
@@ -583,16 +582,16 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         return { id: report.id, name: report.name, closedAt: report.closedAt, evaluation: report.evaluation ?? null };
       }
       await knownOperation(selection.op);
-      const [operation, events] = await Promise.all([readOperation(home, selection.op), readEvents(home, selection.op)]);
-      return { id: operation.id, name: operation.name, closedAt: null, evaluation: evaluateOperation(operation, foldEvents(events), now()) };
+      const [operation, { derived }] = await Promise.all([readOperation(home, selection.op), readFolded(home, selection.op)]);
+      return { id: operation.id, name: operation.name, closedAt: null, evaluation: evaluateOperation(operation, derived, now()) };
     },
     async intelRollup() {
       const [operations, archives] = await Promise.all([listOperations(home), listArchive(home, new Date(now()))]);
       const entries: RollupEntry[] = archives.map(({ report }) => ({ name: report.name, closedAt: report.closedAt, source: "archive" as const, evaluation: report.evaluation ?? null }));
       for (const row of operations) {
         try {
-          const [operation, events] = await Promise.all([readOperation(home, row.id), readEvents(home, row.id)]);
-          entries.push({ name: operation.name, closedAt: null, source: "open", evaluation: evaluateOperation(operation, foldEvents(events), now()) });
+          const [operation, { derived }] = await Promise.all([readOperation(home, row.id), readFolded(home, row.id)]);
+          entries.push({ name: operation.name, closedAt: null, source: "open", evaluation: evaluateOperation(operation, derived, now()) });
         } catch {
           // An operation that vanishes or fails to fold mid-list counts as missing evidence, not a rollup failure.
           entries.push({ name: row.name, closedAt: null, source: "open", evaluation: null });

@@ -1,9 +1,8 @@
 import { CLOSER_TITLE, closerOf } from "./core/closer.ts";
-import { foldEvents } from "./core/fold.ts";
 import { unmetBlockers } from "./core/graph.ts";
 import type { Contact, Kind, Operation, Source } from "./core/types.ts";
 import { normalizeTicket } from "./core/validate-operation.ts";
-import { appendEvent, readEvents } from "./store/events.ts";
+import { appendEvent, readFolded } from "./store/events.ts";
 import { mutateOperation } from "./store/operations.ts";
 
 export interface NewContact {
@@ -38,7 +37,7 @@ export interface ContactPatch {
  * again with the new tickets among its blockers: it waits for everything, including later additions.
  */
 export async function queueEvents(home: string, now: Date, op: Operation, tickets: string[], source: Source): Promise<void> {
-  const derived = foldEvents(await readEvents(home, op.id));
+  const { derived } = await readFolded(home, op.id);
   const at = now.toISOString();
   for (const ticket of tickets) {
     await appendEvent(home, op.id, { v: 1, at, kind: "queued", contact: ticket, source });
@@ -134,7 +133,7 @@ export async function updateContact(
   const fields = Object.entries(patch).filter(([, v]) => v !== undefined).map(([k]) => (k === "blockedBy" ? "blockers" : k));
   if (fields.length) await appendEvent(home, opId, { v: 1, at: now.toISOString(), kind: "edited", contact: ticket, source, fields });
   if (blockersChanged) {
-    const derived = foldEvents(await readEvents(home, opId));
+    const { derived } = await readFolded(home, opId);
     const by = unmetBlockers(next, derived, ticket);
     if (by.length) await appendEvent(home, opId, { v: 1, at: now.toISOString(), kind: "blocked", contact: ticket, by });
   }

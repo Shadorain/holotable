@@ -1,9 +1,8 @@
-import { foldEvents } from "../core/fold.ts";
 import { messageOf } from "../core/errors.ts";
 import { contactOf } from "../core/projection.ts";
 import type { Operation, Settings } from "../core/types.ts";
 import { PortError, type Ports, type Run } from "../ports.ts";
-import { appendEvent, readEvents } from "../store/events.ts";
+import { appendEvent, readFolded } from "../store/events.ts";
 import { readOperation } from "../store/operations.ts";
 
 export interface CleanupDeps {
@@ -44,7 +43,7 @@ export async function cleanupAfterLand(deps: CleanupDeps, opId: string, ticket: 
   const targets = operation.contacts.filter((c) => (c.ticket === ticket || c.conflictOf === ticket) && c.lane !== null);
   if (targets.length === 0) return;
 
-  const derived = foldEvents(await readEvents(deps.home, opId));
+  const { derived } = await readFolded(deps.home, opId);
   const ports = deps.portsFor(operation, settings);
   const at = () => deps.now().toISOString();
 

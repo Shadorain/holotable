@@ -30,6 +30,8 @@ export interface CloserBriefInput {
   operation: Operation;
   closer: Contact;
   events: Event[];
+  /** foldEvents(events) when the caller already holds it; folded here otherwise. */
+  derived?: Derived;
   /** brief.md, the operator's campaign brief. */
   briefText: string | null;
   /** notes.md; its task lines become the checklist the closer verifies. */
@@ -129,7 +131,7 @@ function deliveryInstruction(operation: Operation): string {
  */
 export function closerBrief(i: CloserBriefInput): string {
   const { operation, closer } = i;
-  const derived = foldEvents(i.events);
+  const derived = i.derived ?? foldEvents(i.events);
   const byTicket = new Map(operation.contacts.map((c) => [c.ticket, c]));
   const label = (c: Contact) => (c.title ? `${c.ticket} · ${oneLine(c.title)}` : c.ticket);
 

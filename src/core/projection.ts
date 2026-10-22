@@ -420,7 +420,7 @@ function contactView(
 
 export function project(input: ProjectionInput): Projection {
   const op = input.operation;
-  const derived = foldEvents(input.events);
+  const derived = input.derived ?? foldEvents(input.events);
   const states = computeStates(input, derived);
 
   const contacts = op.contacts.map((c) =>

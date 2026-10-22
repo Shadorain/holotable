@@ -606,6 +606,8 @@ export interface ProjectionInput {
   /** {id,name} when the operation sits in a project; resolved by the caller, the projection stays pure. */
   project: { id: string; name: string } | null;
   events: Event[];
+  /** foldEvents(events) when the caller already holds it; folded here otherwise. */
+  derived?: Derived;
   statuses: Record<string, ContactStatus | null>;
   owners: Record<string, Owner>;
   probes: Record<string, DeliveryProbe | null>;

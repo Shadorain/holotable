@@ -8,7 +8,7 @@ import { asInput, ConflictError } from "../core/errors.ts";
 import { isRecord, MAX_OPERATION_BYTES } from "../core/validate.ts";
 import { validateOperationDoc } from "../core/validate-operation.ts";
 import { archiveDir, operationDir, operationsDir } from "../paths.ts";
-import { readEvents } from "./events.ts";
+import { forgetEvents, readEvents } from "./events.ts";
 import { notesExists, readNotes, writeNotes } from "./notes.ts";
 import { readProjectOrNull } from "./projects.ts";
 import { createFileAtomic, writeFileAtomic } from "./atomic.js";
@@ -277,6 +277,7 @@ export async function archiveOperation(home: string, id: string, now: Date): Pro
     const resolved = validateOperationDoc(operation, file, null).stored;
     await writeFileAtomic(file, serializeOperation(resolved));
     await rename(source, destination);
+    forgetEvents(home, id);
   } catch (error) {
     throw new Error(`Cannot archive operation at ${source}: ${String(error)}`);
   } finally {
