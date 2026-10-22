@@ -22,6 +22,9 @@ Holotable is an [OMP](https://github.com/can1357/oh-my-pi) extension and a local
 
 ## How it works
 
+<details>
+<summary>Architecture diagram</summary>
+
 ```mermaid
 flowchart LR
   OMP["OMP session: /holotable"] --> Board["Holotable board (Bun service)"]
@@ -32,6 +35,8 @@ flowchart LR
   Board -->|"your clicks, via control socket"| Mission
   Board -->|"Land"| Base["Integration checkout / pull request"]
 ```
+
+</details>
 
 1. `/holotable` in OMP starts (or reuses) one board service and prints its URLs. The service keeps running when OMP closes.
 2. **Launch** asks the operation's frontend (Orca, Herdr or a custom terminal) for a worktree and a terminal running `omp` with `/mission`. The mission plans and waits for you to approve its plan.
@@ -134,7 +139,13 @@ The page has four views. Switch with the header buttons or keys `1`–`4`.
 - **Plan** (`3`): the dependency map by zone, with history beside it. Its **Operation** sub-view is the operation as a document: brief, notes, auto mode, setup, zones, contacts, closer and **End the operation**.
 - **Intel** (`4`): measurements from the recorded history: where time goes, what waited on you, spend, stalls, conflicts and ranked recommendations, for one operation or the whole fleet. See [Intel](docs/intel.md).
 
-The [guide](docs/guide.md#the-board) has screenshots of each view and the full key list.
+|Table|Plan|
+|---|---|
+|![Table view: zones as radar sectors, lifecycle rings, contacts that need you pulsing](docs/table.webp)|![Plan view: the dependency map by zone with history beside it](docs/plan.webp)|
+|**Intel**|**Closer review**|
+|![Intel view: where time goes, waits, spend, stalls and ranked recommendations](docs/intel.webp)|![Closer review: outcome banner, tickets checked, verification, fixes and follow-ups](docs/closer.webp)|
+
+The [guide](docs/guide.md#the-board) walks through each view and the full key list.
 
 ## Typical workflow
 
