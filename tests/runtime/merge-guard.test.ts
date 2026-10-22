@@ -5,6 +5,8 @@ import { createAuto } from "../../src/runtime/auto.ts";
 import { ActionError } from "../../src/runtime/errors.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings.ts";
 import { readEvents } from "../../src/store/events.ts";
+import { writeFile } from "node:fs/promises";
+import { closerReviewPath, ensureCloserReportDir } from "../../src/store/closer.ts";
 import { contact, fakePorts, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
 import { createWatcher } from "../../src/runtime/watcher.ts";
 import { makeMeasurements, makeUsageEvidence } from "../core/fixtures.ts";
@@ -112,6 +114,21 @@ test("Mark done on a closer with fixes and no PR opens one for Land, like an aud
   expect(failed).toMatchObject({ status: 409, code: "pr-opened" });
   expect(published).toEqual(["b/closer"]);
   expect((await readEvents(t.home, "lab")).some((e) => e.kind === "landed" && e.contact === "CLOSER")).toBe(false);
+});
+
+test("a closer's PR is opened with its review's prNotes and summary", async () => {
+  const t = await setup([landedOther(), closer()]);
+  await t.act({ op: "lab", contact: "x", action: "done", args: {} });
+  await ensureCloserReportDir(t.home, "lab");
+  await writeFile(closerReviewPath(t.home, "lab", "CLOSER"), JSON.stringify({ v: 1, summary: "Removed a duplicate helper.", fixes: [{ title: "One retry helper" }], prNotes: "Guardrail-change: CI timeout raised" }));
+  t.fake.world.unmerged.set("CLOSER", "1 commit on b/closer not in main");
+  const bodies: string[] = [];
+  t.fake.ports.delivery.publish = async (i) => { bodies.push(i.body); return { url: "https://github.com/acme/w/pull/13" }; };
+  await t.failure(t.act({ op: "lab", contact: "CLOSER", action: "done", args: {} }));
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]).toContain("Guardrail-change: CI timeout raised");
+  expect(bodies[0]).toContain("Removed a duplicate helper.");
+  expect(bodies[0]).toContain("One retry helper");
 });
 
 test("a decision contact never asks the delivery about a merge", async () => {

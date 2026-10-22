@@ -15,6 +15,7 @@ const MAX_PATHS = 6;
 const MAX_RECOMMENDATIONS = 3;
 const MAX_BRIEF_CHARS = 6000;
 const MAX_TEXT_CHARS = 300;
+const MAX_PR_NOTES_CHARS = 2000;
 
 export function closerOf<C extends Pick<Contact, "kind">>(holder: { contacts: readonly C[] }): C | undefined {
   return holder.contacts.find((c) => c.kind === "closer");
@@ -79,6 +80,7 @@ export function parseCloserReview(raw: unknown): CloserReview | null {
       text(r.title)
         ? [{ title: r.title, ...note(r, "detail"), ...optional("tickets", texts(r.tickets)), ...optional("severity", oneOf(SEVERITIES, r.severity) ? r.severity : undefined) }]
         : []),
+    ...optional("prNotes", text(raw.prNotes) ? raw.prNotes.slice(0, MAX_PR_NOTES_CHARS) : undefined),
   };
 }
 
@@ -185,7 +187,8 @@ export function closerBrief(i: CloserBriefInput): string {
     "5. Anything larger is a follow-up: list it in your delivery summary and report with file:line evidence. Do not build it.",
     `6. Never rewrite or revert landed history: no force-push, no reverting commits already on \`${operation.base}\`.`,
     "7. If nothing needs fixing, commit nothing and say so, with the evidence: the verification you ran and what you checked.",
-    `8. Before recording delivery, write your report as JSON to \`${i.reportPath}\` (format below), with one \`tickets\` entry per ticket under "Tickets to report": \`ok\`, \`fixed\` (you fixed something in it), \`follow-up\` (left for later; list it in \`followUps\`) or \`not-checked\` (say why in \`note\`). The board shows it on the closer's card. A Markdown copy to \`${i.markdownPath}\` is optional.`,
+    "8. Check the repo's contribution rules (AGENTS.md, CONTRIBUTING) and CI workflows for PR-description requirements your changes trigger (e.g. a `Guardrail-change: <reason>` line), and put the required lines in `prNotes`: the board opens the PR with them.",
+    `9. Before recording delivery, write your report as JSON to \`${i.reportPath}\` (format below), with one \`tickets\` entry per ticket under "Tickets to report": \`ok\`, \`fixed\` (you fixed something in it), \`follow-up\` (left for later; list it in \`followUps\`) or \`not-checked\` (say why in \`note\`). The board shows it on the closer's card. A Markdown copy to \`${i.markdownPath}\` is optional.`,
     "",
     "## Report format",
     "",
@@ -194,7 +197,8 @@ export function closerBrief(i: CloserBriefInput): string {
     ' "verification":[{"command":"bun test","outcome":"passed|failed|not-run","note":"optional"}],',
     ' "tickets":[{"ticket":"<ticket>","verdict":"ok|fixed|follow-up|not-checked","note":"optional"}],',
     ' "fixes":[{"title":"…","files":["path"],"tickets":["<ticket>"],"commit":"sha"}],',
-    ' "followUps":[{"title":"…","detail":"file:line evidence","tickets":["<ticket>"],"severity":"high|medium|low"}]}',
+    ' "followUps":[{"title":"…","detail":"file:line evidence","tickets":["<ticket>"],"severity":"high|medium|low"}],',
+    ' "prNotes":"optional: lines the PR description must carry"}',
     "```",
   ];
   const section = (title: string, rows: string[], empty: string, max: number) => {

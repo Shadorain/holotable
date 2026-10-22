@@ -192,8 +192,11 @@ interface CloserReview {
   tickets: Array<{ ticket: string; verdict: "ok" | "fixed" | "follow-up" | "not-checked"; note?: string }>;  // one per landed ticket
   fixes: Array<{ title: string; files?: string[]; tickets?: string[]; commit?: string }>;
   followUps: Array<{ title: string; detail?: string; tickets?: string[]; severity?: "high" | "medium" | "low" }>;
+  prNotes?: string;  // lines the PR description must carry for the repo's policy, e.g. "Guardrail-change: <reason>"
 }
 ```
+
+`prNotes` (clipped to 2000 characters; blank or not a string is dropped) is copied verbatim to the top of the PR the board opens when the closer is marked done with unmerged commits. That PR's body is built from what the board has: the review's summary, fixes (files, commit) and follow-ups; for an audit, its saved mission report's summary and follow-ups; otherwise a generic line. It is capped at 8000 characters.
 
 A model writes it, so the reader is lenient: a file that is not an object with `v: 1` and a string `summary` (or not JSON, or over 64 KiB) is reported on the card as unreadable; a missing list reads as empty; an entry without its required fields or with an unknown `outcome`/`verdict` is dropped; a malformed optional field is left out. The first verdict for a ticket counts. A landed implement or audit contact with no verdict is `not reported`; verdicts for other tickets are ignored. Older closers wrote only `<ticket>.md`, which still renders when there is no JSON. The board formats that Markdown by convention, not contract: `## Checked`/`Verification`, `## Fixed`, `## Follow-ups`, `## Findings` and `## Summary` headings (numbered or not) become panels, and `PASS`/`FAILED`/`NOT RUN`/`OK`, `[high]`/`High:`/`P1`, `path/to/file.ts:12` and commit shas are picked out of the text.
 

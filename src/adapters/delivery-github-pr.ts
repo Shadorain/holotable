@@ -188,11 +188,10 @@ export function githubPrDelivery(run: Run): DeliveryPort {
       return { merged: false, reason: `${reason}; ${git.reason}` };
     },
     async publish(i) {
-      const { operation, contact, branch } = i;
+      const { operation, contact, branch, body } = i;
       const pushed = await run("git", ["push", "origin", `${branch}:${branch}`], operation.integration);
       if (pushed.code !== 0) throw new PortError("push-rejected", pushed.stderr.trim() || `push of ${branch} was rejected`);
       const title = `${contact.ticket}: ${contact.title ?? "audit changes"}`;
-      const body = `${contact.description ?? ""}\n\nOpened by holotable: the ${contact.kind} mission for ${contact.ticket} finished with commits that are not in \`${operation.base}\` and delivered no PR.`.trim();
       const created = await run("gh", ["pr", "create", "--base", operation.base, "--head", branch, "--title", title, "--body", body], operation.integration);
       if (created.code !== 0) throw new PortError("pr-create-failed", created.stderr.trim() || `gh pr create for ${branch} failed`);
       const url = created.stdout.trim().split("\n").reverse().find((line) => /\/pull\/\d+/.test(line));

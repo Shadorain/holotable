@@ -146,7 +146,7 @@ export interface DeliveryPort {
    * Open a review for `branch`'s unmerged work when the mission delivered none (an audit that committed
    * code). Deliveries without reviews omit it. Returns the review URL.
    */
-  publish?(i: { operation: Operation; contact: Contact; branch: string }): Promise<{ url: string }>;
+  publish?(i: { operation: Operation; contact: Contact; branch: string; body: string }): Promise<{ url: string }>;
 }
 
 export interface Ports {

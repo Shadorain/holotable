@@ -486,6 +486,8 @@ export interface CloserReview {
   tickets: Array<{ ticket: string; verdict: CloserVerdict; note?: string }>;
   fixes: Array<{ title: string; files?: string[]; tickets?: string[]; commit?: string }>;
   followUps: Array<{ title: string; detail?: string; tickets?: string[]; severity?: "high" | "medium" | "low" }>;
+  /** Lines the PR description must carry for the repo's own policy (e.g. `Guardrail-change: <reason>`); ≤ 2000 chars. */
+  prNotes?: string;
 }
 /** Every ticket the closer had to give a verdict for, against what its review reported. */
 export interface CloserCoverage {

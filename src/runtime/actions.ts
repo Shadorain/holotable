@@ -10,6 +10,9 @@ import { appendEvent, readEvents } from "../store/events.ts";
 import { readBrief } from "../store/brief.ts";
 import { decisionPrompt, decisionSessionsDir, readDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
 import { readNotes } from "../store/notes.ts";
+import { readCloserFiles } from "../store/closer.ts";
+import { readContactReport } from "../store/reports.ts";
+import { prBody } from "../core/pr-body.ts";
 import { readOperation } from "../store/operations.ts";
 import { loadProjection } from "../snapshot.ts";
 import { cleanupAbandonedConflict, cleanupAfterLand } from "./cleanup.ts";
@@ -56,7 +59,10 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         // An audit or closer that committed code delivers no PR; without one, Mark done could only refuse forever.
         // Open the review it never opened, and Land takes over once the probe sees it.
         if ((contact.kind === "audit" || contact.kind === "closer") && delivery.publish && !view.delivery?.url && !deps.extras(opId).probes?.[ticket]) {
-          const { url } = await delivery.publish({ operation, contact, branch });
+          const review = contact.kind === "closer" ? (await readCloserFiles(deps.home, opId, ticket)).review : null;
+          const report = review ? null : await readContactReport(deps.home, opId, ticket);
+          const body = prBody({ operation, contact, review, report });
+          const { url } = await delivery.publish({ operation, contact, branch, body });
           throw new ActionError(409, "pr-opened", `${ticket}'s commits are not in ${operation.base}; opened ${url} for them. Land it once its checks pass`);
         }
         throw new ActionError(409, "not-merged", `${ticket} is not merged into ${operation.base}: ${verdict.reason}`);

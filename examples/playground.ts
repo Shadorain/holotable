@@ -85,6 +85,7 @@ function simCloserReview(tickets: string[]): CloserReview {
     }),
     fixes: fixed.length ? [{ title: "Kept one retryDelay helper", files: ["src/net/retry.ts", "src/socket/client.ts"], tickets: fixed, commit: "3f2c1ab" }] : [],
     followUps: followUp.length ? [{ title: "Rewrite docs/socket.md for the herdr frontend", detail: "docs/socket.md:12 lists orca only", tickets: followUp, severity: "medium" }] : [],
+    prNotes: "Guardrail-change: the closer tightened the retry test timeout in .github/workflows/ci.yml",
   };
 }
 
