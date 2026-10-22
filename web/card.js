@@ -357,7 +357,8 @@ function closerReportBox(contact, data, opts) {
   if (!contact.lane) {
     return el("div", "set-note", "Reviews the integrated work once every other contact has landed. Details shows the brief it will launch with.");
   }
-  const box = el("div", "next closer-report");
+  // Not a `.next` box: the review brings its own banner, and a box around it would nest boxes.
+  const box = el("section", "closer-report closer-card");
   box.append(el("div", "kicker", "Closer report"));
   if (!data) box.append(el("div", "empty-line", "Loading…"));
   else if (data.error) box.append(el("div", "set-err", data.error));

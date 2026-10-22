@@ -1067,7 +1067,6 @@ $("morePop").addEventListener("click", (event) => {
 /** Plan → Map or Operation; the map's history panel needs a fetch the Operation page skipped. */
 function showPlanView(view) {
   storePlanView(view);
-  if (view === "op" && !state.opDoc) loadOpDoc().then(render);
   if (historyShown() && !state.history) poll();
   render();
 }
@@ -1095,12 +1094,9 @@ function setView(view) {
   state.view = view;
   localStorage.setItem("holotable.view", view);
   syncRadar();
-  if (view === "plan" && state.planView === "op") {
-    if (!state.opDoc) loadOpDoc().then(render);
-    else render();
-  } else {
-    render();
-  }
+  // Switch now: the Operation page shows Loading and fetches its doc itself (renderOpPage), so a slow
+  // /api/operation never holds the click.
+  render();
   if (view === "plan") poll();
 }
 

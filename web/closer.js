@@ -74,7 +74,7 @@ const PANEL_ICON = { checked: "shield-check", fixed: "check", "follow-ups": "fla
 
 function blockNode(block, format) {
   if (block.type === "section") {
-    const panel = el("section", `cf-panel cf-k-${block.kind}`);
+    const panel = el("section", "cf-panel");
     const head = el("div", "cf-panel-head");
     head.append(icon(PANEL_ICON[block.kind], { size: 14 }));
     const title = el("span", "cf-panel-title");
@@ -152,6 +152,7 @@ function headline(review, coverage) {
 
 /** One chip per landed ticket coloured by verdict; a click shows its note and, on an open operation, a way to its card. */
 function verdictGrid(coverage, opts) {
+  const box = el("div", "cf-verdicts");
   const grid = el("div", "verdict-grid");
   const note = el("div", "verdict-note");
   note.hidden = true;
@@ -176,7 +177,8 @@ function verdictGrid(coverage, opts) {
     const n = coverage.tickets.filter((t) => t.verdict === verdict).length;
     if (n) legend.append(el("span", `v-${verdict}`, `${text} ${n}`));
   }
-  return [grid, legend, note];
+  box.append(grid, legend, note);
+  return box;
 }
 
 function part(label, ...children) {
@@ -199,17 +201,18 @@ function ticketChips(tickets, opts) {
 
 /**
  * The closer's JSON review: headline banner (verification, coverage, fixes, follow-ups by severity), summary,
- * verdict grid, verification checklist, fixes and follow-ups grouped by severity.
+ * verdict grid, verification checklist, fixes and follow-ups, high first.
  */
 function closerReviewView(review, coverage, opts) {
   const format = inlineFormat(opts);
-  const parts = [headline(review, coverage)];
+  const view = el("div", "cf-review");
+  view.append(headline(review, coverage));
   if (review.summary) {
     const summary = el("div", "card-desc report-summary");
     summary.append(renderMarkdown(review.summary, { format }));
-    parts.push(summary);
+    view.append(summary);
   }
-  if (coverage?.tickets.length) parts.push(...verdictGrid(coverage, opts));
+  if (coverage?.tickets.length) view.append(verdictGrid(coverage, opts));
   if (review.verification.length) {
     const list = el("ul", "report-list cf-checklist");
     for (const v of review.verification) {
@@ -225,7 +228,7 @@ function closerReviewView(review, coverage, opts) {
       if (v.note) li.append(inlineText("dim", v.note, format));
       list.append(li);
     }
-    parts.push(part("Verification", list));
+    view.append(part("Verification", list));
   }
   if (review.fixes.length) {
     const list = el("ul", "report-list cf-fixes");
@@ -244,26 +247,23 @@ function closerReviewView(review, coverage, opts) {
       }
       list.append(li);
     }
-    parts.push(part(`Fixes (${review.fixes.length})`, list));
+    view.append(part(`Fixes (${review.fixes.length})`, list));
   }
   if (review.followUps.length) {
-    const groups = followUpGroups(review.followUps);
-    const box = part(`Follow-ups (${review.followUps.length})`);
-    for (const g of groups) {
-      const list = el("ul", "report-list cf-followups");
+    const list = el("ul", "report-list cf-followups");
+    for (const g of followUpGroups(review.followUps)) {
       for (const f of g.items) {
         const li = el("li", "");
-        li.append(inlineText("", f.title, format), ticketChips(f.tickets, opts));
-        if (f.detail) li.append(inlineText("dim report-detail", f.detail, format));
+        const item = el("div", "cf-item");
+        item.append(inlineText("", f.title, format), ticketChips(f.tickets, opts));
+        if (f.detail) item.append(inlineText("dim report-detail", f.detail, format));
+        li.append(el("span", `cf-badge cf-sev-${g.severity ?? "none"}`, g.severity ?? "unrated"), item);
         list.append(li);
       }
-      const head = el("div", "cf-group-head");
-      head.append(el("span", `cf-badge cf-sev-${g.severity ?? "none"}`, g.severity ?? "unrated"), el("span", "dim", String(g.items.length)));
-      box.append(head, list);
     }
-    parts.push(box);
+    view.append(part(`Follow-ups (${review.followUps.length})`, list));
   }
-  return parts;
+  return view;
 }
 
 /**
@@ -273,7 +273,7 @@ function closerReviewView(review, coverage, opts) {
 export function closerBody(data, opts) {
   const parts = [];
   if (data.reviewError) parts.push(el("div", "set-err", data.reviewError));
-  if (data.review) parts.push(...closerReviewView(data.review, data.coverage, opts));
+  if (data.review) parts.push(closerReviewView(data.review, data.coverage, opts));
   else if (data.report) parts.push(closerMarkdown(data.report, opts));
   return parts;
 }

@@ -155,6 +155,8 @@ views without replacing the operator's edits.
 
 Blocked cards use dependency chips as their sole prerequisite list, omitting duplicate status
 and launch-refusal lists. Connectivity dots keep accessible labels and themed live/offline colors.
+The watcher stops pinging a landed or reaped contact, so its last owner is frozen; the projection's
+`sessionOwner` reports `none` for a landed, reaped or closed contact, and the card shows no dot there.
 The demand-driven Load tooltip renders measurements only.
 
 Operation-table zone filters are browser state keyed by operation and cleared when a zone is

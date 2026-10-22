@@ -112,6 +112,15 @@ test("an abandoned conflict mission closes when its target lands another way, so
   expect(viewOf(op, "a-conflict-1", { statuses: { "a-conflict-1": makeStatus({ phase: "execute" }) }, owners: { "a-conflict-1": "live" }, events: [ev(1, "a", "landed")] } as never).state).not.toBe("landed");
 });
 
+test("only a contact still in play shows its session: landed, reaped and closed ones drop their last live owner", () => {
+  const op = makeOp([makeContact("a", { lane: live() })], { fleet: "omp-mission", frontend: "orca" });
+  const over = { statuses: { a: makeStatus({ complete: true, phase: "complete" }) }, owners: { a: "live" as const } };
+  expect(viewOf(op, "a", over).owner).toBe("live");
+  expect(viewOf(op, "a", { ...over, events: [ev(0, "a", "landed", { via: "manual" })] }).owner).toBe("none");
+  expect(viewOf(op, "a", { ...over, events: [ev(0, "a", "reaped")] }).owner).toBe("none");
+  expect(viewOf(op, "a", { ...over, events: [ev(0, null, "closed", { outcome: "landed" })] }).owner).toBe("none");
+});
+
 describe("project: state table", () => {
   test("landed beats everything", () => {
     const op = makeOp([makeContact("a", { kind: "decision" })], {

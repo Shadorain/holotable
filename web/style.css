@@ -491,30 +491,41 @@ details.group > summary .count { margin-left: auto; }
 .report-list li.w-dropped { color: var(--dim); }
 .report-list code { font-size: 12px; overflow-wrap: anywhere; }
 .report-detail { flex-basis: 100%; }
-.verdict-grid { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
-.closer-report .v-ok { --v: var(--ok); }
-.closer-report .v-fixed { --v: var(--info); }
+/* Closer review: one column with a steady 16px rhythm between banner, summary, verdicts and lists. Colour is
+   kept for the banner's outcome and for what needs a look (follow-ups, failures, unreported tickets). */
+.closer-card { margin: 18px 0; }
+.closer-card > .kicker { margin-bottom: 10px; }
+.opdoc-sec.closer-overview > .group-head { margin-bottom: 12px; }
+.cf-review { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.closer-report .cf-review > * { margin: 0; }
+.cf-review .report-label { margin-bottom: 8px; }
+.cf-review .report-list { gap: 8px; }
+.cf-review .cf-checklist { gap: 6px; }
+.closer-report :is(.report-summary, .cf-md .md, .verdict-note) { max-width: 75ch; }
+.cf-verdicts { display: grid; gap: 8px; }
+.verdict-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.closer-report .v-ok { --v: var(--muted); }
+.closer-report .v-fixed { --v: var(--ok); }
 .closer-report .v-follow-up { --v: var(--warn); }
 .closer-report .v-not-checked { --v: var(--dim); }
 .closer-report .v-not-reported { --v: var(--bad); }
 .verdict { font-family: ui-monospace, monospace; font-size: 11px; border-radius: 4px; padding: 1px 6px; background: transparent; color: var(--v, var(--muted)); border: 1px solid color-mix(in srgb, var(--v, var(--line-2)) 50%, transparent); }
 .verdict.v-not-checked, .verdict.v-not-reported { border-style: dashed; }
 .verdict[aria-pressed="true"] { background: var(--panel-2); border-color: var(--accent); }
-.verdict-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 4px; font-size: 11px; }
+.verdict-legend { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 11px; }
 .verdict-legend span { color: var(--v); }
-.verdict-legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 2px; border: 1px solid currentColor; vertical-align: -1px; }
+.verdict-legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 2px; border: 1px solid currentColor; vertical-align: -1px; }
 .verdict-legend .v-not-checked::before, .verdict-legend .v-not-reported::before { border-style: dashed; }
-.verdict-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.verdict-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
 /* Closer formatter (web/closer.js): badges and chips inside a closer's report, wherever it is shown. */
 .cf-badge { display: inline-block; font-size: 10.5px; font-weight: 650; letter-spacing: 0.04em; line-height: 1.5; border-radius: 4px; padding: 0 5px; vertical-align: 1px; color: var(--b, var(--muted)); border: 1px solid color-mix(in srgb, var(--b, var(--line-2)) 50%, transparent); background: color-mix(in srgb, var(--b, transparent) 10%, transparent); white-space: nowrap; }
 .cf-pass { --b: var(--ok); }
 .cf-fail, .cf-sev-critical, .cf-sev-high { --b: var(--bad); }
-.cf-skip, .cf-open { --b: var(--dim); }
+.cf-skip, .cf-open, .cf-sev-low { --b: var(--dim); }
 .cf-warn, .cf-sev-medium { --b: var(--warn); }
-.cf-sev-low { --b: var(--info); }
 .cf-sev-critical { font-weight: 800; }
 .closer-report code.cf-path, .closer-report code.cf-sha { font-family: ui-monospace, monospace; font-size: 11.5px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line-2); background: var(--well); color: var(--text); overflow-wrap: anywhere; }
-.closer-report code.cf-sha { color: var(--info); }
+.closer-report code.cf-sha { color: var(--muted); }
 .cf-line { color: var(--dim); }
 .cf-ticket { font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--accent); }
 span.cf-ticket { color: var(--muted); }
@@ -522,41 +533,45 @@ span.cf-ticket { color: var(--muted); }
 .cf-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .cf-chips:empty { display: none; }
 .cf-files { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; }
-.cf-banner { --t: var(--ok); display: flex; gap: 10px; align-items: flex-start; margin: 6px 0 4px; padding: 10px 12px; border-radius: var(--radius-s); border: 1px solid color-mix(in srgb, var(--t) 45%, transparent); background: color-mix(in srgb, var(--t) 9%, transparent); }
+/* Follow-ups: severity in a fixed first column so every title starts at the same edge. */
+.cf-followups li { display: grid; grid-template-columns: 4.4em minmax(0, 1fr); gap: 10px; }
+.cf-followups .cf-badge { justify-self: start; }
+.cf-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.cf-banner { --t: var(--ok); display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius-s); border: 1px solid color-mix(in srgb, var(--t) 45%, transparent); background: color-mix(in srgb, var(--t) 9%, transparent); }
 .cf-banner > svg { flex: none; color: var(--t); margin-top: 1px; }
 .cf-tone-warn { --t: var(--warn); }
 .cf-tone-bad { --t: var(--bad); }
 .cf-banner-text { min-width: 0; }
 .cf-banner-title { font-size: 15px; font-weight: 650; }
-.cf-facts { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 2px; font-size: 12.5px; color: var(--muted); }
+.cf-facts { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; font-size: 12.5px; color: var(--muted); }
 .cf-facts .cf-fact-bad { color: var(--bad); }
 .cf-facts .cf-fact-warn { color: var(--warn); }
-.cf-checklist li { flex-wrap: wrap; }
 .cf-mark { flex: none; display: inline-flex; align-self: center; color: var(--dim); }
 .cf-run-passed .cf-mark { color: var(--ok); }
 .cf-run-failed .cf-mark { color: var(--bad); }
-.cf-group-head { display: flex; align-items: center; gap: 6px; margin: 6px 0 3px; }
-.cf-md > * + * { margin-top: 8px; }
-.cf-md .cf-heading { margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+/* An older closer's Markdown: sections are flat panels split by a rule, never boxes inside the card's box. */
+.closer-report .cf-md { margin: 0; }
+.cf-md > * + * { margin-top: 16px; }
+.cf-md .cf-heading { margin: 0; font-size: 13px; color: var(--muted); }
+.cf-md * + .cf-heading { margin-top: 16px; }
+.cf-md .cf-panel-head + .cf-heading { margin-top: 10px; }
+.cf-md .cf-heading + * { margin-top: 6px; }
 .cf-md .md p, .cf-md .md ul, .cf-md .md ol { margin-top: 0; }
 .cf-md .md-check[aria-checked="true"] { background: var(--ok); border-color: var(--ok); }
-.cf-panel { --p: var(--line-2); padding: 8px 12px 10px; border-radius: var(--radius-s); border: 1px solid var(--line); border-left: 3px solid var(--p); background: var(--next-bg); min-width: 0; }
-.cf-k-checked { --p: var(--ok); }
-.cf-k-fixed { --p: var(--info); }
-.cf-k-follow-ups, .cf-k-findings { --p: var(--warn); }
-.cf-k-summary { --p: var(--accent); }
-.cf-panel-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: var(--p); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
-.cf-panel-title { color: var(--text); font-weight: 650; }
+.cf-panel { padding-top: 14px; border-top: 1px solid var(--line); min-width: 0; }
+.cf-panel > * + * { margin-top: 10px; }
+.cf-panel-head { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.cf-panel-title { font-weight: 600; }
 .cf-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-s); }
-.cf-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.cf-table { width: 100%; border-collapse: collapse; font-size: 12.5px; line-height: 1.45; }
 .cf-table th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; background: var(--panel-2); }
-/* break-word, not anywhere: words keep their width, so a narrow screen scrolls the table instead of splitting commands. */
-.cf-table th, .cf-table td { padding: 5px 8px; vertical-align: top; border-bottom: 1px solid var(--line); overflow-wrap: break-word; }
-.cf-table td code { white-space: nowrap; }
+/* break-word, not anywhere: words keep their width, so a narrow screen scrolls the table instead of splitting
+   commands. Commands stay whole; code in the last column (results, notes) wraps between its words. */
+.cf-table th, .cf-table td { padding: 7px 10px; vertical-align: top; border-bottom: 1px solid var(--line); overflow-wrap: break-word; }
+.cf-table td:not(:last-child) code { white-space: nowrap; }
 .cf-table tr:last-child td { border-bottom: 0; }
 .cf-output > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .cf-output-text { white-space: pre; max-height: 360px; overflow: auto; }
-.closer-overview .cf-banner { margin-top: 2px; }
 .timeline-list { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
 .timeline-list li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; color: var(--muted); border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
 .timeline-list time { color: var(--dim); font-family: ui-monospace, monospace; font-size: 11.5px; flex: none; }
@@ -790,6 +805,8 @@ textarea.plan-edit.seed-edit { width: 100%; background: var(--well); border: 1px
 .modal-list li svg { margin-top: 3px; color: var(--muted); }
 .modal-list li.warn, .modal-list li.warn svg { color: var(--warn); }
 .modal-paths { margin: 4px 0 0; padding: 0 0 0 14px; font-size: 12px; color: var(--warn); word-break: break-all; }
+.modal-tickets { margin-top: 4px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.modal-body p.modal-sub { margin: 14px 0 8px; }
 .back-bar { margin-bottom: 12px; }
 .modal-confirm { display: block; margin-bottom: 8px; color: var(--muted); }
 .modal-confirm b { color: var(--text); }

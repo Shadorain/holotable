@@ -1,6 +1,7 @@
-// Ending an operation from its page. Abort takes two confirmations: a summary of what will be
-// destroyed (from GET /api/abort-preview), then typing the operation id. Close is for a finished
-// operation. Both archive it; the archive keeps a report (Plan → Archive).
+// Ending an operation from its page. Both dialogs start from GET /api/abort-preview. Abort takes two
+// confirmations: a summary of what will be destroyed, then typing the operation id. Close is for a
+// finished operation: one confirmation listing what it closes, removes, keeps and leaves alone.
+// Both archive it; the archive keeps a report (Plan → Archive).
 import { el } from "./components.js";
 import { icon } from "./icons.js";
 import { modalButton, openModal } from "./modal.js";
@@ -8,35 +9,41 @@ import { fetchJson, sectionBox } from "./ui.js";
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** A dialog's icon list; `item` returns the text box so a line can carry a sub-list. */
+function iconList() {
+  const list = el("ul", "modal-list");
+  const item = (iconName, text, cls = "") => {
+    const li = el("li", cls);
+    const textBox = el("div", "");
+    textBox.append(el("span", "", text));
+    li.append(icon(iconName, { size: 14 }), textBox);
+    list.append(li);
+    return textBox;
+  };
+  return { list, item };
+}
+
 export function abortOperation(op, ctx) {
   const modal = openModal({ title: `Abort ${op.name}?`, tone: "danger" });
   modal.step([el("div", "set-note", "Checking what is running…")], [modalButton("Cancel", { onClick: modal.close })]);
 
   let cachedPreview = null;
   function renderPreview(preview) {
-      const list = el("ul", "modal-list");
-      const item = (iconName, text, cls = "") => {
-        const li = el("li", cls);
-        const textBox = el("div", "");
-        textBox.append(el("span", "", text));
-        li.append(icon(iconName, { size: 14 }), textBox);
-        list.append(li);
-        return textBox;
-      };
-      item("circle-x", `Close ${plural(preview.terminals.length, "mission pane")}: running missions stop where they are.`);
-      item("git-branch", `Delete ${plural(preview.worktrees.length, "worktree")}.`);
-      const dirty = preview.worktrees.filter((w) => w.dirty);
-      if (dirty.length) {
-        const warn = item("triangle-alert", `${plural(dirty.length, "worktree has", "worktrees have")} uncommitted changes that will be lost:`, "warn");
-        const paths = el("ul", "modal-paths mono");
-        for (const w of dirty) paths.append(el("li", "", `${w.ticket}  ${w.path}`));
-        warn.append(paths);
-      }
-      item("archive", `Archive the operation (${preview.landed} landed, ${preview.live} started, ${preview.queued} queued). Its report stays under Plan → Archive.`);
-      modal.step([el("p", "", "This cannot be undone."), list], [
-        modalButton("Cancel", { onClick: modal.close }),
-        modalButton("Continue", { kind: "danger", iconName: "octagon-x", onClick: confirmStep }),
-      ]);
+    const { list, item } = iconList();
+    item("circle-x", `Close ${plural(preview.terminals.length, "mission pane")}: running missions stop where they are.`);
+    item("git-branch", `Delete ${plural(preview.worktrees.length, "worktree")}.`);
+    const dirty = preview.worktrees.filter((w) => w.dirty);
+    if (dirty.length) {
+      const warn = item("triangle-alert", `${plural(dirty.length, "worktree has", "worktrees have")} uncommitted changes that will be lost:`, "warn");
+      const paths = el("ul", "modal-paths mono");
+      for (const w of dirty) paths.append(el("li", "", `${w.ticket}  ${w.path}`));
+      warn.append(paths);
+    }
+    item("archive", `Archive the operation (${preview.landed} landed, ${preview.live} started, ${preview.queued} queued). Its report stays under Plan → Archive.`);
+    modal.step([el("p", "", "This cannot be undone."), list], [
+      modalButton("Cancel", { onClick: modal.close }),
+      modalButton("Continue", { kind: "danger", iconName: "octagon-x", onClick: confirmStep }),
+    ]);
   }
   ctx.api(`/api/abort-preview?op=${encodeURIComponent(op.id)}`).then(fetchJson).then(
     (preview) => {
@@ -83,28 +90,58 @@ export function abortOperation(op, ctx) {
   }
 }
 
-export function closeOperation(op, ctx) {
+export function closeOperation(projection, ctx) {
+  const op = projection.operation;
   const modal = openModal({ title: `Close ${op.name}?` });
-  const err = el("div", "set-err");
-  err.hidden = true;
-  const go = modalButton("Close and archive", { kind: "primary", iconName: "flag" });
-  go.addEventListener("click", async () => {
-    go.disabled = true;
-    try {
-      const data = await fetchJson(await ctx.api("/api/close", { method: "POST", body: JSON.stringify({ op: op.id, outcome: "landed" }) }));
-      modal.close();
-      ctx.toast(`${op.name} closed and archived (${data.archived})`, "ok");
-      ctx.ended(op.id, data.archived);
-    } catch (error) {
-      err.hidden = false;
-      err.textContent = error.message;
-      go.disabled = false;
-    }
-  });
-  modal.step(
-    [el("p", "", "Every contact has landed. Closing moves the operation to the archive with a report of what happened; it leaves the operation picker."), err],
-    [modalButton("Cancel", { onClick: modal.close }), go],
+  modal.step([el("div", "set-note", "Checking panes and worktrees…")], [modalButton("Cancel", { onClick: modal.close })]);
+  ctx.api(`/api/abort-preview?op=${encodeURIComponent(op.id)}`).then(fetchJson).then(
+    (preview) => confirmStep(preview),
+    (error) => modal.step([el("div", "set-err", `Cannot check the operation: ${error.message}`)], [modalButton("Close", { onClick: modal.close })]),
   );
+
+  function confirmStep(preview) {
+    const does = iconList();
+    const panes = preview.terminals;
+    if (panes.length) {
+      does.item("circle-x", `Closes ${plural(panes.length, "mission pane")}:`).append(el("div", "modal-tickets mono", panes.join(", ")));
+    } else does.item("circle-x", "No mission panes are open.");
+    const clean = preview.worktrees.filter((w) => !w.dirty);
+    const dirty = preview.worktrees.filter((w) => w.dirty);
+    does.item("git-branch", clean.length ? `Removes ${plural(clean.length, "clean worktree")}.` : "No clean worktrees to remove.");
+    if (dirty.length) {
+      const keep = does.item("triangle-alert", `Keeps ${plural(dirty.length, "worktree")} with uncommitted changes:`, "warn");
+      const paths = el("ul", "modal-paths mono");
+      for (const w of dirty) paths.append(el("li", "", `${w.ticket}  ${w.path}`));
+      keep.append(paths);
+    }
+    does.item("bot", "Turns auto mode and Recovery off.");
+    const closer = projection.contacts.some((c) => c.kind === "closer");
+    does.item("archive", `Moves the operation to the archive with its report${closer ? " and closer review" : ""}. It leaves the picker; there is no reopen.`);
+
+    const leaves = iconList();
+    leaves.item("shield-check", "Git branches, PRs, Linear issues, the base branch and the integration checkout.");
+
+    const err = el("div", "set-err");
+    err.hidden = true;
+    const go = modalButton("Close and archive", { kind: "primary", iconName: "flag" });
+    go.addEventListener("click", async () => {
+      go.disabled = true;
+      try {
+        const data = await fetchJson(await ctx.api("/api/close", { method: "POST", body: JSON.stringify({ op: op.id, outcome: "landed" }) }));
+        modal.close();
+        ctx.toast(`${op.name} closed and archived (${data.archived})`, "ok");
+        ctx.ended(op.id, data.archived);
+      } catch (error) {
+        err.hidden = false;
+        err.textContent = error.message;
+        go.disabled = false;
+      }
+    });
+    modal.step(
+      [el("p", "", "Every contact has landed. Close:"), does.list, el("p", "modal-sub", "Does not touch:"), leaves.list, err],
+      [modalButton("Cancel", { onClick: modal.close }), go],
+    );
+  }
 }
 
 /** The bottom of the Operation page. */
@@ -119,7 +156,7 @@ export function endSection(projection, ctx) {
   close.append(icon("flag", { size: 13 }), document.createTextNode("Close operation"));
   close.disabled = !all;
   close.title = all ? "Archive this finished operation with its report" : "Available once every contact has landed";
-  close.addEventListener("click", () => closeOperation(op, ctx));
+  close.addEventListener("click", () => closeOperation(projection, ctx));
 
   const abort = el("button", "btn danger");
   abort.type = "button";
@@ -144,7 +181,7 @@ export function doneBanner(projection, ctx) {
   btn.type = "button";
   btn.dataset.key = "done-close";
   btn.append(document.createTextNode("Close operation"));
-  btn.addEventListener("click", () => closeOperation(projection.operation, ctx));
+  btn.addEventListener("click", () => closeOperation(projection, ctx));
   box.append(text, btn);
   return box;
 }

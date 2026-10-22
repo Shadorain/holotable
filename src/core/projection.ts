@@ -12,6 +12,7 @@ import type {
   Event,
   HistoryEntry,
   Operation,
+  Owner,
   PolicyInput,
   Projection,
   ProjectionInput,
@@ -20,6 +21,14 @@ import type {
 
 const MAX_LOG = 50;
 const ATTENTION_STATES: ContactState[] = ["hold", "offline", "decision", "review"];
+
+/**
+ * The session the board shows for a contact. The watcher stops pinging once a contact lands or is reaped, so its
+ * last owner would otherwise stay "live" on a finished contact; a closed operation has no sessions at all.
+ */
+export function sessionOwner(owner: Owner, state: ContactState, reaped: boolean, closed: boolean): Owner {
+  return state === "landed" || reaped || closed ? "none" : owner;
+}
 
 /** Ticket of the newest unresolved conflict contact targeting `ticket`; a reaped (abandoned) one is not open. */
 export function conflictOpenFor(
@@ -383,7 +392,7 @@ function contactView(
     tracker: d.lastSample?.tracker ?? null,
     delivery: probe ?? d.lastSample?.delivery ?? null,
     workers: status?.workers ?? null,
-    owner,
+    owner: sessionOwner(owner, state, d.reaped, derived.closed),
     mode: status?.mode ?? null,
     usage: d.lastSample?.usage ? { tokens: d.lastSample.usage.tokens, costUsd: d.lastSample.usage.costUsd, sessions: status?.usage?.sessions ?? 0 } : (status?.usage ?? null),
     origin: originOf(input.events, contact.ticket),
