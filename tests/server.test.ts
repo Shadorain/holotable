@@ -394,6 +394,31 @@ test("archive routes: list newest first, report with history, traversal and unkn
   expect((await api("/api/archive/report")).status).toBe(400);
 });
 
+test("a closed operation's archive report carries its closer review with coverage; Markdown only when there is no JSON", async () => {
+  const { home, api } = await boot();
+  await api("/api/contacts", { method: "POST", body: { op: "lab", kind: "closer" } });
+  for (const ticket of ["a", "b"]) await appendEvent(home, "lab", { v: 1, at: "2026-01-01T00:01:00.000Z", kind: "landed", contact: ticket, via: "pr" });
+  const dir = join(operationDir(home, "lab"), "closer");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "CLOSER.json"), JSON.stringify({ v: 1, summary: "All good.", verification: [{ command: "bun test", outcome: "passed" }], tickets: [{ ticket: "a", verdict: "fixed" }], fixes: [{ title: "One helper", commit: "3f2c1ab" }] }));
+  writeFileSync(join(dir, "CLOSER.md"), "## Checked\n\nEverything.");
+  const key = await endOperation({ home, now: () => new Date("2026-01-04T00:00:00Z"), settings: async () => DEFAULT_SETTINGS, portsFor: () => fakePorts().ports, run: noRun }, "lab", "abandoned");
+
+  type Detail = { closer: { ticket: string; review: { summary: string } | null; report: string | null; reviewError: string | null; coverage: { tickets: Array<{ ticket: string; verdict: string }>; checked: number; total: number } | null } | null };
+  const closed = (await (await api(`/api/archive/report?key=${key}`)).json()) as Detail;
+  expect(closed.closer).toMatchObject({ ticket: "CLOSER", review: { summary: "All good." }, report: "## Checked\n\nEverything.", reviewError: null });
+  expect(closed.closer?.coverage?.tickets.map((t) => [t.ticket, t.verdict])).toEqual([["a", "fixed"], ["b", "not-reported"]]);
+
+  // An older closer wrote only Markdown: the archive serves it with no review or coverage.
+  await createOperation(home, operation({ id: "old", name: "Old", contacts: [contact("x"), contact("CLOSER", { kind: "closer" })] }));
+  mkdirSync(join(operationDir(home, "old"), "closer"), { recursive: true });
+  writeFileSync(join(operationDir(home, "old"), "closer", "CLOSER.md"), "## Fixed\n\n- Nothing.");
+  await appendEvent(home, "old", { v: 1, at: "2026-01-02T00:00:00.000Z", kind: "closed", outcome: "failed" });
+  const oldKey = await archiveOperation(home, "old", new Date("2026-01-03T00:00:00Z"));
+  const old = (await (await api(`/api/archive/report?key=${oldKey}`)).json()) as Detail;
+  expect(old.closer).toEqual({ ticket: "CLOSER", review: null, report: "## Fixed\n\n- Nothing.", reviewError: null, coverage: null });
+});
+
 test("abort: wrong confirm is a 400, right confirm runs the end hook and returns the archive key", async () => {
   const { api } = await boot({
     end: {

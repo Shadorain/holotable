@@ -190,7 +190,7 @@ The page has four views: three over one projection, and Intel. Each shows only w
 - **Plan** (`3`): compact dependency cards with state, ticket, a short title and a blocker cue, arranged by zone. Arrows show what waits on what (green once landed, red dashed for conflicts). Click to trace a chain and filter its history; double-click to open the full card. Its description is shown directly below the title, with no expand/collapse control.
 - **Intel** (`4`): on-demand evidence for the operation in the picker (or an archived one), or the whole fleet; see [Holotable Intel](#holotable-intel). Its code loads on the first visit, and it fetches evidence only when opened, switched or refreshed. Evidence continues to be collected whether Intel is open or not; the execution views stay focused on running work.
 
-The card has three tabs (`[` and `]` switch): **Overview** (progress, what happens next, actions, what it waits for and unblocks, conflict links), **Details** (origin, kind, tracker, delivery, workers, branch, worktree, terminal) and **History** (every event for this contact, with who caused it).
+The card has three tabs (`[` and `]` switch): **Overview** (actions first, directly under the tabs, then progress, what happens next, the mission or closer report, what it waits for and unblocks, conflict links), **Details** (origin, kind, tracker, delivery, workers, branch, worktree, terminal) and **History** (every event for this contact, with who caused it). Land, Approve and the rest never sink below a long report.
 
 On the Operation page, zone pills filter the contacts table; click again or **All** to clear.
 Filters survive polls per operation, and contact kinds use themed colored pills.
@@ -324,7 +324,7 @@ Keys (`?` or Settings → Help shows them): WASD/HJKL/arrows move, Enter acts, `
 
 ### Operation page (Plan → Operation)
 
-The operation as a document: brief (edit in place), notes, the auto-mode card (launch, land, max live, and the opt-in decide and approve-plans switches), setup (project and name; for a project's operation the rest folds behind a summary of overrides, each inherited field tagged "from project" and each override offering "use project value"; a standalone operation shows them all), zones (just a name; the id is derived) and contacts (Add contact, here or on the Board and the Plan map), the closer (its state, or **Add closer** when the operation has none), the seed it was created from (formatted, downloadable), and at the bottom **End the operation**: Close (once everything has landed) or Abort. Abort opens a dialog listing the panes it will close, the worktrees it will delete (dirty ones called out with their paths), then asks you to type the operation id.
+The operation as a document: once its closer has landed, the [closer review](#closer-review) heads the page; then brief (edit in place), notes, the auto-mode card (launch, land, max live, and the opt-in decide and approve-plans switches), setup (project and name; for a project's operation the rest folds behind a summary of overrides, each inherited field tagged "from project" and each override offering "use project value"; a standalone operation shows them all), zones (just a name; the id is derived) and contacts (Add contact, here or on the Board and the Plan map), the closer (its state, or **Add closer** when the operation has none), the seed it was created from (formatted, downloadable), and at the bottom **End the operation**: Close (once everything has landed) or Abort. Close opens the operation's archive report. Abort opens a dialog listing the panes it will close, the worktrees it will delete (dirty ones called out with their paths), then asks you to type the operation id.
 
 ### Getting started and the tour
 
@@ -352,7 +352,7 @@ and undecided decisions keep dependent contacts blocked.
 
 ### Archive
 
-Picker → Archive. Closed and aborted operations, kept out of the picker: a list with outcome, close date and landed count, and a read-only report per operation (summary counts, brief, every contact's result with issue and PR links, and the full history).
+Picker → Archive. Closed and aborted operations, kept out of the picker: a list with outcome, close date and landed count, and a read-only report per operation led by its [closer review](#closer-review) when it had a closer, then summary counts, brief, every contact's result with issue and PR links, and the full history. Closing an operation from the page lands you on its report.
 
 ### Plan review (in the contact card)
 
@@ -391,7 +391,7 @@ Watcher passes never overlap. OMP's passive 10-second refresh reads the service 
 
 While the service runs, an `fs.watch` over the mission status directories wakes the watcher within about a second of any status write; the `pollMs` pass is the floor underneath it. Each pass reads each launched contact's mission status file, pings the owning session's control socket, and records changes as events (`phase`, `gate-armed`, `socket-up`, `socket-down`). Every `sampleMs` it samples the tracker and the delivery PR and appends a `sample` only when a field changed. It is read-only. Port failures are warned once per distinct message and never stop the loop.
 
-**Mission reports.** Once a mission has delivery or verification evidence its status carries a `report` ([contract](docs/contract.md#mission-report-v1)): the delivery summary, verification outcome, work items done and open, review numbers (rounds, findings, repaired, rejected, deferred, escalated), follow-ups and the PR link. The card's **Overview** shows it as **Report** for complete and landed contacts of every kind, and as **Report · in progress** while a mission that already has one runs. Each pass saves a changed report to `reports/<ticket>.json`, so a landed contact whose pane was reaped still shows it.
+**Mission reports.** Once a mission has delivery or verification evidence its status carries a `report` ([contract](docs/contract.md#mission-report-v1)): the delivery summary, verification outcome, work items done and open, review numbers (rounds, findings, repaired, rejected, deferred, escalated), follow-ups and the PR link. The card's **Overview** shows it, below the actions, as **Report** for complete and landed contacts of every kind, and as **Report · in progress** while a mission that already has one runs. Each pass saves a changed report to `reports/<ticket>.json`, so a landed contact whose pane was reaped still shows it.
 
 Wakeups coalesce into one pending pass and never multiply fallback timers. Continuous writes cannot postpone updates indefinitely. Unrelated agent files do not wake the board; directory watches are reconciled after topology changes and periodically rearmed after replacement. The stream uses the same header token as the rest of the API, not a URL query. Hidden tabs close it; reconnect and updates received during a slow refresh trigger a catch-up refresh. Slow stream readers receive coalesced notifications rather than an unbounded write queue.
 
@@ -490,7 +490,7 @@ A `closer` is an operation's last contact: once every other contact has landed, 
 
 **How it runs.** A freeform `/mission -- Closer review of operation <name>` with the brief as additional instructions, in a `closer-<token>` worktree on the bead graph. Its delivery is always local: omp-mission's PR delivery needs a real PR URL, which a closer with nothing to fix cannot have. The brief lists every landed ticket and asks for a JSON report at `closer/<ticket>.json` in the operation's directory ([format](docs/contract.md#closer-report-v1)): a summary, the verification commands it ran with their outcomes, one verdict per ticket (`ok`, `fixed`, `follow-up` or `not-checked`, each with an optional note), its fixes and its follow-ups. A Markdown copy at `closer/<ticket>.md` is optional.
 
-**What the card shows.** Once it has run, the closer's **Overview** leads with coverage (`42/45 tickets checked, 3 fixed, 2 follow-ups`), then one chip per landed ticket coloured by verdict; a ticket the report left out reads **not reported**. Hover or click a chip for its note. Below come the verification commands with outcomes, fixes (files and tickets) and follow-ups (severity and tickets). A report that is not valid JSON or not v1 says so on the card. An older closer's Markdown report still renders when there is no JSON.
+**What the card shows.** Once it has run, the closer's **Overview** (below its actions) leads with a headline banner: the verification result (`All verification passed (3)`, `Verification passed, 1 not run`, `2 verification commands failed`), coverage (`42/45 tickets checked`, with how many the report left out), fixes and follow-ups by severity; red when a command failed or a ticket went unreported, amber when something was not run, not checked or a high follow-up is open. Then the summary, one chip per landed ticket coloured by verdict (a ticket the report left out reads **not reported**; click a chip for its note and a link to its card), verification as a checklist, fixes (title, files as path chips, short commit, tickets) and follow-ups grouped by severity, high first. Ticket chips open that contact's card. A report that is not valid JSON or not v1 says so on the card. An older closer's Markdown report still shows when there is no JSON, formatted by convention: Checked/Verification/Gates, Fixed, Follow-ups, Findings and Summary sections (numbered or not) as panels; `PASS`, `FAILED`, `NOT RUN`, `OK`, checkboxes and check/cross/warning marks as coloured badges; `critical`/`high`/`medium`/`low` labels (`[high]`, `High:`, capitals) and `P0`–`P3` as severity badges; `path/to/file.rs:123` and backticked paths as code chips; commit shas as short chips; the operation's tickets as links; tables styled; fenced output past 12 lines folded. The same review heads the Operation page once the closer lands and the [archive](#archive) report once the operation is closed.
 
 **Finishing.** Like an audit: with no changes, **Mark done** checks its branch is already in the base and records it landed; with commits and no PR, Mark done opens one (`pr-opened`) and Land takes it through the usual checks and conflict handling; on `local-merge` its branch lands like any other. Auto mode launches it when it turns ready and lands or marks it done like other work, under every existing gate. The operation is finished (auto mode switching itself off, the done banner, **Close**) only once the closer has landed too.
 
@@ -539,7 +539,7 @@ Everything recovery does is an `operator` event with `by: "recover"`; history cr
 
 Two ways, one path. **Close** (the End card on the Operation page, or `/holotable close`) is for a finished operation; outcome `landed` is refused while any contact is unlanded. **Abort** asks for a preview — the terminals it will close and the worktrees it will delete, each flagged dirty when `git status --porcelain` is non-empty — and then requires you to type the operation id. Both run the same wind-down: auto mode is switched off first, then every contact's recorded terminal is closed (a terminal already gone counts as reaped) and every non-external worktree is removed — on abort even with uncommitted changes. A failure is recorded as an `operator` event and never stops the wind-down.
 
-The archive keeps everything the operation had — `operation.json`, `events.jsonl`, `brief.md`, `seed.json` — plus `report.json`: outcome, per-contact final states (`landed`, `aborted`, `not-launched`) with where each landing went (`landedVia`, tracker and PR URLs), counts (contacts, landed, conflicts, launches, land attempts), the full stats, the note task tally and the notes, and the first 2000 characters of the brief. Archives are browsable from the picker's Archive link; an archive written before reports existed still shows one, rebuilt on read.
+The archive keeps everything the operation had — `operation.json`, `events.jsonl`, `brief.md`, `seed.json`, the closer's `closer/` files and the saved `reports/` — plus `report.json`: outcome, per-contact final states (`landed`, `aborted`, `not-launched`) with where each landing went (`landedVia`, tracker and PR URLs), counts (contacts, landed, conflicts, launches, land attempts), the full stats, the note task tally and the notes, and the first 2000 characters of the brief. Archives are browsable from the picker's Archive link; an archive written before reports existed still shows one, rebuilt on read.
 
 ## Holotable Intel
 
@@ -600,6 +600,8 @@ Simulated decision panes write their answer about five seconds after opening (th
 
 Simulated missions publish a status report from review on (marked in progress) and a complete one with summary and PR link once delivered. `CHR-153` in `charidel` and `notes` in `lab` landed before the board started, so their cards show only the saved report.
 
+Two operations are closed through the real end path before the board starts, so Picker → Archive shows a closer review both ways: `relay` with a JSON review (a not-run e2e, a fix, high/medium/low follow-ups) and `ledger` with only a Markdown report written the way older closers did (gate table, seam checks, fixes with commits, numbered follow-ups, verbatim gate output).
+
 ## Safety model
 
 - The board launches and watches missions; it never runs them. This process never attaches a mission and never calls `control()`. Every mutation is an operator click, forwarded to the owning session's control socket, which runs the same code the slash command runs.
@@ -620,14 +622,14 @@ Per operation under `$OMP_HOLOTABLE_HOME/operations/<id>/`:
 - `events.jsonl`: append-only history. Everything shown (state, stats) is rebuilt from it.
 - `brief.md`: free-text brief, edited on the Operation page; `notes.md`: the scratch pad; `seed.json`: the raw seed the operation was created from.
 - `decisions/<ticket>.sessions/`: the decision pane's omp transcripts (`--session-dir`), rescanned each watcher pass into `pane-usage` spend deltas attributed to the ticket's `decision` phase.
-- `closer/<ticket>.json`: the closer mission's review (verdict per ticket, verification, fixes, follow-ups), shown on its card; `closer/<ticket>.md`: its optional Markdown copy, shown when there is no JSON.
+- `closer/<ticket>.json`: the closer mission's review (verdict per ticket, verification, fixes, follow-ups), shown on its card, on the Operation page once it lands and on the archive report; `closer/<ticket>.md`: its optional Markdown copy, shown when there is no JSON.
 - `reports/<ticket>.json`: each contact's latest mission report, saved from its status so the card keeps it after the contact lands.
 
 `drafts/<id>/` holds agent drafts until the form closes them; `drafts/<id>/sessions/` pins the draft pane's transcripts. Closing persists aggregate spend to `drafts/usage.jsonl` before deletion; a failed ledger write retains the transcripts for retry. Per-draft high-water marks prevent retry double-counting. Truncated or malformed evidence is marked partial.
 
 At the home root, `board.json` (`{pid, url}`) records the running service for clients and `token` keeps the service's auth token across restarts so URLs stay valid.
 
-Ending an operation moves its directory to `archive/<id>-<timestamp>` and adds `report.json` (outcome, per-contact final states, counts, stats, brief). History is kept.
+Ending an operation moves its directory, `closer/` and `reports/` included, to `archive/<id>-<timestamp>` and adds `report.json` (outcome, per-contact final states, counts, stats, brief). History is kept.
 
 ## Documentation
 

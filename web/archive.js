@@ -1,5 +1,6 @@
 // Plan → Archive: operations that were closed or aborted, out of the way of the open ones.
-// The list comes from GET /api/archive; a report (GET /api/archive/report) is read-only.
+// The list comes from GET /api/archive; a report (GET /api/archive/report) is read-only and leads with the closer's review.
+import { closerOverview } from "./closer.js";
 import { icon } from "./icons.js";
 import { renderMarkdown } from "./markdown.js";
 import { clock, el, fmtMs, safeLink } from "./ui.js";
@@ -68,7 +69,7 @@ function reportView(root, entry, ctx) {
     root.append(el("div", "set-err big", entry.error));
     return;
   }
-  const { report, history } = entry;
+  const { report, history, closer } = entry;
   const head = el("div", "opdoc-head");
   head.append(el("h1", "opdoc-title", report.name), el("span", "mono opdoc-id", report.id), outcomePill(report.outcome));
   root.append(head);
@@ -79,6 +80,10 @@ function reportView(root, entry, ctx) {
       `${day(report.createdAt)} → ${day(report.closedAt)} · ${fmtMs(report.durationMs)} · ${report.repo} on ${report.base}`,
     ),
   );
+  // Its contacts are off the Board now: ticket chips name them without opening anything.
+  const tickets = new Set(report.contacts.filter((c) => c.kind !== "closer").map((c) => c.ticket));
+  const review = closerOverview(closer, { tickets, linkable: false });
+  if (review) root.append(review);
 
   const sum = el("section", "opdoc-sec");
   sum.append(el("div", "group-head", "Summary"));

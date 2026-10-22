@@ -2,21 +2,26 @@ import { closerBrief, closerCoverage, closerTickets } from "../core/closer.ts";
 import { evaluateOperation } from "../core/evaluation.ts";
 import { foldEvents } from "../core/fold.ts";
 import type { CloserCoverage, CloserReview, Contact, Event, Operation } from "../core/types.ts";
+import type { ArchiveEntry } from "../store/archive.ts";
 import { readBrief } from "../store/brief.ts";
-import { closerReportPath, closerReviewPath, readCloserReport, readCloserReview } from "../store/closer.ts";
+import { closerReportPath, closerReviewPath, readCloserFiles, type CloserFiles } from "../store/closer.ts";
 import { readEvents } from "../store/events.ts";
 import { readNotes } from "../store/notes.ts";
 
-export interface CloserView {
+/** What the closer reported, open or archived. */
+export interface CloserReportView {
   ticket: string;
-  brief: string;
-  /** The Markdown copy; the card renders it only when there is no JSON review. */
+  /** The Markdown copy; shown only when there is no JSON review. */
   report: string | null;
   review: CloserReview | null;
   /** Why closer/<ticket>.json, though written, could not be read as a review. */
   reviewError: string | null;
   /** Every landed ticket against the review's verdicts; null until a review exists. */
   coverage: CloserCoverage | null;
+}
+
+export interface CloserView extends CloserReportView {
+  brief: string;
 }
 
 async function briefFrom(home: string, operation: Operation, closer: Contact, events: Event[], now: number): Promise<string> {
@@ -34,6 +39,11 @@ async function briefFrom(home: string, operation: Operation, closer: Contact, ev
   });
 }
 
+function reportView(operation: Operation, closer: Contact, events: Event[], files: CloserFiles): CloserReportView {
+  const coverage = files.review ? closerCoverage(closerTickets(operation, foldEvents(events), closer.ticket), files.review) : null;
+  return { ticket: closer.ticket, report: files.report, review: files.review, reviewError: files.error, coverage };
+}
+
 /** The closer's review brief from what the board holds now: brief, notes, events and Intel's advice. */
 export async function closerBriefFor(home: string, operation: Operation, closer: Contact, now: number): Promise<string> {
   return briefFrom(home, operation, closer, await readEvents(home, operation.id), now);
@@ -42,11 +52,12 @@ export async function closerBriefFor(home: string, operation: Operation, closer:
 /** What the closer's card shows: its brief as it would launch now, its report, and ticket coverage. */
 export async function closerView(home: string, operation: Operation, closer: Contact, now: number): Promise<CloserView> {
   const events = await readEvents(home, operation.id);
-  const [brief, report, { review, error }] = await Promise.all([
-    briefFrom(home, operation, closer, events, now),
-    readCloserReport(home, operation.id, closer.ticket),
-    readCloserReview(home, operation.id, closer.ticket),
-  ]);
-  const coverage = review ? closerCoverage(closerTickets(operation, foldEvents(events), closer.ticket), review) : null;
-  return { ticket: closer.ticket, brief, report, review, reviewError: error, coverage };
+  const [brief, files] = await Promise.all([briefFrom(home, operation, closer, events, now), readCloserFiles(home, operation.id, closer.ticket)]);
+  return { ...reportView(operation, closer, events, files), brief };
+}
+
+/** A closed operation's closer report with coverage, from its archive; null when it had no closer. */
+export function archivedCloserView(entry: ArchiveEntry): CloserReportView | null {
+  if (!entry.operation || !entry.closer) return null;
+  return reportView(entry.operation, entry.closer.contact, entry.events, entry.closer.files);
 }

@@ -19,7 +19,7 @@ import {
 import { addContact as addContactStore, type NewContact } from "./contacts.ts";
 import { history } from "./core/projection.ts";
 import { closerOf } from "./core/closer.ts";
-import { closerView, type CloserView } from "./runtime/closer.ts";
+import { archivedCloserView, closerView, type CloserReportView, type CloserView } from "./runtime/closer.ts";
 import { readContactReport } from "./store/reports.ts";
 import type { UsageReport } from "./core/usage.ts";
 import { foldEvents } from "./core/fold.ts";
@@ -192,8 +192,8 @@ export interface BoardService {
   };
   /** Archived operations, newest close first. */
   archive(): Promise<ArchiveSummary[]>;
-  /** One archived operation's report plus its full history; 404 on an unknown key. */
-  archiveReport(key: string): Promise<{ report: OperationReport; history: HistoryEntry[] }>;
+  /** One archived operation's report, its full history and its closer's review (null without a closer); 404 on an unknown key. */
+  archiveReport(key: string): Promise<{ report: OperationReport; history: HistoryEntry[]; closer: CloserReportView | null }>;
   /** Projects on disk (id/name/repo/base plus their open operations). */
   projects(): Promise<ProjectRow[]>;
   /** The project page's config view: fields/options/workspace. */
@@ -608,7 +608,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       const entry = await readArchive(home, key, new Date(now()));
       if (!entry) throw new HttpError(404, `No archive "${key}"`);
       const { evaluation: _evaluation, ...report } = entry.report;
-      return { report, history: history(entry.events).reverse() };
+      return { report, history: history(entry.events).reverse(), closer: archivedCloserView(entry) };
     },
     async projects() {
       const [projects, ops] = await Promise.all([listProjects(home), listOperations(home)]);

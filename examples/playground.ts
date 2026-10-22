@@ -13,10 +13,12 @@ import { DEFAULT_SETTINGS, settingsFile } from "../src/settings.ts";
 import { readSettings } from "../src/store/settings.ts";
 import { createFromSpec } from "../src/commands.ts";
 import { addContact } from "../src/contacts.ts";
-import { closerReportPath, closerReviewPath } from "../src/store/closer.ts";
+import { closerReportPath, closerReviewPath, ensureCloserReportDir } from "../src/store/closer.ts";
 import { saveContactReport } from "../src/store/reports.ts";
 import { appendEvent, readEvents } from "../src/store/events.ts";
 import { mutateOperation, readOperation } from "../src/store/operations.ts";
+import { endOperation } from "../src/runtime/end.ts";
+import type { WinddownDeps } from "../src/runtime/winddown.ts";
 import { seedDemo } from "./demo.ts";
 import { startBoard } from "../src/service.ts";
 
@@ -107,6 +109,110 @@ function simReport(ticket: string, at: string, complete: boolean, prUrl: string 
     followUps: followUps ? [{ title: "Old callers still use the v1 shape (src/legacy.ts:40)", severity: "medium", source: "deferred" }] : [],
     delivery: { outcome: complete ? "delivered" : null, url: prUrl },
   };
+}
+
+// Two operations closed before the board starts, so the Archive shows a closer review both ways.
+const RELAY_REVIEW: CloserReview = {
+  v: 1,
+  summary: "The cutover holds on the integrated base. REL-2 and REL-3 each kept a copy of the frame parser; `src/relay/frame.ts` now has the only one. The replay window in REL-3 is still unbounded.",
+  verification: [
+    { command: "bun test", outcome: "passed", note: "318 tests" },
+    { command: "bun run typecheck", outcome: "passed" },
+    { command: "bun run e2e", outcome: "not-run", note: "needs the staging broker" },
+  ],
+  tickets: [
+    { ticket: "REL-1", verdict: "ok", note: "Socket handshake read with its callers; nothing to change." },
+    { ticket: "REL-2", verdict: "fixed", note: "Duplicate frame parser removed." },
+    { ticket: "REL-3", verdict: "follow-up", note: "Replay buffer has no upper bound (src/relay/replay.ts:88)." },
+    { ticket: "REL-4", verdict: "ok" },
+  ],
+  fixes: [{ title: "Kept one frame parser", files: ["src/relay/frame.ts", "src/relay/replay.ts:12"], tickets: ["REL-2", "REL-3"], commit: "9c4e2d17ab03" }],
+  followUps: [
+    { title: "Bound the replay buffer", detail: "src/relay/replay.ts:88 grows with every reconnect.", tickets: ["REL-3"], severity: "high" },
+    { title: "Run e2e against the staging broker", tickets: ["REL-1", "REL-4"], severity: "medium" },
+    { title: "Rename relay.timeoutMs to relay.idleMs in docs/relay.md", severity: "low" },
+  ],
+};
+const LEDGER_REPORT = `# CLOSER: ledger (bd-led.4)
+
+Tree: branch \`holotable/closer-led\`, HEAD \`4be91c0\` (== \`main\`). Written before the JSON report existed.
+
+## Checked
+
+### Gates (exact commands, exit results)
+
+| # | Command | Result |
+|---|---------|--------|
+| 1 | \`make verify\` | **PASS**, exit 0 (~210 s): fmt, clippy, \`cargo test --workspace\` |
+| 2 | \`make verify-web\` | **PASS**, exit 0 |
+| 3a | \`make db\` | **FAILED, environment**: \`docker: No such file or directory\` (\`Makefile:25\`) |
+| 3b | \`make verify-e2e\` | **NOT RUN** (needs the Postgres from 3a) |
+
+### Seam checks
+
+- LED-7: \`ledger/src/post.rs:41-88\` posts both legs in one transaction ✅
+- LED-9: idempotency key checked at \`http/src/routes/ledger.rs:132\`: OK
+- bd-led.2 left \`#[allow(dead_code)]\` at \`ledger/src/fx.rs:19\` ⚠️ (removed, see Fixed)
+
+## Fixed
+
+- bd-led.2: dropped the dead \`fx_round\` helper in ledger/src/fx.rs:19 (commit 7d3a9f0).
+- LED-9: \`http/src/routes/ledger.rs:140\` returns 409 on a replayed key instead of 500 (commit 2c81e6b).
+
+## Follow-ups
+
+1. **High:** live e2e NOT RUN. Needs Docker or a Postgres 16 on :5432; re-run \`make db && make verify-e2e\` before release.
+2. [medium] Currency rounding differs between \`ledger/src/fx.rs\` and \`web/src/money.ts:14\`.
+3. P3: \`docs/ledger.md\` still names the v1 posting API.
+
+## Gate results (verbatim)
+
+\`\`\`
+make verify       -> exit 0  "ledger verification passed"
+  fmt             ok
+  clippy          ok (0 warnings)
+  test ledger     212 passed
+  test http       141 passed
+  test fx         38 passed
+  check-arch      ok
+  deny            ok
+make verify-web   -> exit 0  "web verification passed"
+  biome           ok
+  vitest          96 passed
+  build           ok
+make db           -> exit 2  "make: docker: No such file or directory" (Error 127)
+make verify-e2e   -> NOT RUN (no Postgres/Docker)
+\`\`\`
+`;
+
+/** Seed a finished operation whose closer wrote `files`, land everything and close it through the real end path. */
+async function seedClosed(
+  home: string,
+  deps: WinddownDeps,
+  spec: { id: string; name: string; brief: string; contacts: Array<{ ticket: string; title: string }>; files: { json?: CloserReview; markdown?: string } },
+): Promise<void> {
+  const repo = join(home, "repos", spec.id);
+  mkdirSync(repo, { recursive: true });
+  const days = (n: number) => new Date(Date.now() - n * 86_400_000);
+  await createFromSpec(home, days(4), {
+    id: spec.id,
+    repo,
+    base: "main",
+    name: spec.name,
+    tracker: "none",
+    fleet: "none",
+    frontend: "none",
+    delivery: "none",
+    closer: true,
+    seed: JSON.stringify({ brief: spec.brief, zones: [{ id: "work", label: "WORK" }], contacts: spec.contacts.map((c) => ({ ...c, zone: "work", kind: "implement" })) }),
+  });
+  const operation = await readOperation(home, spec.id);
+  for (const [i, c] of operation.contacts.entries()) await appendEvent(home, spec.id, { v: 1, at: days(3 - i * 0.4).toISOString(), kind: "landed", contact: c.ticket, via: "merge" });
+  const closer = operation.contacts.find((c) => c.kind === "closer")!;
+  await ensureCloserReportDir(home, spec.id);
+  if (spec.files.json) writeFileSync(closerReviewPath(home, spec.id, closer.ticket), `${JSON.stringify(spec.files.json, null, 2)}\n`);
+  if (spec.files.markdown) writeFileSync(closerReportPath(home, spec.id, closer.ticket), spec.files.markdown);
+  await endOperation({ ...deps, now: () => days(1) }, spec.id, "landed");
 }
 
 interface SimMission {
@@ -729,7 +835,33 @@ async function main(): Promise<void> {
   const bind = { access, port: Number(arg("port", "4747")) };
   const settings = async (): Promise<Settings> =>
     existsSync(settingsFile(home)) ? { ...(await readSettings(home)), ...bind } : { ...DEFAULT_SETTINGS, ...bind, cap: 8, pollMs: 2_000, sampleMs: 2_000 };
-  const board = await startBoard({ home, settings, portsFor: (op) => ({ ...ports, tracker: trackerFor(op.tracker) }), run });
+  const portsFor = (op: Operation) => ({ ...ports, tracker: trackerFor(op.tracker) });
+  // Closed through the real end path, so their archive reports lead with the closer's review: JSON for `relay`, Markdown only for `ledger`.
+  const endDeps: WinddownDeps = { home, now: () => new Date(), settings, portsFor, run };
+  await seedClosed(home, endDeps, {
+    id: "relay",
+    name: "Relay cutover",
+    brief: "# Relay cutover\n\nMove every client to the framed relay protocol.",
+    contacts: [
+      { ticket: "REL-1", title: "Socket handshake" },
+      { ticket: "REL-2", title: "Frame parser" },
+      { ticket: "REL-3", title: "Replay on reconnect" },
+      { ticket: "REL-4", title: "Client migration" },
+    ],
+    files: { json: RELAY_REVIEW },
+  });
+  await seedClosed(home, endDeps, {
+    id: "ledger",
+    name: "Ledger audit",
+    brief: "# Ledger audit\n\nDouble-entry posting and idempotent ledger routes.",
+    contacts: [
+      { ticket: "LED-7", title: "Two-leg posting" },
+      { ticket: "LED-8", title: "FX rounding" },
+      { ticket: "LED-9", title: "Idempotency keys" },
+    ],
+    files: { markdown: LEDGER_REPORT },
+  });
+  const board = await startBoard({ home, settings, portsFor, run });
 
   // Created after the start-up migration (which groups the seeded repos into projects):
   // the board always has one standalone, project-less operation to show.

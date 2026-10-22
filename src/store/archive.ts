@@ -1,11 +1,13 @@
 import { parseEvaluation } from "../core/evaluation.ts";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { closerOf } from "../core/closer.ts";
 import { isReport, buildReport, type OperationReport } from "../core/report.ts";
-import type { Event, Operation } from "../core/types.ts";
+import type { Contact, Event, Operation } from "../core/types.ts";
 import { validateOperationDoc } from "../core/validate-operation.ts";
 import { archiveDir, operationDir } from "../paths.ts";
 import { writeFileAtomic } from "./atomic.ts";
+import { readCloserFilesAt, type CloserFiles } from "./closer.ts";
 import { parseEvents } from "./events.ts";
 
 export interface ArchiveReport {
@@ -14,6 +16,10 @@ export interface ArchiveReport {
 }
 export interface ArchiveEntry extends ArchiveReport {
   events: Event[];
+  /** operation.json as archived; null when it cannot be read. */
+  operation: Operation | null;
+  /** The operation's closer and what it wrote under closer/, which archiving moved along; null without a closer. */
+  closer: { contact: Contact; files: CloserFiles } | null;
 }
 
 async function readArchiveOperation(path: string): Promise<Operation> {
@@ -119,8 +125,14 @@ export async function readArchiveReport(home: string, key: string, now: Date): P
 export async function readArchive(home: string, key: string, now: Date): Promise<ArchiveEntry | null> {
   const entry = await readArchiveReport(home, key, now);
   if (!entry) return null;
-  const events = await readArchiveEvents(join(archiveDir(home), key)).catch(() => [] as Event[]);
-  return { ...entry, events };
+  const path = join(archiveDir(home), key);
+  const [events, operation] = await Promise.all([
+    readArchiveEvents(path).catch(() => [] as Event[]),
+    readArchiveOperation(path).catch(() => null),
+  ]);
+  const contact = operation ? closerOf(operation) : undefined;
+  const closer = contact ? { contact, files: await readCloserFilesAt(path, contact.ticket) } : null;
+  return { ...entry, events, operation, closer };
 }
 
 /** report.json next to the still-open operation's files; archiveOperation then moves them together. */

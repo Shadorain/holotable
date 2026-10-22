@@ -564,6 +564,9 @@ function renderOpPage(p, ctx, busy) {
   const doc = state.opDoc;
   if (!doc) loadOpDoc().then(render);
   ensureProjects();
+  // A landed closer's review heads the page, as it will the archive report once the operation is closed.
+  const landedCloser = p.contacts.find((c) => c.kind === "closer" && c.state === "landed");
+  const closer = landedCloser ? closerFor(p, landedCloser) : null;
   const docKey = {
     projects: state.projects,
     op: p.operation.id,
@@ -575,6 +578,7 @@ function renderOpPage(p, ctx, busy) {
     notes: p.notes,
     notesKey: notesKey(p.operation.id),
     busy,
+    closer,
   };
   region($("opPage"), docKey, (root) =>
     renderOperation(root, p, doc, {
@@ -586,6 +590,7 @@ function renderOpPage(p, ctx, busy) {
       openProject,
       ended: opEnded,
       ticketUrl: lookupTicketUrl,
+      closer,
     }));
 }
 
@@ -1145,11 +1150,15 @@ $("intelLink").addEventListener("click", () => {
   setView("intel");
 });
 
-/** After close/abort the operation left the picker; poll() falls back to the first open one. */
-function opEnded() {
+/** After close/abort the operation left the picker; poll() falls back to the first open one. A close opens its archive report. */
+function opEnded(_id, archived = null) {
   state.opDoc = null;
   state.archive = null;
   if (state.view === "plan") storePlanView("map");
+  if (archived) {
+    setView("archive");
+    void openArchive(archived);
+  }
   poll();
 }
 
@@ -1218,9 +1227,12 @@ document.addEventListener("click", (event) => {
   // Selection rebuilds the map before the browser can dispatch dblclick to its old target.
   const openCard = event.detail === 2 && Boolean(pick.closest("#planMap"));
   const fromList = Boolean(pick.closest("#list"));
+  // A ticket named on the Operation page (the closer review) opens its card on the Board.
+  const fromOpPage = Boolean(pick.closest("#opPage"));
+  if (fromOpPage) setView("board");
   select(pick.dataset.id);
   if (openCard) setView("board");
-  if (openCard || fromList) showBoardTab("card");
+  if (openCard || fromList || fromOpPage) showBoardTab("card");
 });
 
 const VIEW_KEYS = { t: "table", 1: "table", b: "board", 2: "board", p: "plan", 3: "plan", i: "intel", 4: "intel" };

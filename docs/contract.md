@@ -195,7 +195,7 @@ interface CloserReview {
 }
 ```
 
-A model writes it, so the reader is lenient: a file that is not an object with `v: 1` and a string `summary` (or not JSON, or over 64 KiB) is reported on the card as unreadable; a missing list reads as empty; an entry without its required fields or with an unknown `outcome`/`verdict` is dropped; a malformed optional field is left out. The first verdict for a ticket counts. A landed implement or audit contact with no verdict is `not reported`; verdicts for other tickets are ignored. Older closers wrote only `<ticket>.md`, which still renders when there is no JSON.
+A model writes it, so the reader is lenient: a file that is not an object with `v: 1` and a string `summary` (or not JSON, or over 64 KiB) is reported on the card as unreadable; a missing list reads as empty; an entry without its required fields or with an unknown `outcome`/`verdict` is dropped; a malformed optional field is left out. The first verdict for a ticket counts. A landed implement or audit contact with no verdict is `not reported`; verdicts for other tickets are ignored. Older closers wrote only `<ticket>.md`, which still renders when there is no JSON. The board formats that Markdown by convention, not contract: `## Checked`/`Verification`, `## Fixed`, `## Follow-ups`, `## Findings` and `## Summary` headings (numbered or not) become panels, and `PASS`/`FAILED`/`NOT RUN`/`OK`, `[high]`/`High:`/`P1`, `path/to/file.ts:12` and commit shas are picked out of the text.
 
 ## Comparison manifest (v1)
 

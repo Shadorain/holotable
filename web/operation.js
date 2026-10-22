@@ -1,9 +1,10 @@
-// Operation page (Plan view → "Operation" sub-tab): the operation as a document.
+// Operation page (Plan view → "Operation" sub-tab): the operation as a document, led by the closer's review once it has landed.
 // Brief, setup fields, the auto-mode card, zones and contacts, the checklist and the
 // seed file — everything the old settings drawer's per-operation section held, plus
 // brief/seed which only the page can show well. Field edits save through
 // POST /api/operation-config; zone/contact adds are POST /api/zones|contacts.
 import { dropdown, el, numberField, switcher, textField } from "./components.js";
+import { closerOverview } from "./closer.js";
 import { enumRow, field, switchRow, textRow } from "./fields.js";
 import { icon } from "./icons.js";
 import { renderMarkdown } from "./markdown.js";
@@ -556,6 +557,10 @@ export function renderOperation(root, projection, doc, ctx) {
     root.append(el("div", "set-err big", doc.error));
     return;
   }
+  // ctx.closer is the landed closer's view (GET /api/closer); null until it lands.
+  const tickets = new Set(p.contacts.filter((c) => c.kind !== "closer").map((c) => c.ticket));
+  const review = closerOverview(ctx.closer, { tickets, linkable: true });
+  if (review) root.append(review);
   const notes = docSection("Notes");
   const n = p.notes;
   if (n?.total) notes.querySelector(".group-head").append(el("span", "count", `${n.done}/${n.total} done`));

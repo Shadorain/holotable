@@ -94,7 +94,7 @@ export function closeOperation(op, ctx) {
       const data = await fetchJson(await ctx.api("/api/close", { method: "POST", body: JSON.stringify({ op: op.id, outcome: "landed" }) }));
       modal.close();
       ctx.toast(`${op.name} closed and archived (${data.archived})`, "ok");
-      ctx.ended(op.id);
+      ctx.ended(op.id, data.archived);
     } catch (error) {
       err.hidden = false;
       err.textContent = error.message;
