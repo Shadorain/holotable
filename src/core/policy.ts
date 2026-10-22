@@ -39,6 +39,19 @@ export function idleSince(state: ContactState, status: PolicyInput["status"], no
   return now - Date.parse(c.since) >= IDLE_ALERT_MS ? c.since : null;
 }
 
+/** How long a finished mission's CI may wait for a runner before the board flags it: the runners are likely down. */
+export const CI_QUEUED_ALERT_MS = 30 * 60_000;
+
+/**
+ * When a complete contact's PR CI started waiting for a runner, once it has waited CI_QUEUED_ALERT_MS. Only while
+ * those checks gate Land: a conflicting PR or an operation that ignores checks does not wait on them.
+ */
+export function ciQueuedSince(state: ContactState, operation: Operation, probe: PolicyInput["probe"], now: number): string | null {
+  if (state !== "complete" || operation.ignoreChecks || probe?.state !== "open" || probe.mergeable === "conflict") return null;
+  const since = probe.queuedSince;
+  return since !== undefined && now - Date.parse(since) >= CI_QUEUED_ALERT_MS ? since : null;
+}
+
 /**
  * C7 state table, first match wins. `conflictContacts` are the contacts whose
  * `conflictOf` names this ticket, with their already-computed states.
@@ -265,6 +278,8 @@ function completeActions(i: PolicyInput, s: Shared): ActionView[] {
     const failingChecks = reason === null && !conflicting && probe?.checks === "fail" && !operation.ignoreChecks;
     if (failingChecks)
       reason = probe.failing?.length ? `failing check: ${probe.failing.join(", ")}` : "a required check failed";
+    else if (reason === null && i.ciQueuedSince)
+      reason = `CI queued since ${new Date(i.ciQueuedSince).toISOString().slice(11, 16)} UTC with no runner picking it up`;
     // A rerun turns red checks pending; landing then would merge before CI has said anything.
     else if (reason === null && !conflicting && probe?.checks === "pending" && !operation.ignoreChecks) reason = "checks still running";
     actions.push(view("land", "Land", true, reason === null, reason));
@@ -327,7 +342,8 @@ export function actionsFor(i: PolicyInput): ActionView[] {
 /**
  * Why the operator should leave this contact alone right now: the mission is working, or auto mode or
  * Recovery owns its next step. Null whenever it waits on a person: a question, a gate, a decision auto
- * mode does not make, red CI with no fix under way, an automation switched off, or a coordinator idle in its pane.
+ * mode does not make, red CI with no fix under way, CI no runner picks up, an automation switched off, or a
+ * coordinator idle in its pane.
  */
 export function handsOff(i: PolicyInput & { actions: ActionView[]; reviewStalled?: boolean }): string | null {
   const { operation, contact, state, status, owner, probe, actions } = i;
@@ -352,7 +368,8 @@ export function handsOff(i: PolicyInput & { actions: ActionView[]; reviewStalled
   if ((state === "planning" || state === "running" || state === "verify" || state === "review") && !i.reviewStalled && !i.idleSince &&
       !status?.actions.some((a) => a === "resend" || a === "review" || a === "continue"))
     return "Working on its own";
-  if (state === "complete" && auto?.land && contact.kind !== "conflict") {
+  // CI waiting on a runner that never comes is the operator's: auto mode would wait for it forever.
+  if (state === "complete" && auto?.land && contact.kind !== "conflict" && !i.ciQueuedSince) {
     if (probe?.checks === "pending") return "Waiting for CI; auto mode lands it when green";
     if (status?.check?.state === "fixing" && probe?.checks !== "fail") return "The mission is fixing its PR";
     if (enabled("land")) return "Auto mode lands this next";

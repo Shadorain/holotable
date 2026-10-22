@@ -388,6 +388,22 @@ describe("githubPrDelivery.land", () => {
     expect(ghCalls.some((a) => a[1] === "merge")).toBe(false);
   });
 
+  test("a cancelled check with a newer run of its workflow on the way holds Land as pending, not failing", async () => {
+    const check = { workflowName: "Verification policy protection", name: "Verify policy change explanation" };
+    let runs = [{ status: "queued", workflowName: check.workflowName, createdAt: "2026-10-21T06:16:12Z" }];
+    const { run } = realRun((args) => {
+      if (args[0] === "run" && args[1] === "list") return { stdout: JSON.stringify(runs), stderr: "", code: 0 };
+      if (args[1] === "view") return { stdout: prJson({ statusCheckRollup: [{ ...check, status: "COMPLETED", conclusion: "CANCELLED" }] }), stderr: "", code: 0 };
+      return { stdout: "", stderr: "", code: 0 };
+    });
+    const { repo } = await prSetup(run);
+    const land = () => githubPrDelivery(run).land({ operation: makeOperation(repo), contact, sourceBranch: "feat", status });
+    await expect(land()).rejects.toMatchObject({ code: "checks-pending" });
+    // Nothing replaces it: the cancelled run needs a rerun.
+    runs = [{ status: "completed", workflowName: check.workflowName, createdAt: "2026-10-21T06:01:00Z" }];
+    await expect(land()).rejects.toMatchObject({ code: "checks-failing" });
+  });
+
   test("ignoreChecks merges a PR whose checks are failing", async () => {
     const ghCalls: string[][] = [];
     const { run } = realRun((args) => {

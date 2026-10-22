@@ -317,7 +317,10 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       // (guard) or has no answer yet keeps the last known delivery in the sample.
       if (probe) state.probes[ticket] = probe;
       const live = state.probes[ticket];
-      if (live) fields.delivery = { url: live.url, state: live.state, mergeable: live.mergeable, checks: live.checks };
+      if (live) fields.delivery = {
+        url: live.url, state: live.state, mergeable: live.mergeable, checks: live.checks,
+        ...(live.queuedSince ? { queuedSince: live.queuedSince } : {}),
+      };
     }
     fields.omp = omp;
     if (Object.keys(fields).some((key) => key !== "omp")) await sample(op, ticket, seen, fields);

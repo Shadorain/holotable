@@ -160,6 +160,15 @@ test("a delivery probe is overridden live and recorded in the sample", async () 
   expect(sample).toMatchObject({ contact: "CHR-1", delivery: { state: "open", checks: "pass" } });
 });
 
+test("CI waiting for a runner reaches the recorded sample", async () => {
+  const { watcher, fake, home } = await setup();
+  fake.world.statuses.set("/wt/a", status({ delivery: { url: "https://gh/pr/1", branch: "feat/a" } }));
+  fake.world.probes.set("CHR-1", { url: "https://gh/pr/1", state: "open", mergeable: "clean", checks: "pending", queuedSince: "2026-10-21T01:00:00Z" });
+  await watcher.pass();
+  const sample = (await readEvents(home, "lab")).find((e) => e.kind === "sample" && e.delivery);
+  expect(sample).toMatchObject({ contact: "CHR-1", delivery: { checks: "pending", queuedSince: "2026-10-21T01:00:00Z" } });
+});
+
 test("a port failure is contained, warned once, and keeps the last known status", async () => {
   const { watcher, fake, warnings } = await setup();
   await watcher.pass();

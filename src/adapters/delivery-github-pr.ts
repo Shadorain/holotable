@@ -23,7 +23,67 @@ function latestRuns(rollup: unknown[]): unknown[] {
   return [...latest.values()];
 }
 
-function checksFrom(rollup: unknown): DeliveryProbe["checks"] {
+/** GitHub workflow run statuses that mean no job of the run has started yet. */
+const QUEUED = new Set(["queued", "waiting", "pending", "requested"]);
+
+interface WorkflowRun {
+  status: string;
+  workflowName: string;
+  createdAt: string;
+}
+
+/** The workflow runs on `sha`, or null when gh cannot say. Best effort: callers fall back to the rollup alone. */
+async function workflowRuns(run: Run, cwd: string, sha: string): Promise<WorkflowRun[] | null> {
+  try {
+    const listed = await run("gh", ["run", "list", "--commit", sha, "--json", "status,workflowName,createdAt"], cwd);
+    if (listed.code !== 0) return null;
+    const rows: unknown = JSON.parse(listed.stdout);
+    if (!Array.isArray(rows)) return null;
+    return rows.filter(isRecord).map((row) => ({
+      status: String(row.status ?? ""),
+      workflowName: String(row.workflowName ?? ""),
+      createdAt: String(row.createdAt ?? ""),
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/** Workflows with a run on the head that has not finished: a cancelled run of one of them is superseded, not red. */
+function unfinishedWorkflows(runs: WorkflowRun[] | null): Set<string> {
+  return new Set((runs ?? []).filter((r) => r.status !== "completed").map((r) => r.workflowName));
+}
+
+/**
+ * When CI on the head started waiting for a runner: every unfinished workflow run is still queued (GitHub moves a
+ * run to in_progress once any of its jobs starts). The earliest such run's creation time, else undefined.
+ */
+function queuedSince(runs: WorkflowRun[]): string | undefined {
+  const unfinished = runs.filter((r) => r.status !== "completed");
+  if (unfinished.length === 0 || !unfinished.every((r) => QUEUED.has(r.status))) return undefined;
+  return unfinished.map((r) => r.createdAt).sort()[0];
+}
+
+/** A failed latest-run entry. A cancelled run whose workflow has a run on the way is superseded instead. */
+function failed(item: Record<string, unknown>, replaced: ReadonlySet<string>): boolean {
+  // StatusContext entries carry state (SUCCESS/FAILURE/ERROR/PENDING/EXPECTED); CheckRun entries carry conclusion/status.
+  if (typeof item.state === "string") return FAILED.has(item.state);
+  if (typeof item.conclusion !== "string" || !FAILED.has(item.conclusion)) return false;
+  return !superseded(item, replaced);
+}
+
+function superseded(item: Record<string, unknown>, replaced: ReadonlySet<string>): boolean {
+  return item.conclusion === "CANCELLED" && replaced.has(String(item.workflowName ?? ""));
+}
+
+/** Whether every failed latest-run entry is a cancelled check run, which a newer run of its workflow may supersede. */
+function cancelledOnly(rollup: unknown): boolean {
+  if (!Array.isArray(rollup)) return false;
+  const red = latestRuns(rollup).filter(isRecord).filter((item) => failed(item, new Set()));
+  return red.length > 0 && red.every((item) => item.conclusion === "CANCELLED");
+}
+
+function checksFrom(rollup: unknown, replaced: ReadonlySet<string> = new Set()): DeliveryProbe["checks"] {
   if (!Array.isArray(rollup) || rollup.length === 0) return "none";
   let sawPending = false;
   for (const item of latestRuns(rollup)) {
@@ -31,27 +91,23 @@ function checksFrom(rollup: unknown): DeliveryProbe["checks"] {
       sawPending = true;
       continue;
     }
-    // CheckRun entries carry conclusion/status; StatusContext entries carry
-    // state (SUCCESS/FAILURE/ERROR/PENDING/EXPECTED) and no conclusion.
+    if (failed(item, replaced)) return "fail";
     if (typeof item.state === "string") {
-      if (FAILED.has(item.state)) return "fail";
       if (item.state !== "SUCCESS") sawPending = true;
       continue;
     }
-    if (typeof item.conclusion === "string" && FAILED.has(item.conclusion)) return "fail";
     // gh reports conclusion "" (not null) until a run completes, so the status decides; without one, a conclusion does.
     const done = typeof item.status === "string" ? item.status === "COMPLETED" : typeof item.conclusion === "string" && item.conclusion !== "";
-    if (!done) sawPending = true;
+    if (!done || superseded(item, replaced)) sawPending = true;
   }
   return sawPending ? "pending" : "pass";
 }
 
-function failedChecks(rollup: unknown): string[] {
+function failedChecks(rollup: unknown, replaced: ReadonlySet<string> = new Set()): string[] {
   if (!Array.isArray(rollup)) return [];
   const names = latestRuns(rollup).filter(isRecord).flatMap((item) => {
-    const failed = typeof item.state === "string" ? FAILED.has(item.state) : typeof item.conclusion === "string" && FAILED.has(item.conclusion);
     const name = typeof item.name === "string" ? item.name : typeof item.context === "string" ? item.context : "unnamed check";
-    return failed ? [name] : [];
+    return failed(item, replaced) ? [name] : [];
   });
   return [...new Set(names)];
 }
@@ -67,7 +123,7 @@ export function githubPrDelivery(run: Run): DeliveryPort {
       try {
         result = await run(
           "gh",
-          ["pr", "view", selector, "--json", "state,mergeable,url,statusCheckRollup"],
+          ["pr", "view", selector, "--json", "state,mergeable,url,headRefOid,statusCheckRollup"],
           i.operation.integration,
         );
       } catch {
@@ -85,13 +141,25 @@ export function githubPrDelivery(run: Run): DeliveryPort {
       if (state !== "open" && state !== "merged" && state !== "closed") return null;
       const mergeable =
         pr.mergeable === "MERGEABLE" ? "clean" : pr.mergeable === "CONFLICTING" ? "conflict" : "unknown";
-      const failing = failedChecks(pr.statusCheckRollup);
+      const rollup = pr.statusCheckRollup;
+      const rollupOnly = checksFrom(rollup);
+      // The rollup lists a workflow's jobs only once they start: an open PR whose CI has not settled (nothing yet, still
+      // running, or red only from cancelled runs) asks the workflow runs what is on the way. A green PR costs no call.
+      const unsettled = rollupOnly === "pending" || rollupOnly === "none" || (rollupOnly === "fail" && cancelledOnly(rollup));
+      const runs = state === "open" && unsettled && typeof pr.headRefOid === "string" && pr.headRefOid
+        ? await workflowRuns(run, i.operation.integration, pr.headRefOid)
+        : null;
+      const replaced = unfinishedWorkflows(runs);
+      const checks = checksFrom(rollup, replaced);
+      const failing = failedChecks(rollup, replaced);
+      const queued = runs && (checks === "pending" || checks === "none") ? queuedSince(runs) : undefined;
       return {
         url: typeof pr.url === "string" ? pr.url : null,
         state,
         mergeable,
-        checks: checksFrom(pr.statusCheckRollup),
+        checks,
         ...(failing.length ? { failing } : {}),
+        ...(queued ? { queuedSince: queued } : {}),
       };
     },
     async verifyMerged(i) {
@@ -167,10 +235,15 @@ export function githubPrDelivery(run: Run): DeliveryPort {
           "pr-base-mismatch",
           `PR base is ${String(pr.baseRefName)}, expected ${operation.base}`,
         );
-      const checks = i.ignoreChecks === true ? "pass" : checksFrom(pr.statusCheckRollup);
+      const rollup = pr.statusCheckRollup;
+      // Red only from cancelled runs, as the probe reads it: a newer run of the same workflow on the way makes it pending.
+      const replaced = i.ignoreChecks !== true && cancelledOnly(rollup) && typeof pr.headRefOid === "string" && pr.headRefOid
+        ? unfinishedWorkflows(await workflowRuns(run, integration, pr.headRefOid))
+        : new Set<string>();
+      const checks = i.ignoreChecks === true ? "pass" : checksFrom(rollup, replaced);
       const gateChecks = () => {
         if (checks === "fail") {
-          const failing = failedChecks(pr.statusCheckRollup);
+          const failing = failedChecks(rollup, replaced);
           throw new PortError("checks-failing", failing.length ? `failing check: ${failing.join(", ")}` : "a required check failed");
         }
         if (checks === "pending") throw new PortError("checks-pending", "checks still running");
@@ -229,16 +302,9 @@ export function githubPrDelivery(run: Run): DeliveryPort {
       // A head GitHub just updated has no check runs yet, which reads as "no CI". Its workflow runs exist first;
       // a head younger than CHECKS_REGISTER_MS with neither is still waiting for CI to start.
       if (checks === "none" && deliveredSha) {
-        const runs = await run("gh", ["run", "list", "--commit", deliveredSha, "--json", "status"], integration);
-        let active = false;
-        let any = false;
-        if (runs.code === 0) {
-          try {
-            const rows = JSON.parse(runs.stdout) as Array<{ status?: string }>;
-            any = rows.length > 0;
-            active = rows.some((row) => row.status !== "completed");
-          } catch { /* unparseable: fall back to the commit age */ }
-        }
+        const runs = await workflowRuns(run, integration, deliveredSha);
+        const any = (runs?.length ?? 0) > 0;
+        const active = runs?.some((row) => row.status !== "completed") ?? false;
         const committed = await run("git", ["log", "-1", "--format=%ct", deliveredSha], integration);
         const age = Date.now() - Number(committed.stdout.trim()) * 1000;
         if (active || (!any && committed.code === 0 && age < CHECKS_REGISTER_MS))

@@ -1,6 +1,6 @@
 import { foldEvents, contactDerived, holdsSlot } from "./fold.ts";
 import { countTasks } from "./notes.ts";
-import { actionsFor, contactState, FLEET_OP_LABELS, handsOff, idleSince, launchRefusal, setupRefusal } from "./policy.ts";
+import { actionsFor, ciQueuedSince, contactState, FLEET_OP_LABELS, handsOff, idleSince, launchRefusal, setupRefusal } from "./policy.ts";
 import { computeStats } from "./stats.ts";
 import { missionProblem, retryWaiting } from "./mission-problem.ts";
 import type {
@@ -312,6 +312,7 @@ function contactView(
     recoveryWait: input.recoveryWaits?.[contact.ticket],
     terminalMissing: input.vanished?.has(contact.ticket) ?? false,
     idleSince: idle,
+    ciQueuedSince: ciQueuedSince(state, op, probe, input.now),
   };
 
   const blockers = contact.blockedBy.filter((b) => !contactDerived(derived, b).landed);

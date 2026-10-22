@@ -206,7 +206,8 @@ export const MODES = ["auto", "pause", "force"] as const;
 
 export interface SampleFields {
   tracker?: { state: string; url: string | null };
-  delivery?: { url: string | null; state: string; mergeable: string; checks: string };
+  /** `queuedSince` as on DeliveryProbe; absent from samples written before it was recorded. */
+  delivery?: { url: string | null; state: string; mergeable: string; checks: string; queuedSince?: string };
   workers?: number;
   omp?: number;
   /** Sampled from status.usage when it changes; sessions stays status-side. */
@@ -467,6 +468,11 @@ export interface DeliveryProbe {
   checks: "pass" | "fail" | "pending" | "none";
   /** Names of failed checks, when the delivery reports them. */
   failing?: string[];
+  /**
+   * When CI on the head started waiting for a runner (ISO): workflow runs exist and none has started a job.
+   * Absent when CI is running or settled, or the delivery cannot tell.
+   */
+  queuedSince?: string;
 }
 
 // ---- derived state (C7) ----
@@ -535,6 +541,8 @@ export interface PolicyInput {
   terminalMissing?: boolean;
   /** When the coordinator went idle, set only once it has idled long enough with nothing else running for it. */
   idleSince?: string | null;
+  /** When the PR's CI started waiting for a runner, set only once it has waited long enough to need the operator. */
+  ciQueuedSince?: string | null;
 }
 
 export interface Stats {

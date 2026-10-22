@@ -257,7 +257,8 @@ export function validateEvent(value: unknown, path = "events.jsonl"): Event {
           (d.url !== null && d.url !== undefined && typeof d.url !== "string") ||
           typeof d.state !== "string" ||
           typeof d.mergeable !== "string" ||
-          typeof d.checks !== "string"
+          typeof d.checks !== "string" ||
+          (d.queuedSince !== undefined && typeof d.queuedSince !== "string")
         )
           return fail("sample.delivery must have url, state, mergeable and checks");
         sample.delivery = {
@@ -265,6 +266,7 @@ export function validateEvent(value: unknown, path = "events.jsonl"): Event {
           state: d.state,
           mergeable: d.mergeable,
           checks: d.checks,
+          ...(d.queuedSince !== undefined ? { queuedSince: d.queuedSince } : {}),
         };
       }
       if (value.workers !== undefined) {

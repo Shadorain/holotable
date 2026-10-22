@@ -671,6 +671,23 @@ test("work automation owns is hands-off and not 'Your move'; a question or a man
   expect(waiting.handsOff).toBe("Its conflict mission a-conflict-1 is resolving this");
 });
 
+test("a finished PR whose CI no runner has picked up for half an hour needs the operator, even under auto land", () => {
+  const auto = { enabled: true, launch: true, land: true, maxLive: 4, plans: false, decide: false };
+  const op = makeOp([makeContact("a", { lane: live() })], { frontend: "orca", fleet: "omp-mission", delivery: "github-pr", auto });
+  const queuedFor = (ms: number) => viewOf(op, "a", {
+    statuses: { a: makeStatus({ complete: true, phase: "complete" }) },
+    owners: { a: "live" },
+    probes: { a: { url: "u", state: "open", mergeable: "clean", checks: "pending", queuedSince: new Date(NOW - ms).toISOString() } },
+  });
+  const fresh = queuedFor(10 * 60_000);
+  expect(fresh.attention).toBe(false);
+  expect(fresh.handsOff).not.toBeNull();
+  const stuck = queuedFor(2 * 3_600_000);
+  expect(stuck.attention).toBe(true);
+  expect(stuck.handsOff).toBeNull();
+  expect(stuck.actions.find((a) => a.id === "land")?.enabled).toBe(false);
+});
+
 test("completed work with blocked landing needs attention instead of appearing to run", () => {
   const op = makeOp([makeContact("a", { lane: live() })], { delivery: "github-pr" });
   const v = viewOf(op, "a", {

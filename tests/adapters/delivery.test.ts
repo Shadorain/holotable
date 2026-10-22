@@ -134,6 +134,55 @@ describe("githubPrDelivery.probe", () => {
     expect(failed).toMatchObject({ checks: "fail", failing: [policy.name] });
   });
 
+  /** Probes an open PR on head abc123 whose `gh run list` answers `runs`. */
+  async function probeWithRuns(rollup: unknown[], runs: unknown[]) {
+    const calls: string[][] = [];
+    const run: Run = async (_command, args) => {
+      calls.push(args);
+      const stdout = args[0] === "run"
+        ? JSON.stringify(runs)
+        : JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE", url: null, headRefOid: "abc123", statusCheckRollup: rollup });
+      return { stdout, stderr: "", code: 0 };
+    };
+    const result = await githubPrDelivery(run).probe({ operation: makeOperation(tempDir()), contact: makeContact("b"), status: makeStatus(null) });
+    return { result, calls };
+  }
+
+  test("a cancelled check is pending while a newer run of its workflow is on the way, and red without one", async () => {
+    // PR #317: concurrency cancelled the policy check's run while its replacement sat queued, which the rollup does not
+    // list until a job starts; the board read the PR as red for 6.5 hours.
+    const check = { workflowName: "Verification policy protection", name: "Verify policy change explanation" };
+    const rollup = [
+      { ...check, status: "COMPLETED", conclusion: "CANCELLED", startedAt: "2026-10-21T06:16:06Z" },
+      { workflowName: "Rust checks", name: "test", status: "COMPLETED", conclusion: "SUCCESS", startedAt: "2026-10-21T06:10:00Z" },
+    ];
+    const replaced = await probeWithRuns(rollup, [
+      { status: "queued", workflowName: check.workflowName, createdAt: "2026-10-21T06:16:12Z" },
+      { status: "completed", workflowName: "Rust checks", createdAt: "2026-10-21T06:09:00Z" },
+    ]);
+    expect(replaced.result).toEqual({ url: null, state: "open", mergeable: "clean", checks: "pending", queuedSince: "2026-10-21T06:16:12Z" });
+
+    const rerunNeeded = await probeWithRuns(rollup, [{ status: "completed", workflowName: check.workflowName, createdAt: "2026-10-21T06:01:00Z" }]);
+    expect(rerunNeeded.result).toEqual({ url: null, state: "open", mergeable: "clean", checks: "fail", failing: [check.name] });
+  });
+
+  test("queuedSince marks CI no runner has started, and a green PR costs no run lookup", async () => {
+    const queued = [
+      { status: "queued", workflowName: "Rust checks", createdAt: "2026-10-21T01:05:00Z" },
+      { status: "waiting", workflowName: "Docs", createdAt: "2026-10-21T01:00:00Z" },
+    ];
+    expect((await probeWithRuns([], queued)).result).toMatchObject({ checks: "none", queuedSince: "2026-10-21T01:00:00Z" });
+
+    const started = [queued[0], { status: "in_progress", workflowName: "Docs", createdAt: "2026-10-21T01:00:00Z" }];
+    const running = await probeWithRuns([{ workflowName: "Docs", name: "build", status: "IN_PROGRESS", conclusion: "" }], started);
+    expect(running.result).toMatchObject({ checks: "pending" });
+    expect(running.result).not.toHaveProperty("queuedSince");
+
+    const green = await probeWithRuns([{ status: "COMPLETED", conclusion: "SUCCESS" }], queued);
+    expect(green.result).toEqual({ url: null, state: "open", mergeable: "clean", checks: "pass" });
+    expect(green.calls).toHaveLength(1);
+  });
+
   test("a failing check maps to fail", async () => {
     const home = tempDir();
     const { run } = fakeRun({ stdout: JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE", url: null, statusCheckRollup: [{ status: "COMPLETED", conclusion: "FAILURE" }] }), stderr: "", code: 0 });
