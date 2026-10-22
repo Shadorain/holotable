@@ -190,9 +190,9 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
     }
 
     if (auto.land && !auto.capacityWait) {
-      // `land-anyway` is offered exactly when failing checks block Land and ignoreChecks is off.
+      // `land-anyway` is offered when CI blocks Land and ignoreChecks is off; only red checks need a Check PR.
       const target = projection.contacts.find((c) => c.state === "complete" && c.owner === "live" &&
-        actionOf(c, "land-anyway") !== undefined && canDo(c, "check") &&
+        actionOf(c, "land-anyway") !== undefined && c.delivery?.checks === "fail" && canDo(c, "check") &&
         allowed(c.ticket, "check") && autoCheckDue(events, c, now));
       if (target) await attempt({ contact: target.ticket, action: "check", args: {} });
     }

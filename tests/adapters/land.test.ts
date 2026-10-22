@@ -418,6 +418,23 @@ describe("githubPrDelivery.land", () => {
     expect(ghCalls.filter((a) => a[1] === "merge")).toEqual([["pr", "merge", "7", "--merge"]]);
   });
 
+  test("ignoreChecks merges a PR whose CI has not finished or not registered, then cancels its leftover runs", async () => {
+    for (const rollup of [[{ name: "e2e", status: "IN_PROGRESS", conclusion: "" }], []]) {
+      const ghCalls: string[][] = [];
+      const { run } = realRun((args) => {
+        ghCalls.push(args);
+        if (args[1] === "view") return { stdout: prJson({ statusCheckRollup: rollup }), stderr: "", code: 0 };
+        if (args[0] === "run" && args[1] === "list") return { stdout: JSON.stringify([{ databaseId: 41, status: "queued" }]), stderr: "", code: 0 };
+        return { stdout: "", stderr: "", code: 0 };
+      });
+      const { repo } = await prSetup(run);
+      const result = await githubPrDelivery(run).land({ operation: makeOperation(repo), contact, sourceBranch: "feat", status, ignoreChecks: true });
+      expect(result).toEqual({ outcome: "landed", via: "pr" });
+      expect(ghCalls.filter((a) => a[1] === "merge")).toEqual([["pr", "merge", "7", "--merge"]]);
+      expect(ghCalls).toContainEqual(["run", "cancel", "41"]);
+    }
+  });
+
   test("conflict path: no gh pr merge, integration clean, shas returned", async () => {
     const ghCalls: string[][] = [];
     const { run } = realRun((args) => {

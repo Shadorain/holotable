@@ -1,7 +1,7 @@
 import { clearCardDecision, clearDecideModel, clearLaunchModel, getCardDecision, getDecideModel, getLaunchModel } from "./card.js";
 import { openDecide } from "./decide.js";
 import { openModelRecovery } from "./model-recovery.js";
-import { CONFIRM, errorText } from "./ui.js";
+import { CONFIRM, SKIP_CI, errorText } from "./ui.js";
 
 const PAST = {
   launch: "launched", land: "landed", "land-anyway": "landed past failing checks", approve: "approved", continue: "continued", review: "sent to review",
@@ -40,7 +40,9 @@ export function createActions({ state, api, toast, render, pollFresh }) {
         outcome = { ok: true, error: null };
         // Done reads "Mark decided", "Mark merged" or "Mark done" by contact; the toast echoes the button.
         const label = state.projection?.contacts.find((c) => c.ticket === ticket)?.actions.find((a) => a.id === action)?.label;
-        const past = action === "done" && /^Mark /.test(label ?? "") ? `marked ${label.slice(5)}` : PAST[action];
+        let past = PAST[action];
+        if (action === "done" && /^Mark /.test(label ?? "")) past = `marked ${label.slice(5)}`;
+        else if (action === "land-anyway" && label === SKIP_CI.label) past = SKIP_CI.past;
         toast(`${ticket} ${past ?? action}`, "ok");
       }
     } catch (error) {

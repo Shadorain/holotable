@@ -275,16 +275,20 @@ function completeActions(i: PolicyInput, s: Shared): ActionView[] {
     else if (probe?.state === "closed") reason = "pull request closed";
     // A PR that conflicts with the base gets no meaningful CI: Land opens the conflict mission instead of merging.
     const conflicting = probe?.mergeable === "conflict";
-    const failingChecks = reason === null && !conflicting && probe?.checks === "fail" && !operation.ignoreChecks;
+    const gatingChecks = reason === null && !conflicting && !operation.ignoreChecks;
+    const failingChecks = gatingChecks && probe?.checks === "fail";
+    // Running, queued (with or without a runner) or not registered yet: CI has said nothing so far.
+    const pendingChecks = gatingChecks && !failingChecks && (probe?.checks === "pending" || Boolean(i.ciQueuedSince));
     if (failingChecks)
       reason = probe.failing?.length ? `failing check: ${probe.failing.join(", ")}` : "a required check failed";
     else if (reason === null && i.ciQueuedSince)
       reason = `CI queued since ${new Date(i.ciQueuedSince).toISOString().slice(11, 16)} UTC with no runner picking it up`;
     // A rerun turns red checks pending; landing then would merge before CI has said anything.
-    else if (reason === null && !conflicting && probe?.checks === "pending" && !operation.ignoreChecks) reason = "checks still running";
+    else if (pendingChecks) reason = "checks still running";
     actions.push(view("land", "Land", true, reason === null, reason));
-    // The operator can still land past red CI for this one PR; auto mode only looks at `land`.
+    // The operator can still land past CI for this one PR; auto mode only looks at `land`.
     if (failingChecks) actions.push(view("land-anyway", "Land anyway", false, true));
+    else if (pendingChecks) actions.push(view("land-anyway", "Skip CI and land", false, true));
     // Without a delivery the operator merges by hand; Mark done then verifies the merge actually happened.
     if (operation.delivery === "none") actions.push(view("done", "Mark done", false, true));
   } else {

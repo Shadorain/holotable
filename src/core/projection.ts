@@ -164,6 +164,8 @@ function historyLine(e: Event): HistoryEntry | null {
     case "operator":
       // Launch, land, done and reap leave their own event; only their failures need a line.
       if (e.ok && !OPERATOR_VERBS[e.op]) return null;
+      // Events written before the `ci` arg existed only ever went past failing checks.
+      if (e.ok && e.op === "land-anyway" && e.args?.ci === "pending") return line(`${ticket} landed without waiting for CI`, "ok");
       return e.ok
         ? line(`${ticket} ${OPERATOR_VERBS[e.op]}`, "ok")
         : line(`${ticket} ${e.op} failed${e.error ? `: ${e.error}` : ""}`, "err");

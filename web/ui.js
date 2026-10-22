@@ -237,6 +237,13 @@ const ACTION_ICON = {
 };
 // Actions that end something the operator cannot get back; they need a second click.
 export const CONFIRM = { reap: "Close terminal?", "land-anyway": "Merge with failing checks?" };
+// Land anyway while CI has not finished: the board labels that variant "Skip CI and land".
+export const SKIP_CI = {
+  label: "Skip CI and land",
+  confirm: "CI hasn't finished; GitHub will merge without it",
+  tip: "Merge this PR without waiting for its checks (click twice); GitHub branch protection still applies",
+  past: "landed without waiting for CI",
+};
 
 /** The action an operator most likely wants next for this contact, if it can run now. */
 export function primaryAction(contact) {
@@ -280,7 +287,9 @@ export function actionButton(contact, action, ctx, extraClass = "") {
     confirming ? "confirming" : "",
     extraClass,
   ].filter(Boolean).join(" ");
-  const label = busy ? (BUSY_LABEL[action.id] ?? "Working…") : confirming ? CONFIRM[action.id] : action.label;
+  const skipsCi = action.id === "land-anyway" && action.label === SKIP_CI.label;
+  const confirmText = skipsCi ? SKIP_CI.confirm : CONFIRM[action.id];
+  const label = busy ? (BUSY_LABEL[action.id] ?? "Working…") : confirming ? confirmText : action.label;
   const btn = el("button", cls);
   if (ACTION_ICON[action.id] && !busy) btn.append(icon(ACTION_ICON[action.id], { size: 13 }));
   btn.append(document.createTextNode(label));
@@ -289,7 +298,7 @@ export function actionButton(contact, action, ctx, extraClass = "") {
   btn.dataset.action = action.id;
   btn.dataset.ticket = contact.ticket;
   btn.disabled = !action.enabled || busy || ctx.busy.has(`${contact.ticket}/*`);
-  const tipText = ACTION_TIPS[action.id];
+  const tipText = skipsCi ? SKIP_CI.tip : ACTION_TIPS[action.id];
   if (!action.enabled && action.reason) btn.title = tipText ? `${tipText}\nUnavailable: ${action.reason}` : action.reason;
   else if (tipText) btn.title = tipText;
   if (busy) btn.setAttribute("aria-busy", "true");

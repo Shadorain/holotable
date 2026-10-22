@@ -30,8 +30,9 @@ export function resolutionFor(operation: Operation, projection: Projection, tick
  * Land a completed contact on the integration worktree (an operator click). A clean merge records `landed`.
  * A conflict leaves the integration checkout clean and opens one new local-graph conflict mission in a worktree
  * that already holds the markers; the original contact stays and Land waits for that mission.
+ * Returns the CI state Land anyway went past ("fail", or "pending" when CI had not finished); null otherwise.
  */
-export async function landContact(deps: LanderDeps, opId: string, ticket: string, options: { anyway?: boolean } = {}): Promise<void> {
+export async function landContact(deps: LanderDeps, opId: string, ticket: string, options: { anyway?: boolean } = {}): Promise<"pending" | "fail" | null> {
   const action = options.anyway ? "land-anyway" : "land";
   const offer = await offered(deps, opId, ticket, action, `${ticket} cannot be landed in its current state`);
   const { settings, operation } = offer;
@@ -45,6 +46,8 @@ export async function landContact(deps: LanderDeps, opId: string, ticket: string
   const status = await ports.fleet.read({ worktree: lane.worktree });
   if (!status) throw new ActionError(409, "owner-offline", `No mission status for ${ticket}`);
   const at = () => deps.now().toISOString();
+  let skipped: "pending" | "fail" | null = null;
+  if (options.anyway) skipped = offer.view.delivery?.checks === "fail" ? "fail" : "pending";
 
   const ignoreChecks = operation.ignoreChecks || options.anyway === true;
   const result = await ports.delivery.land({ operation, contact, sourceBranch, status, ignoreChecks });
@@ -60,7 +63,7 @@ export async function landContact(deps: LanderDeps, opId: string, ticket: string
       await appendEvent(deps.home,opId,{v:1,at:at(),kind:"landed",contact:resolution.ticket,via:result.via});
     }
     await cleanupAfterLand(deps, opId, ticket);
-    return;
+    return skipped;
   }
 
   await appendEvent(deps.home, opId, { v: 1, at: at(), kind: "land-attempt", contact: ticket, outcome: "conflict", paths: result.paths });
@@ -109,4 +112,5 @@ export async function landContact(deps: LanderDeps, opId: string, ticket: string
     // The conflict is real and recorded; only the launch of its mission failed, and Launch on its card retries.
     throw new ActionError(409, "conflict-opened", `Land hit conflicts in ${result.paths.length} file(s). Conflict mission ${created.ticket} is open but not launched: ${messageOf(error)}`);
   }
+  return skipped;
 }

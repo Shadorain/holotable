@@ -257,6 +257,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
 
   return async (req) => {
     let run: () => Promise<void>;
+    let args = req.args;
     const { action } = req;
     switch (action) {
       case "focus": {
@@ -358,11 +359,14 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         break;
       }
       case "land":
-        run = () => landContact(deps, req.op, req.contact);
+        run = async () => { await landContact(deps, req.op, req.contact); };
         break;
       case "land-anyway":
-        if (req.by !== undefined) throw new ActionError(403, "refused", "Landing past failing checks requires an operator");
-        run = () => landContact(deps, req.op, req.contact, { anyway: true });
+        if (req.by !== undefined) throw new ActionError(403, "refused", "Landing past CI requires an operator");
+        run = async () => {
+          // History tells "landed without waiting for CI" from "landed past failing checks".
+          if ((await landContact(deps, req.op, req.contact, { anyway: true })) === "pending") args = { ...args, ci: "pending" };
+        };
         break;
       case "launch": {
         const model = modelArg(req.args);
@@ -384,7 +388,7 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     inFlight.set(key, req.action);
     try {
       await run();
-      await appendEvent(deps.home, req.op, { v: 1, at: deps.now().toISOString(), kind: "operator", contact: req.contact, op: req.action, ok: true, ...(req.by !== undefined ? { by: req.by } : {}), ...(Object.keys(req.args).length > 0 ? { args: req.args } : {}) });
+      await appendEvent(deps.home, req.op, { v: 1, at: deps.now().toISOString(), kind: "operator", contact: req.contact, op: req.action, ok: true, ...(req.by !== undefined ? { by: req.by } : {}), ...(Object.keys(args).length > 0 ? { args } : {}) });
     } catch (error) {
       const failure = asActionError(error);
       await appendEvent(deps.home, req.op, {

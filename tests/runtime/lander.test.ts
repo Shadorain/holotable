@@ -236,3 +236,28 @@ test("failing checks hold Land; operator-only Land anyway merges past them and i
   expect(events.some((e) => e.kind === "landed")).toBe(true);
   expect(events.find((e) => e.kind === "operator" && e.op === "land-anyway")).toMatchObject({ ok: true });
 });
+
+test("pending checks hold Land; operator-only Skip CI and land merges and records it went past unfinished CI", async () => {
+  const t = await setup();
+  const asked: Array<boolean | undefined> = [];
+  const probes: Record<string, DeliveryProbe> = { a: { url: "u", state: "open", mergeable: "clean", checks: "pending" } };
+  const act = createActionRunner({
+    home: t.home,
+    now: () => new Date("2026-01-01T03:00:00Z"),
+    settings: async () => ({ ...DEFAULT_SETTINGS, cleanup: false }),
+    portsFor: () => ({
+      ...t.fake.ports,
+      delivery: { ...t.fake.ports.delivery, land: async (i) => { asked.push(i.ignoreChecks); return { outcome: "landed" as const, via: "pr" as const }; } },
+    }),
+    extras: () => ({ statuses: Object.fromEntries(t.statuses), owners: {}, probes, load: { live: 0, open: 0 } }),
+    sleep: async () => {},
+    token: () => "abc123",
+    socketWaitMs: 0,
+    run,
+  });
+  expect((await t.refused(act({ op: "lab", contact: "a", action: "land-anyway", args: {}, by: "auto" }))).status).toBe(403);
+  await act({ op: "lab", contact: "a", action: "land-anyway", args: {} });
+  expect(asked).toEqual([true]);
+  const events = await readEvents(t.home, "lab");
+  expect(events.find((e) => e.kind === "operator" && e.op === "land-anyway")).toMatchObject({ ok: true, args: { ci: "pending" } });
+});

@@ -234,7 +234,10 @@ describe("actionsFor", () => {
     expect(ignoring.find((a) => a.id === "land")).toMatchObject({ enabled: true, reason: null });
     const running = actionsFor(policy(op, "a", { state: "complete", status, probe: { ...probe, checks: "pending" as const, failing: [] } }));
     expect(running.find((a) => a.id === "land")).toMatchObject({ enabled: false, reason: "checks still running" });
-    expect(running.some((a) => a.id === "land-anyway")).toBe(false);
+    expect(running.find((a) => a.id === "land-anyway")).toMatchObject({ label: "Skip CI and land", enabled: true, primary: false });
+    // CI queued with no runner picking it up is still CI blocking Land.
+    const queued = actionsFor(policy(op, "a", { state: "complete", status, probe: { ...probe, checks: "pending" as const, failing: [] }, ciQueuedSince: "2026-01-01T00:00:00Z" }));
+    expect(queued.find((a) => a.id === "land-anyway")).toMatchObject({ label: "Skip CI and land", enabled: true });
     expect(ignoring.some((a) => a.id === "land-anyway")).toBe(false);
     // A closed PR is not something Land anyway can fix.
     const closed = actionsFor(policy(op, "a", { state: "complete", status, probe: { ...probe, state: "closed" } }));
@@ -242,6 +245,9 @@ describe("actionsFor", () => {
     // A PR that conflicts with the base: Land opens the conflict mission whatever its CI says.
     const conflicting = actionsFor(policy(op, "a", { state: "complete", status, probe: { ...probe, mergeable: "conflict" as const } }));
     expect(conflicting.find((a) => a.id === "land")).toMatchObject({ enabled: true, reason: null });
+    expect(conflicting.some((a) => a.id === "land-anyway")).toBe(false);
+    const conflictingPending = actionsFor(policy(op, "a", { state: "complete", status, probe: { ...probe, checks: "pending" as const, failing: [], mergeable: "conflict" as const } }));
+    expect(conflictingPending.some((a) => a.id === "land-anyway")).toBe(false);
   });
 
   test("conflict: land disabled with open conflict reason", () => {
