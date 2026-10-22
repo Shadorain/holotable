@@ -329,12 +329,25 @@ describe("project: shape", () => {
     );
     expect(p.header).toEqual({
       live: 1,
+      working: 1,
       open: 2,
       cap: 8,
     });
     expect(p.notes).toEqual({ done: 1, total: 2 });
     const groups = Object.fromEntries(p.contacts.map((c) => [c.ticket, c.group]));
     expect(groups).toEqual({ a: "queue", b: "live" });
+  });
+
+  test("header.working leaves out finished missions whose pane holds a slot", () => {
+    const op = makeOp([makeContact("a", { lane: live() }), makeContact("b", { lane: live() }), makeContact("c", { lane: live() })]);
+    const done = makeStatus({ complete: true, phase: "complete" });
+    // a: finished, live pane. b: finished, dead pane (no slot, so nothing to leave out). c: still working.
+    const p = project(input(op, {
+      statuses: { a: done, b: done, c: makeStatus({ phase: "execute" }) },
+      owners: { a: "live", b: "offline", c: "live" },
+      load: { live: 2, open: 2 },
+    }));
+    expect(p.header).toMatchObject({ live: 2, working: 1, open: 2 });
   });
 
   test("blockedBy carries landed flags", () => {

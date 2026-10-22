@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { foldEvents } from "../core/fold.ts";
+import { foldEvents, holdsSlot } from "../core/fold.ts";
 import { contactOf } from "../core/projection.ts";
 import { unmetBlockers } from "../core/graph.ts";
 import { trackerTicket } from "../core/validate-operation.ts";
@@ -110,16 +110,11 @@ function clearStaleVanished(op: Operation, folded: Derived, state: OpState): voi
   }
 }
 
-/**
- * Panes whose omp can still be running. The cap protects memory, so a pane whose owner is dead holds no
- * slot: counting it would keep Relaunch and Recovery from replacing the very pane that is blocking them.
- */
+/** Panes whose omp can still be running: open decision panes and contact panes that hold a slot. */
 function openCount(op: Operation, folded: Derived, state: OpState): number {
   let n = state.decisionPanes.size;
   for (const contact of op.contacts) {
-    if (!contact.lane?.terminal || folded.contacts[contact.ticket]?.reaped) continue;
-    if (state.owners[contact.ticket] !== "live" && state.owners[contact.ticket] !== "observed" && (state.vanished.has(contact.ticket) || state.owners[contact.ticket] === "offline")) continue;
-    n += 1;
+    if (holdsSlot(contact, folded, state.owners[contact.ticket], state.vanished.has(contact.ticket))) n += 1;
   }
   return n;
 }

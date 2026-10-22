@@ -1,4 +1,4 @@
-import { foldEvents, contactDerived } from "./fold.ts";
+import { foldEvents, contactDerived, holdsSlot } from "./fold.ts";
 import { countTasks } from "./notes.ts";
 import { actionsFor, contactState, FLEET_OP_LABELS, handsOff, idleSince, launchRefusal, setupRefusal } from "./policy.ts";
 import { computeStats } from "./stats.ts";
@@ -442,6 +442,9 @@ export function project(input: ProjectionInput): Projection {
     null;
 
   const log = history(input.events).slice(-MAX_LOG).reverse();
+  // A finished mission only waits on CI and landing: its pane still holds a session slot (cap), not a working one.
+  const finished = op.contacts.filter((c) => states.get(c.ticket) === "complete" &&
+    holdsSlot(c, derived, input.owners[c.ticket], input.vanished?.has(c.ticket) ?? false)).length;
 
   return {
     operation: {
@@ -464,6 +467,7 @@ export function project(input: ProjectionInput): Projection {
     },
     header: {
       live: input.load.live,
+      working: input.load.live - finished,
       open: input.load.open,
       cap: input.cap,
     },

@@ -183,7 +183,7 @@ export interface AutoMode {
   enabled: boolean;
   launch: boolean;
   land: boolean;
-  /** Live missions this operation may run at once, 1-64. */
+  /** Working missions this operation may run at once, 1-64; finished missions waiting to land do not count. */
   maxLive: number;
   plans: boolean;
   decide: boolean;
@@ -649,7 +649,8 @@ export interface Projection {
     /** Uncommitted path count in the integration checkout (local-merge); null when not probed. */
     integrationDirty: number | null;
   };
-  header: { live: number; open: number; cap: number };
+  /** `live`: this operation's open panes; `working`: those minus finished missions waiting on CI or landing (auto.maxLive); `open`: board-wide (cap). */
+  header: { live: number; working: number; open: number; cap: number };
   contacts: ContactView[];
   /** Task lines in notes.md: checked over total; {done:0,total:0} without a notes file. */
   notes: { done: number; total: number };

@@ -1,9 +1,11 @@
 import { createFoldEvaluation, foldEvaluation } from "./evaluation.ts";
 import type {
+  Contact,
   ContactDerived,
   Derived,
   Event,
   Operation,
+  Owner,
 } from "./types.ts";
 
 export function emptyContactDerived(): ContactDerived {
@@ -182,4 +184,14 @@ export function liveCount(op: Operation, derived: Derived): number {
     if (c.lane?.terminal && !contactDerived(derived, c.ticket).reaped) n += 1;
   }
   return n;
+}
+
+/**
+ * Whether the contact's pane can still be running an omp, so it holds a session slot. The cap protects memory,
+ * so a pane whose owner is dead holds none: counting it would keep Relaunch and Recovery from replacing the very
+ * pane that is blocking them.
+ */
+export function holdsSlot(contact: Contact, derived: Derived, owner: Owner | undefined, vanished: boolean): boolean {
+  if (!contact.lane?.terminal || contactDerived(derived, contact.ticket).reaped) return false;
+  return owner === "live" || owner === "observed" || (!vanished && owner !== "offline");
 }

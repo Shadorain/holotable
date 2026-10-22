@@ -243,8 +243,8 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
 
     if (auto.decide) {
       // Each ready decision either lands on its recommended option for free or gets an agent pane,
-      // which counts as a live omp: stop opening panes once maxLive or the cap is reached.
-      let live = projection.header.live;
+      // which counts as a working omp: stop opening panes once maxLive or the cap is reached.
+      let working = projection.header.working;
       let open = projection.header.open;
       for (const target of projection.contacts) {
         if (target.state !== "decision" || target.decision !== null || target.decisionPane) continue;
@@ -260,16 +260,16 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
             await pause(opId, messageOf(error));
             return;
           }
-        } else if (!auto.capacityWait && live + reserved < auto.maxLive && open + reserved < projection.header.cap && allowed(target.ticket, "decide-agent")) {
+        } else if (!auto.capacityWait && working + reserved < auto.maxLive && open + reserved < projection.header.cap && allowed(target.ticket, "decide-agent")) {
           if (await attempt({ contact: target.ticket, action: "decide-agent", args: {} })) {
-            live += 1;
+            working += 1;
             open += 1;
           }
         }
       }
     }
 
-    if (auto.launch && !auto.capacityWait && projection.header.live + reserved < auto.maxLive && projection.header.open + reserved < projection.header.cap) {
+    if (auto.launch && !auto.capacityWait && projection.header.working + reserved < auto.maxLive && projection.header.open + reserved < projection.header.cap) {
       // Ready contacts launch in declaration order, biased toward the one that unblocks
       // the most unlanded work: long dependency chains cost more wall time than order.
       const unblocks = new Map<string, number>();

@@ -156,6 +156,33 @@ describe("auto mode", () => {
     expect(t.fake.count("frontend.createWorkspace")).toBe(0);
   });
 
+  describe("maxLive counts working missions, not finished ones waiting to land", () => {
+    /** Two open panes in `phase`, one ready contact, maxLive 2: whether this pass launches the ready one. */
+    async function launchesBeside(phase: ContactStatus["phase"], open: number): Promise<boolean> {
+      const t = await setup([
+        contact("a", { lane: lane("/wt/a", "t1", "b/a") }),
+        contact("b", { lane: lane("/wt/b", "t2", "b/b") }),
+        contact("c"),
+      ], { auto: { ...AUTO, land: false, maxLive: 2 }, load: { live: 2, open } });
+      const complete = phase === "complete";
+      t.setStatus("a", status({ worktree: "/wt/a", phase, complete, ctl: null }));
+      t.setStatus("b", status({ worktree: "/wt/b", phase, complete, ctl: null }));
+      t.liveWorktree("c");
+      await t.auto.pass();
+      return (await t.events()).some((e) => e.kind === "launched" && "contact" in e && e.contact === "c");
+    }
+
+    test("two complete panes leave both slots free: the ready contact launches", async () => {
+      expect(await launchesBeside("complete", 2)).toBe(true);
+    });
+    test("two running panes fill maxLive: no launch", async () => {
+      expect(await launchesBeside("execute", 2)).toBe(false);
+    });
+    test("complete panes still count against the cap", async () => {
+      expect(await launchesBeside("complete", DEFAULT_SETTINGS.cap)).toBe(false);
+    });
+  });
+
   test("a failed launch backs that contact off without switching auto off; other contacts still launch", async () => {
     const t = await setup([contact("b"), contact("c")], { fail: { "frontend.createWorkspace": new PortError("orca-down", "orca exploded") } });
     t.liveWorktree("b");

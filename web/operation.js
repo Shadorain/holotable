@@ -291,7 +291,7 @@ function autoSection(p, ctx) {
       const nf = numberField({ label: "Max live", value: auto.maxLive, min: 1, max: Math.min(64, Math.max(p.header?.cap ?? 64, auto.maxLive)) });
       const f = field(sub, "Max live in this operation", nf.root, {
         key: "auto.maxLive",
-        note: `Up to the board-wide cap${p.header?.cap ? ` (${p.header.cap})` : ""}.`,
+        note: `Counts working missions; finished ones waiting on CI or landing don't take a slot. Up to the board-wide cap${p.header?.cap ? ` (${p.header.cap})` : ""}.`,
       });
       nf.input.addEventListener("change", () => {
         f.setError(null);
