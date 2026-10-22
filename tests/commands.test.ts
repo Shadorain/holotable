@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { runCommand, type CommandEnv } from "../src/commands.ts";
 import { archiveDir } from "../src/paths.ts";
 import { readEvents } from "../src/store/events.ts";
-import { listOperations, readOperation } from "../src/store/operations.ts";
+import { listOperations, readOperation, readOperationDoc } from "../src/store/operations.ts";
 import { readProject } from "../src/store/projects.ts";
 import { readSettings } from "../src/store/settings.ts";
 
@@ -243,6 +243,24 @@ test("set changes one field and refuses a tracker that invalidates tickets", asy
   expect((await readOperation(env.home, "lab")).tracker).toBe("none");
   await expect(runCommand("set pause maybe", env)).rejects.toThrow("pause must be one of");
   await expect(runCommand("set colour red", env)).rejects.toThrow("field must be one of");
+});
+
+test("set <field> inherit drops the override and follows the project again", async () => {
+  const env = fixture();
+  await runCommand("project new lab-proj --repo /tmp/r --base main --frontend herdr", env);
+  env.current = (await runCommand("new lab --project lab-proj --no-closer", env)).current ?? null;
+  await runCommand("set frontend custom", env);
+  expect((await readOperationDoc(env.home, "lab")).stored.frontend).toBe("custom");
+
+  await runCommand("set frontend inherit", env);
+  const doc = await readOperationDoc(env.home, "lab");
+  expect(doc.stored.frontend).toBeUndefined();
+  expect(doc.operation.frontend).toBe("herdr");
+  expect(doc.inherited).toContain("frontend");
+
+  await expect(runCommand("set auto inherit", env)).rejects.toThrow("auto mode belongs to the operation");
+  await runCommand("new solo --repo /tmp/solo --base main --no-closer", env);
+  await expect(runCommand("set frontend inherit", { ...env, current: "solo" })).rejects.toThrow("solo is standalone");
 });
 
 test("add queues, normalizes linear tickets and records blockers", async () => {

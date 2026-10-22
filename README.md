@@ -109,7 +109,7 @@ It prints the board URLs (port 4747 by default; `--port` changes it). Launch a c
 
 |Term|Meaning|
 |---|---|
-|**Project**|One repository and its defaults: base branch, integration checkout, tracker, frontend, delivery and worktree folder. Operations in a project inherit these unless they override them.|
+|**Project**|One repository and its defaults: base branch, integration checkout, tracker, frontend, delivery and worktree folder. Operations in a project inherit these unless they override them; `/holotable set <field> inherit` or **use project value** on the Operation page drops an override.|
 |**Operation**|One campaign: a set of contacts, their dependencies, a brief and notes. It belongs to a project or stands alone. When it ends, it moves to the archive with a report.|
 |**Zone**|A workstream inside an operation, such as "API" or "Cutover". Zones are the sectors of the radar and the columns of the Plan map.|
 |**Contact**|One ticket on the board, with a short title and a full description. Kinds: `implement` (the default), `audit`, `decision`, `closer`, and `conflict` (opened by Land).|

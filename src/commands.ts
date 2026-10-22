@@ -41,6 +41,7 @@ import {
   mutateOperation,
   operationsUsingProject,
   readOperation,
+  readOperationDoc,
 } from "./store/operations.ts";
 import { appendEvent } from "./store/events.ts";
 
@@ -598,9 +599,9 @@ async function cmdSet(tokens: string[], env: CommandEnv): Promise<CommandOutcome
   if (!field || !value) throw new Error(`Usage: ${usage}`);
   const name = oneOf(SET_FIELDS, field, "field");
   const opId = requireCurrent(env);
-  const before = await readOperation(env.home, opId);
-  const next = await mutateOperation(env.home, opId, (op) => applyOperationField(op, name, value, env.cwd));
-  await recordConfigToggles(env.home, env.now, opId, before, next);
+  const before = await readOperationDoc(env.home, opId);
+  const next = await mutateOperation(env.home, opId, (op) => applyOperationField(op, name, value, env.cwd, before.project));
+  await recordConfigToggles(env.home, env.now, opId, before.operation, next);
   return { message: `${opId}: ${name} = ${value}` };
 }
 
