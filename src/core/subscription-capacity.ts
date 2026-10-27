@@ -89,6 +89,41 @@ function bestCapacity(reports: Row[], provider: string, now: number, missing: bo
   return chosen;
 }
 
+type PolicyState = "eligible" | "inside-reserve" | "exhausted" | "unknown";
+type PolicySummary = Record<PolicyState, number>;
+const POLICY_STATES: Record<string, true> = { eligible: true, "inside-reserve": true, exhausted: true, unknown: true };
+
+function policySummary(reports: Row[], withoutUsage: Row[], provider: string, now: number): string | null {
+  const counts: PolicySummary = { eligible: 0, "inside-reserve": 0, exhausted: 0, unknown: 0 };
+  let evidence = false;
+  for (const report of reports) {
+    const policy = row(report.policy);
+    const recognized = typeof policy.state === "string" && Object.hasOwn(POLICY_STATES, policy.state);
+    const state = recognized ? policy.state as PolicyState : "unknown";
+    if (recognized) evidence = true;
+    const fetchedAt = timestamp(report.fetchedAt);
+    const limits = (Array.isArray(report.limits) ? report.limits : []).map(row)
+      .filter(limit => row(limit.scope).provider === provider);
+    const stale = fetchedAt === null || fetchedAt > now + 60_000 || now - fetchedAt > MAX_AGE_MS ||
+      limits.some(limit => {
+        const resetAt = timestamp(row(limit.window).resetsAt);
+        return resetAt !== null && resetAt <= now && fetchedAt < resetAt;
+      });
+    counts[stale ? "unknown" : state]++;
+  }
+  for (const account of withoutUsage) {
+    counts.unknown++;
+    const policy = row(account.policy);
+    if (typeof policy.state === "string" && Object.hasOwn(POLICY_STATES, policy.state)) evidence = true;
+  }
+  if (!evidence) return null;
+  return `Routing policy (account-wide): ${counts.eligible} eligible, ${counts["inside-reserve"]} inside reserve, ${counts.exhausted} exhausted, ${counts.unknown} unknown; model routing remains OMP-owned`;
+}
+
+function appendDetail<T extends { detail: string }>(value: T, suffix: string | null): T {
+  return suffix ? { ...value, detail: `${value.detail} · ${suffix}` } : value;
+}
+
 export function subscriptionCapacity(models: ModelEntry[], payload: unknown, now: number): { models: ModelEntry[]; subscriptions: SubscriptionCapacity[] } {
   const input = row(payload);
   const reports = Array.isArray(input.reports) ? input.reports.map(row).filter(report => typeof report.provider === "string") : [];
@@ -96,23 +131,28 @@ export function subscriptionCapacity(models: ModelEntry[], payload: unknown, now
   const providers = [...new Set([...reports, ...withoutUsage].map(report => report.provider).filter((provider): provider is string => typeof provider === "string"))];
   const byProvider = new Map(providers.map(provider => [provider, reports.filter(report => report.provider === provider)]));
   const missing = new Set(withoutUsage.map(report => report.provider));
+  const policyByProvider = new Map(providers.map(provider => [
+    provider,
+    policySummary(byProvider.get(provider) ?? [], withoutUsage.filter(report => report.provider === provider), provider, now),
+  ]));
   const projected = models.map(model => {
     const id = model.selector.slice(model.provider.length + 1);
     const { windows: _windows, ...capacity } = bestCapacity(byProvider.get(model.provider) ?? [], model.provider, now, missing.has(model.provider), id);
-    return { ...model, capacity };
+    return { ...model, capacity: appendDetail(capacity, policyByProvider.get(model.provider) ?? null) };
   });
   const subscriptions: SubscriptionCapacity[] = [];
   for (const provider of providers) {
     const providerReports = byProvider.get(provider) ?? [];
+    const suffix = policyByProvider.get(provider) ?? null;
     if (provider === "google-antigravity") {
       const shared = providerReports.some(report => Array.isArray(report.limits) && report.limits.some(value => String(row(row(value).scope).sharedGroup ?? "").startsWith("3p-")));
       const families = shared ? [["google", "Gemini"], ["anthropic", "Claude & GPT (shared)"]] : [["google", "Gemini"], ["anthropic", "Claude"], ["openai", "GPT"]];
       for (const [counter, label] of families) {
         if (!providerReports.some(report => limitsFor(report, provider, undefined, counter).length)) continue;
-        subscriptions.push({ provider, label: label!, ...bestCapacity(providerReports, provider, now, missing.has(provider), undefined, counter) });
+        subscriptions.push(appendDetail({ provider, label: label!, ...bestCapacity(providerReports, provider, now, missing.has(provider), undefined, counter) }, suffix));
       }
     } else {
-      subscriptions.push({ provider, label: provider, ...bestCapacity(providerReports, provider, now, missing.has(provider)) });
+      subscriptions.push(appendDetail({ provider, label: provider, ...bestCapacity(providerReports, provider, now, missing.has(provider)) }, suffix));
     }
   }
   return { models: projected, subscriptions };

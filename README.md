@@ -97,6 +97,8 @@ Install `omp-mission` too and restart OMP. Then open a session in the repo you w
 
 On a small or heat-constrained machine, set **Settings → Agents** to 2 first. Auto mode is off by default; turn it on per operation only when you want it. Recovery (**Keep missions running**) is on by default in the New operation form; switch it off there or on the Operation page if you want to restart crashed panes yourself.
 
+Subscription quotas and OMP's account-wide routing-policy counts are available under **Settings → AI & Models → Load subscription quotas**. The policy counts are diagnostics only; OMP remains responsible for routing each model.
+
 ### Try it without a real repo
 
 The playground serves the real board over simulated missions. Nothing touches Git, Orca or any CLI.

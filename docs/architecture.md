@@ -136,10 +136,14 @@ unrelated models. Antigravity backend counters isolate Gemini from its shared Cl
 Grok subscription windows exclude product breakdowns and paid overage. Reports older than ten
 minutes, or predating an elapsed reset, are unknown until refreshed. Raw report metadata,
 account identifiers, endpoints and credentials are not exposed.
+Recognized account-wide `policy.state` values (`eligible`, `inside-reserve`, `exhausted`)
+are summarized as numeric counts beside quota details; unrecognized, missing, stale or
+unreported accounts count as unknown when policy evidence exists. These counts do not affect
+model capacity or eligibility: model routing remains OMP-owned.
 
-Settings shows the read-only subscription panel; existing pickers display capacity and reset
-hints, rank known headroom ahead of near-limit/unknown choices, and disable exhausted options
-without changing the selected value. Refresh updates closed settings pickers too. Low means
+Settings shows the read-only subscription panel; existing pickers display capacity, reset hints
+and any account-wide routing-policy summary, rank known headroom ahead of near-limit/unknown
+choices, and disable exhausted options without changing the selected value. Refresh updates closed settings pickers too. Low means
 at most 10% remaining or a provider warning. Usage failures preserve a searchable model catalog
 with unknown capacity and an explicit `usageError`. Capacity is advisory subscription evidence,
 not a billing balance or model-access guarantee. No live sessions or OMP settings are changed;

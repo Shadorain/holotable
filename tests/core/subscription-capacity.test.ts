@@ -81,3 +81,48 @@ test("subscription responses do not disclose provider account identities or raw 
   const serialized = JSON.stringify(subscriptionCapacity([model(p)], payload, now));
   for (const secret of ["private@example.com", "secret-token", "private-endpoint", "private-payload"]) expect(serialized).not.toContain(secret);
 });
+
+test("account-wide policy diagnostics stay separate from model quota eligibility", () => {
+  const provider = "google-antigravity";
+  const reports = [
+    report(provider, [limit(provider, `${provider}:google:gemini-weekly`, 0.4)], { policy: { state: "exhausted", account: "private-account" } }),
+    report(provider, [limit(provider, `${provider}:anthropic:claude-weekly`, 0.6)], { policy: { state: "inside-reserve", endpoint: "private-endpoint" } }),
+  ];
+  const result = subscriptionCapacity([model(provider, "claude-opus")], { reports }, now);
+  expect(result.models[0]!.capacity).toMatchObject({ state: "available", remainingFraction: 0.6 });
+  expect(result.models[0]!.capacity!.detail).toContain("Routing policy (account-wide): 0 eligible, 1 inside reserve, 1 exhausted, 0 unknown; model routing remains OMP-owned");
+  expect(result.subscriptions.find(item => item.label === "Claude")!.detail).toContain("1 inside reserve, 1 exhausted");
+});
+
+test("policy summaries count malformed, stale, reset, and unreported accounts as unknown", () => {
+  const provider = "anthropic";
+  const reports = [
+    report(provider, [limit(provider, "5h", 0.7)], { policy: { state: "eligible" } }),
+    report(provider, [limit(provider, "5h", 0.7)], { policy: { state: "eligible" }, fetchedAt: now - 600_001 }),
+    report(provider, [limit(provider, "5h", 0.7, now - 1000)], { policy: { state: "exhausted" }, fetchedAt: now - 2000 }),
+    report(provider, [limit(provider, "5h", 0.7)], { policy: { state: "arbitrary policy text" } }),
+  ];
+  const result = subscriptionCapacity([model(provider)], { reports, accountsWithoutUsage: [{ provider, account: "unreported-private" }] }, now);
+  expect(result.subscriptions[0]!.detail).toContain("1 eligible, 0 inside reserve, 0 exhausted, 4 unknown");
+  const serialized = JSON.stringify(result);
+  for (const privateValue of ["private-account", "private-endpoint", "unreported-private", "arbitrary policy text"]) expect(serialized).not.toContain(privateValue);
+});
+
+test("absent or wholly unrecognized policy preserves legacy detail", () => {
+  const provider = "anthropic";
+  for (const payload of [
+    { reports: [report(provider, [limit(provider, "5h", 0.5)])] },
+    { reports: [report(provider, [limit(provider, "5h", 0.5)], { policy: { state: "not-a-state" } })] },
+  ]) {
+    expect(subscriptionCapacity([model(provider)], payload, now).models[0]!.capacity!.detail).toBe("Capacity on a reported account");
+  }
+});
+
+test("a recognized policy on an account without usage enables the summary but counts unknown", () => {
+  const provider = "anthropic";
+  const result = subscriptionCapacity([model(provider)], {
+    accountsWithoutUsage: [{ provider, policy: { state: "eligible" }, account: "private-missing-account" }],
+  }, now);
+  expect(result.subscriptions[0]!.detail).toContain("0 eligible, 0 inside reserve, 0 exhausted, 1 unknown");
+  expect(JSON.stringify(result)).not.toContain("private-missing-account");
+});
