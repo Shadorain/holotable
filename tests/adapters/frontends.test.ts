@@ -82,7 +82,6 @@ describe("orca frontend", () => {
       "--repo", "path:/repo",
       "--name", "chr-1",
       "--base-branch", "main",
-      "--pinned",
       "--linear-issue", "CHR-1",
       "--no-parent", "--json",
     ]);

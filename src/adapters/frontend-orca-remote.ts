@@ -170,8 +170,6 @@ export function orcaRemoteFrontend(run: Run, placement: RemotePlacement, cwd = p
       "--project-host-setup", setup.id,
       "--name", i.name,
       "--base-branch", i.base,
-      // Board-owned: native automatic cleanup must not delete live or awaiting-land work.
-      "--pinned",
       ...(options.noTerminal ? ["--no-terminal"] : []),
     ];
     if (i.ticket !== null) args.push("--linear-issue", i.ticket);

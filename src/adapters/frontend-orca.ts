@@ -95,8 +95,6 @@ export function orcaFrontend(run: Run, cwd = process.cwd(), options: { noTermina
       "--repo", `path:${i.repo}`,
       "--name", i.name,
       "--base-branch", i.base,
-      // Board-owned: native automatic cleanup must not delete live or awaiting-land work.
-      "--pinned",
     ];
     if (options.noTerminal) args.push("--no-terminal");
     if (i.ticket !== null) args.push("--linear-issue", i.ticket);

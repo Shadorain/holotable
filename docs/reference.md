@@ -224,7 +224,7 @@ Native Chat inventory records the exact execution host, opaque worktree id, abso
 
 A remote operation needs Bun on the mission host and a setup whose state is `ready`. The board deploys a small relay through `orca worktree exec` and checks the host id, checkout path, and argv the relay echoes. Remote paths are never resolved on the board. Status and control use the same mission socket protocol as a local fleet. A missing or foreign inventory fails closed.
 
-Draft input, decision answers, closer reports, and session transcripts are staged under the mission host's `~/.holotable` and copied back only into the board's draft, decision, and closer files, mode 0600. Those files can contain secrets. A symlink that leaves the relay directory is refused. An unreadable worktree status is not treated as clean: close and abort keep the checkout. New Orca workspaces are created `--pinned`, so an unrecognized cleanup policy cannot reap a live lane.
+Draft input, decision answers, closer reports, and session transcripts are staged under the mission host's `~/.holotable` and copied back only into the board's draft, decision, and closer files, mode 0600. Those files can contain secrets. A symlink that leaves the relay directory is refused. An unreadable worktree status is not treated as clean: close and abort keep the checkout.
 
 ## Watching missions
 
