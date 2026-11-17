@@ -85,6 +85,9 @@ Install `omp-mission` too and restart OMP. Then open a session in the repo you w
 
 ## Quick start
 
+For agent-assisted setup, invoke `/skill:holotable <goal>` in OMP. The bundled skill points
+OMP at the workflow and CLI docs; it is manual-only and never auto-invoked.
+
 1. **Open the board.** In an OMP session inside your repository, run `/holotable` and open one of the printed URLs. The full URL carries the access token; keep it private. A board with no operations opens on **Projects** with a **Getting started** card that checks OMP, omp-mission and the CLIs your integrations need, with a fix for anything missing.
 2. **Add your project.** Projects → **New project**. Pick the session's repo. Holotable detects the base branch, tracker, frontend and delivery and explains each choice; adjust anything. To launch missions, choose Orca, Herdr or a custom terminal frontend.
 3. **Create an operation.** Open the operation picker → **New operation** and choose the project. Then pick a starting point (drafting opens an OMP pane, so it needs the project's terminal frontend):

@@ -17,6 +17,12 @@ Commands, settings, frontends, resource limits and the data layout. For how to u
 
 ## OMP integration
 
+`/skill:holotable <goal>` explicitly loads the bundled planning and CLI guide for the agent.
+Its `disable-model-invocation: true` frontmatter keeps it out of the model's automatic skill
+catalog; it remains available as a manual skill command. Relative documentation links resolve
+from the skill directory in the installed plugin. Invoking the skill alone does not activate
+the extension's model tools or authorize automation.
+
 `/holotable` runs the bundled `holotable` CLI to start or reuse one board per `OMP_HOLOTABLE_HOME`, records the current repo for the project picker, prints the URLs and enables the model tools. Bun must be on `PATH`; linking the shell command is optional for OMP. The board stays up independently of the session.
 
 `/holotable` with no arguments makes sure the board service is running (starting it if needed), records the session's repo for the project picker, prints the URLs and enables the model tools. One board runs per `OMP_HOLOTABLE_HOME`: a second session is told where the first one lives.
