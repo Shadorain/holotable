@@ -29,7 +29,7 @@ function fakeRun(handler: (call: Call) => CommandResult | null): { run: Run; cal
   const run: Run = async (command, args, cwd) => {
     const call = { command, args, cwd };
     calls.push(call);
-    return handler(call) ?? { stdout: "", stderr: "not found", code: 127 };
+    return handler(call) ?? (command === "git" && args[0] === "config" ? fail() : fail(127, "not found"));
   };
   return { run, calls };
 }

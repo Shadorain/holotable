@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +16,7 @@ import { closerReportPath, closerReviewPath } from "../../src/store/closer.ts";
 import { decisionPath, decisionPrompt, decisionSessionsDir, readDecisionPane, writeDecisionPane } from "../../src/store/decisions.ts";
 import { draftPrompt } from "../../src/store/draft-prompts.ts";
 import { createDraftDir, readDraftDoc, recordDraftTerminal } from "../../src/store/drafts.ts";
+import { createProject } from "../../src/store/projects.ts";
 import { operation as operationFixture } from "../helpers.ts";
 
 const RELAY = fileURLToPath(new URL("../../src/adapters/remote-relay.mjs", import.meta.url));
@@ -224,11 +226,13 @@ describe("auxiliary payload and host identity", () => {
         repo: "/remote/repo",
         frontend: "orca",
         tracker: "none",
+        linearWorkspace: "Charidel",
         createdAt: "2026-01-02T03:04:05.000Z",
         host: "ssh:box",
         hostSetup: "setup-1",
         remoteDir: "/remote/drafts/draft-aabbccdd",
       });
+      expect(await readFile(join(home, "drafts", DRAFT, "SCHEMA.md"), "utf8")).toContain("--workspace \"Charidel\"");
       await recordDraftTerminal(home, DRAFT, { handle: "pane", incarnationId: "inc", host: "ssh:other", worktreeId: "wt" });
       const doc = await readDraftDoc(home, DRAFT);
       expect(doc).toMatchObject({
@@ -263,3 +267,95 @@ describe("auxiliary payload and host identity", () => {
     }
   });
 });
+describe("remote draft Linear workspace", () => {
+  test("repo config is read on the execution host and a lookup failure opens no pane", async () => {
+    const board = await mkdtemp(join(tmpdir(), "holotable-remote-draft-"));
+    const relayName = `holotable-relay-${createHash("sha256").update(await Bun.file(RELAY).bytes()).digest("hex").slice(0, 16)}.mjs`;
+    const HOST = "ssh:east", REPO = "/remote/repo", HOME = "/home/remote/.holotable";
+    const commands: string[][] = [];
+    const staged = new Map<string, string>();
+    let terminals = 0;
+    let failConfig = false;
+    const gitRuns: string[][] = [];
+    const orca = (payload: Record<string, unknown>) => JSON.stringify(payload);
+    const run: Run = async (_command, args) => {
+      commands.push(args);
+      if (args.join(" ") === "project setups --host " + HOST + " --json")
+        return { stdout: orca({ setups: [{ id: "setup-1", projectId: "p", repoId: "r", executionHostId: HOST, path: REPO, state: "ready" }] }), stderr: "", code: 0 };
+      if (args[0] === "worktree" && args[1] === "exec") {
+        const sep = args.indexOf("--");
+        const env: Record<string, string> = {};
+        for (let n = 0; n < sep; n += 1) if (args[n] === "--env") env[args[n + 1]!.split("=")[0]!] = args[n + 1]!.split("=").slice(1).join("=");
+        const child = args.slice(sep + 1);
+        const exec = (stdout: string, exitCode = 0, stderr = "") =>
+          ({ stdout: orca({ argv: child, hostId: HOST, worktree: REPO, stdout, stderr, exitCode }), stderr: "", code: 0 });
+        if (child[0] === "sh") return exec("1.4.4");
+        if (child[0] === "bun" && child[1] === "-e") return exec(`${HOME}/${relayName}\n`);
+        if (child[0] === "bun") {
+          const op = child[2], req = JSON.parse(env.HOLOTABLE_REQ ?? "{}") as Record<string, unknown>;
+          if (op === "ping") return exec(JSON.stringify({ ok: true }));
+          if (op === "write") {
+            const target = join(HOME, typeof req.path === "string" ? req.path : "bad");
+            if (typeof req.b64 === "string") staged.set(target, Buffer.from(req.b64, "base64").toString("utf8"));
+            return exec(JSON.stringify({ path: target }));
+          }
+          if (op === "run") {
+            const argv = Array.isArray(req.argv) ? req.argv as string[] : [];
+            if (argv[0] === "git") gitRuns.push(argv);
+            if (argv[0] === "git" && argv[1] === "config") {
+              if (failConfig) return exec(JSON.stringify({ stdout: "", stderr: "not a git repository", code: 128 }));
+              return exec(JSON.stringify({ stdout: "Charidel", stderr: "", code: 0 }));
+            }
+            return exec(JSON.stringify({ stdout: "", stderr: "", code: 0 }));
+          }
+          return exec(`unexpected relay op ${op}`, 1);
+        }
+        return exec("unexpected remote argv", 1);
+      }
+      if (args[0] === "terminal" && args[1] === "create") {
+        terminals += 1;
+        return { stdout: orca({ terminal: { handle: "draft-pane", incarnationId: "inc-1" } }), stderr: "", code: 0 };
+      }
+      if (args.join(" ") === "terminal list --json")
+        return {
+          stdout: orca({
+            terminals: terminals
+              ? [{ handle: "draft-pane", incarnationId: "inc-1", worktreePath: REPO, worktreeId: null, connected: true, title: "draft x", executionHostId: HOST }]
+              : [],
+            hostScope: { omittedHostIds: [] },
+          }),
+          stderr: "",
+          code: 0,
+        };
+      return { stdout: "{}", stderr: `unexpected board command: ${args.join(" ")}`, code: 1 };
+    };
+    try {
+      await createProject(board, {
+        v: 1, id: "remote-proj", name: "Remote", repo: REPO, base: "main", integration: "/remote/int",
+        pause: false, ignoreChecks: false, tracker: "none", fleet: "none", frontend: "orca",
+        delivery: "none", host: HOST, createdAt: "2026-01-02T03:04:05.000Z",
+      });
+      const svc = createBoardService(board, { run, drafts: { frontend: async () => { throw new Error("local frontend must not be used"); } } });
+
+      failConfig = true;
+      await expect(svc.createDraft!({ text: "import", project: "remote-proj" })).rejects.toThrow("not a git repository");
+      expect(terminals).toBe(0);
+      expect(await svc.listDrafts()).toEqual([]);
+
+      failConfig = false;
+      const { id } = await svc.createDraft!({ text: "import", project: "remote-proj" });
+      expect(gitRuns).toEqual([
+        ["git", "config", "--local", "--get", "mission.linearWorkspace"],
+        ["git", "config", "--local", "--get", "mission.linearWorkspace"],
+      ]);
+      expect(commands.every((c) => c[0] !== "git")).toBe(true);
+      expect([...staged.values()].some((text) => text.includes('--workspace "Charidel"'))).toBe(true);
+      expect(terminals).toBe(1);
+      expect(await readFile(join(board, "drafts", id, "SCHEMA.md"), "utf8")).toContain('--workspace "Charidel"');
+      expect(await readDraftDoc(board, id)).toMatchObject({ host: HOST, terminal: { handle: "draft-pane", host: HOST } });
+    } finally {
+      await rm(board, { recursive: true, force: true });
+    }
+  });
+});
+

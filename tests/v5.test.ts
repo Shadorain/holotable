@@ -182,6 +182,7 @@ test("a draft opens a pane, lists leftovers and closes by handle", async () => {
   const opened: string[] = [];
   const closed: string[] = [];
   const svc = createBoardService(dir, {
+    run: async () => ({ code: 1, stdout: "", stderr: "" }),
     drafts: {
       frontend: async () => ({
         id: "orca",
@@ -209,6 +210,71 @@ test("a draft opens a pane, lists leftovers and closes by handle", async () => {
   expect(closed).toEqual(["pane-1"]);
   expect(await svc.listDrafts()).toEqual([]);
 });
+test("drafts use each repository's configured Linear workspace", async () => {
+  const dir = home();
+  await writeSettings(dir, { ...DEFAULT_SETTINGS, defaults: { ...DEFAULT_SETTINGS.defaults, frontend: "orca" } });
+  const opened: string[] = [];
+  const commands: Array<{ args: string[]; cwd: string }> = [];
+  const svc = createBoardService(dir, {
+    run: async (_command, args, cwd) => {
+      commands.push({ args, cwd });
+      return { code: 0, stdout: cwd === "/repo/lyricin" ? "lyric\n" : "Charidel\n", stderr: "" };
+    },
+    drafts: {
+      frontend: async () => ({
+        id: "orca",
+        ensureRepo: async () => undefined,
+        createWorkspace: async () => ({ worktree: "/wt/d", branch: null }),
+        openTerminal: async (input) => {
+          opened.push(input.title);
+          return { handle: input.title, incarnationId: "inc" };
+        },
+        listTerminals: async () => null,
+        focus: async () => undefined,
+        close: async () => undefined,
+        removeWorkspace: async () => undefined,
+      }),
+    },
+  });
+
+  const lyric = await svc.createDraft!({ text: "import project", repo: "/repo/lyricin" });
+  const charidel = await svc.createDraft!({ text: "import project", repo: "/repo/charidel" });
+  const lyricSchema = readFileSync(join(dir, "drafts", lyric.id, "SCHEMA.md"), "utf8");
+  const charidelSchema = readFileSync(join(dir, "drafts", charidel.id, "SCHEMA.md"), "utf8");
+  expect(lyricSchema).toContain('--workspace "lyric"');
+  expect(charidelSchema).toContain('--workspace "Charidel"');
+  expect(commands.map(({ cwd }) => cwd)).toEqual(["/repo/lyricin", "/repo/charidel"]);
+  expect(commands.every(({ args }) => args.join(" ") === "config --local --get mission.linearWorkspace")).toBe(true);
+  expect(opened).toHaveLength(2);
+});
+
+test("draft workspace lookup failure does not open a pane", async () => {
+  const dir = home();
+  await writeSettings(dir, { ...DEFAULT_SETTINGS, defaults: { ...DEFAULT_SETTINGS.defaults, frontend: "orca" } });
+  let opened = false;
+  const svc = createBoardService(dir, {
+    run: async () => ({ code: 128, stdout: "", stderr: "repository configuration is inaccessible" }),
+    drafts: {
+      frontend: async () => ({
+        id: "orca",
+        ensureRepo: async () => undefined,
+        createWorkspace: async () => ({ worktree: "/wt/d", branch: null }),
+        openTerminal: async () => {
+          opened = true;
+          return { handle: "pane", incarnationId: "inc" };
+        },
+        listTerminals: async () => null,
+        focus: async () => undefined,
+        close: async () => undefined,
+        removeWorkspace: async () => undefined,
+      }),
+    },
+  });
+  await expect(svc.createDraft!({ text: "import issue", repo: "/repo/private" })).rejects.toThrow("repository configuration is inaccessible");
+  expect(opened).toBe(false);
+  expect(await svc.listDrafts()).toEqual([]);
+});
+
 
 test("draft close preserves transcripts on ledger failure and retries without double charging", async () => {
   const dir = home(), id = "draft-deadbeef";

@@ -26,6 +26,31 @@ Install only what your projects use. The board can display and organize work wit
 |Local-merge delivery|Git and a clean integration worktree; no hosting-service credentials needed.|
 |Bead graph (server-mode beads)|The project page shows the repo's Dolt graph server and can put it under a supervised `beads-dolt-<project>` systemd user unit (pinned port, `Restart=always`, `dolt.auto-start: false` so no mission pane starts a copy the Orca reaper would kill).|
 
+### Linear accounts
+
+Authenticate each workspace with `lin auth`, then use the names printed by `lin auth list`
+to pin a login per repository:
+
+```bash
+git -C /path/to/first-repo config --local mission.linearWorkspace first-workspace
+git -C /path/to/second-repo config --local mission.linearWorkspace second-workspace
+lin me --workspace first-workspace --json
+lin me --workspace second-workspace --json
+```
+
+The setting is a CLI workspace name, not an email address or a Linear team key.
+Holotable uses the selected login for ticket search, status, issue links and drafting;
+omp-mission uses it for ticket fetching, autocomplete and subsequent Linear instructions.
+Linked worktrees share the repository's setting, so projects can run under different
+accounts concurrently. Setup checks identify each workspace and its authenticated email.
+A selected account that fails is never retried against the default account.
+
+Without a pin, the CLI's current default still applies. Remove a pin with
+`git config --local --unset mission.linearWorkspace`. For remote projects, set it in
+the repository on the execution host; the board's tracker reads use its own authenticated
+`lin` installation, while draft and mission panes need that workspace authenticated on
+their execution host too. Restart or resume mission sessions after changing the pin.
+
 ### Open the board from another machine
 
 Default access is **Tailscale**, on port **4848** (or the next available port). Local URLs work without Tailscale. Settings → Server can restrict access to **This machine** or allow the **Network**. The full URL contains the API token: keep it private. HTTP is unencrypted; use a trusted network, Tailscale or an SSH tunnel.

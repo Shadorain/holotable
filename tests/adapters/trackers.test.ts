@@ -14,6 +14,7 @@ function fakeRun(result: CommandResult | ((call: Call) => CommandResult)): { run
   const run: Run = async (command, args, cwd) => {
     const call = { command, args, cwd };
     calls.push(call);
+    if (command === "git") return { code: 1, stdout: "", stderr: "" };
     return typeof result === "function" ? result(call) : result;
   };
   return { run, calls };
@@ -28,9 +29,9 @@ describe("linearTracker", () => {
     });
     const tracker = linearTracker(run);
     expect(await tracker.sample("chr-1", "/repo")).toEqual({ state: "In Progress", url: "https://linear.app/x/CHR-1" });
-    expect(calls[0].command).toBe("lin");
-    expect(calls[0].args).toEqual(["issues", "get", "CHR-1", "--json"]);
-    expect(calls[0].cwd).toBe("/repo");
+    const command = calls.find((call) => call.command === "lin")!;
+    expect(command.args).toEqual(["issues", "get", "CHR-1", "--json"]);
+    expect(command.cwd).toBe("/repo");
   });
 
   test("builds the workspace issue URL when lin omits url", async () => {
@@ -44,7 +45,7 @@ describe("linearTracker", () => {
       state: "Todo",
       url: "https://linear.app/charidel/issue/CHR-173",
     });
-    expect(calls.map((call) => call.args[0])).toEqual(["issues", "me"]);
+    expect(calls.filter((call) => call.command === "lin").map((call) => call.args[0])).toEqual(["issues", "me"]);
   });
 
   test("does not invent a pull request from a numeric ticket", async () => {
@@ -118,9 +119,9 @@ describe("linearTracker.search", () => {
       code: 0,
     });
     const hits = await linearTracker(run).search("kiosk", "/repo", 8);
-    expect(calls[0].command).toBe("lin");
-    expect(calls[0].args).toEqual(["search", "kiosk", "--json", "--limit", "8"]);
-    expect(calls[0].cwd).toBe("/repo");
+    const command = calls.find((call) => call.command === "lin")!;
+    expect(command.args).toEqual(["search", "kiosk", "--json", "--limit", "8"]);
+    expect(command.cwd).toBe("/repo");
     expect(hits).toEqual([
       { ticket: "CHR-170", title: "Office kiosk", state: "Backlog", url: null },
       { ticket: "CHR-171", title: "Portal invite", state: null, url: null },

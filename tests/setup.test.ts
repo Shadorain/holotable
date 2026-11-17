@@ -135,3 +135,93 @@ test("setup distinguishes active, disabled and duplicate mission copies in an is
     removeAll(bucket);
   }
 });
+
+test("setup checks every configured Linear workspace and reports each authenticated viewer", async () => {
+  const bucket: string[] = [];
+  const home = tempDir("setup-linear-workspaces", bucket);
+  try {
+    await writeSettings(home, { ...DEFAULT_SETTINGS, defaults: { ...DEFAULT_SETTINGS.defaults, tracker: "linear" } });
+    for (const [id, name, repo] of [
+      ["lyricin", "LyricIn", "/repos/lyricin"],
+      ["charidel", "Charidel", "/repos/charidel"],
+    ]) await createProject(home, {
+      v: 1, id, name, repo, base: "main", frontend: "none", tracker: "linear",
+      integration: repo, pause: false, ignoreChecks: false, fleet: "none", delivery: "none",
+      worktreeRoot: `${repo}/{name}`, createdAt: "2026-10-10T12:00:00.000Z",
+    });
+    const calls: string[][] = [];
+    const report = await runSetupChecks(home, async (command, args, cwd) => {
+      calls.push([command, ...args, cwd]);
+      if (command === "git") return {
+        code: 0,
+        stdout: cwd === "/repos/lyricin" ? "LyricIn\n" : "Charidel\n",
+        stderr: "",
+      };
+      if (command === "lin") return {
+        code: 0,
+        stdout: JSON.stringify({ viewer: { email: args.at(-1) === "LyricIn" ? "shadorain7517@gmail.com" : "jordanf7517@gmail.com" } }),
+        stderr: "",
+      };
+      return { code: 0, stdout: "{}", stderr: "" };
+    });
+    const linearCalls = calls.filter(([command]) => command === "lin");
+    expect(linearCalls).toHaveLength(2);
+    expect(linearCalls).toEqual(expect.arrayContaining([
+      ["lin", "me", "--json", "--workspace", "LyricIn", expect.any(String)],
+      ["lin", "me", "--json", "--workspace", "Charidel", expect.any(String)],
+    ]));
+    expect(report.checks.find(({ id }) => id === "linear:LyricIn")?.detail).toContain("shadorain7517@gmail.com");
+    expect(report.checks.find(({ id }) => id === "linear:Charidel")?.detail).toContain("jordanf7517@gmail.com");
+  } finally {
+    removeAll(bucket);
+  }
+});
+
+test("setup does not fall back to the default Linear account after selected workspace auth fails", async () => {
+  const bucket: string[] = [];
+  const home = tempDir("setup-linear-failure", bucket);
+  try {
+    await writeSettings(home, { ...DEFAULT_SETTINGS, defaults: { ...DEFAULT_SETTINGS.defaults, tracker: "linear" } });
+    await createProject(home, {
+      v: 1, id: "charidel", name: "Charidel", repo: "/repos/charidel", base: "main",
+      frontend: "none", tracker: "linear", integration: "/repos/charidel", pause: false,
+      ignoreChecks: false, fleet: "none", delivery: "none", worktreeRoot: "/repos/charidel/{name}",
+      createdAt: "2026-10-10T12:00:00.000Z",
+    });
+    const linArgs: string[][] = [];
+    const report = await runSetupChecks(home, async (command, args) => {
+      if (command === "git") return { code: 0, stdout: "Charidel\n", stderr: "" };
+      if (command === "lin") {
+        linArgs.push(args);
+        return args.includes("Charidel")
+          ? { code: 1, stdout: "", stderr: "not authenticated" }
+          : { code: 0, stdout: '{"email":"shadorain7517@gmail.com"}', stderr: "" };
+      }
+      return { code: 0, stdout: "{}", stderr: "" };
+    });
+    expect(linArgs).toEqual([["me", "--json", "--workspace", "Charidel"]]);
+    expect(report.checks.find(({ id }) => id === "linear:Charidel")?.ok).toBe(false);
+  } finally {
+    removeAll(bucket);
+  }
+});
+
+test("setup checks the default Linear workspace with no project context", async () => {
+  const bucket: string[] = [];
+  const home = tempDir("setup-linear-default", bucket);
+  try {
+    await writeSettings(home, { ...DEFAULT_SETTINGS, defaults: { ...DEFAULT_SETTINGS.defaults, tracker: "linear" } });
+    let linArgs: string[] | undefined;
+    const report = await runSetupChecks(home, async (command, args) => {
+      if (command === "lin") {
+        linArgs = args;
+        return { code: 0, stdout: '{"viewer":{"email":"default@example.com"}}', stderr: "" };
+      }
+      return { code: 0, stdout: "{}", stderr: "" };
+    });
+    expect(linArgs).toEqual(["me", "--json"]);
+    expect(report.checks.find(({ id }) => id === "linear")?.detail).toContain("default@example.com");
+  } finally {
+    removeAll(bucket);
+  }
+});

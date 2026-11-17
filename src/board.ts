@@ -7,7 +7,8 @@ import { PANE_MEMORY_BYTES } from "./core/policy.ts";
 import { workspaceInfo, type WorkspaceInfo } from "./adapters/workspace-info.ts";
 import { doltState, installDolt, restartDolt, type DoltState } from "./adapters/beads-dolt.ts";
 import { detectRemoteRepo, resolveRemotePlacement } from "./adapters/placement.ts";
-import { createRemotePlacement, orcaRemoteFrontend } from "./adapters/frontend-orca-remote.ts";
+import { createRemotePlacement, orcaRemoteFrontend, type RemotePlacement } from "./adapters/frontend-orca-remote.ts";
+import { readLinearWorkspace } from "./adapters/linear-account.ts";
 import { pullCloser, pullFile, pullSessions, relayFor, remoteSegment, removeRemote, stageText } from "./adapters/remote-artifacts.ts";
 import { orcaChatFrontend } from "./adapters/frontend-orca-chat.ts";
 import type { RelayOps } from "./adapters/orca-exec.ts";
@@ -847,31 +848,39 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         if (input.repo !== undefined && input.repo !== project.repo)
           throw new HttpError(400, "repo must be the project's remote checkout");
       }
+      const tracker = project?.tracker ?? settings.defaults.tracker;
+      let remoteDir: string | undefined;
+      let relay: RelayOps | null = null;
+      let placement: RemotePlacement | null = null;
+      let repositoryRun = hooks.run ?? createRun();
+      if (remote && project && hooks.run) {
+        placement = createRemotePlacement(hooks.run, process.cwd(), {
+          host: project.host!,
+          ...(project.hostSetup !== undefined ? { hostSetup: project.hostSetup } : {}),
+          repo: project.repo,
+        });
+        relay = await placement.relay();
+        const relayed = relay;
+        repositoryRun = (command, args, cwd, env) => relayed.run(command, args, cwd, env);
+      }
+      const linearWorkspace = await readLinearWorkspace(repo, repositoryRun);
       const cap = settings.cap;
       const open = hooks.extras?.("")?.load?.open ?? 0;
       if (open >= cap) throw new HttpError(409, `The board is at its cap (${open}/${cap} live)`);
       const id = newDraftId();
-      const tracker = project?.tracker ?? settings.defaults.tracker;
       const selectedModel = input.model !== undefined ? input.model : (settings.ai.draft ?? settings.ai.model);
-      let remoteDir: string | undefined;
-      let relay: RelayOps | null = null;
       try {
-        if (remote && project && hooks.run) {
-          const placement = createRemotePlacement(hooks.run, process.cwd(), {
-            host: project.host!,
-            ...(project.hostSetup !== undefined ? { hostSetup: project.hostSetup } : {}),
-            repo: project.repo,
-          });
-          relay = await placement.relay();
+        if (remote && project && hooks.run && placement) {
           const segment = remoteSegment(id);
-          remoteDir = dirname(await stageText(relay, `drafts/${segment}/input.md`, text));
-          await stageText(relay, `drafts/${segment}/SCHEMA.md`, schemaFor(tracker));
-          await stageText(relay, `drafts/${segment}/sessions/.keep`, "");
+          remoteDir = dirname(await stageText(relay!, `drafts/${segment}/input.md`, text));
+          await stageText(relay!, `drafts/${segment}/SCHEMA.md`, schemaFor(tracker, linearWorkspace));
+          await stageText(relay!, `drafts/${segment}/sessions/.keep`, "");
           await createDraftDir(home, id, {
             text,
             repo: project.repo,
             frontend: kind,
             tracker,
+            ...(linearWorkspace !== undefined ? { linearWorkspace } : {}),
             ...(project.worktreeRoot !== undefined ? { worktreeRoot: project.worktreeRoot } : {}),
             host: project.host,
             ...(project.hostSetup !== undefined ? { hostSetup: project.hostSetup } : {}),
@@ -898,6 +907,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
             repo,
             frontend: kind,
             tracker,
+            ...(linearWorkspace !== undefined ? { linearWorkspace } : {}),
             ...(project?.worktreeRoot !== undefined ? { worktreeRoot: project.worktreeRoot } : {}),
             createdAt: new Date(now()).toISOString(),
           });

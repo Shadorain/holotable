@@ -59,7 +59,7 @@ function metaPath(dir: string): string {
 export async function createDraftDir(
   home: string,
   id: string,
-  input: { text: string; repo: string; frontend: Frontend; tracker: string; worktreeRoot?: string; createdAt: string; host?: string; hostSetup?: string; remoteDir?: string },
+  input: { text: string; repo: string; frontend: Frontend; tracker: string; linearWorkspace?: string; worktreeRoot?: string; createdAt: string; host?: string; hostSetup?: string; remoteDir?: string },
 ): Promise<string> {
   assertDraftId(id);
   const dir = draftDir(home, id);
@@ -73,8 +73,7 @@ export async function createDraftDir(
     terminal: null,
     createdAt: input.createdAt,
   };
-  await writeFile(join(dir, "input.md"), input.text, { mode: 0o600 });
-  await writeFile(join(dir, "SCHEMA.md"), schemaFor(input.tracker), { mode: 0o600 });
+  await writeFile(join(dir, "SCHEMA.md"), schemaFor(input.tracker, input.linearWorkspace), { mode: 0o600 });
   await writeFile(metaPath(dir), `${JSON.stringify(doc, null, 2)}\n`, { mode: 0o600 });
   return dir;
 }

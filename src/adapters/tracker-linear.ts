@@ -1,5 +1,6 @@
 import { isRecord } from "../core/validate.ts";
 import type { Run, TrackerHit, TrackerPort } from "../ports.ts";
+import { readLinearWorkspace } from "./linear-account.ts";
 
 // `lin issues get` returns state and identifier, not `url`. The issue URL is the
 // workspace key plus the identifier — never a GitHub pull request built from the number.
@@ -16,9 +17,9 @@ function identifierOf(value: unknown): string | null {
   return typeof value === "string" && IDENTIFIER.test(value) ? value : null;
 }
 
-async function loadWorkspaceKey(run: Run, cwd: string): Promise<string | null> {
+async function loadWorkspaceKey(run: Run, cwd: string, workspace?: string): Promise<string | null> {
   try {
-    const result = await run("lin", ["me", "--json"], cwd);
+    const result = await run("lin", ["me", "--json", ...(workspace ? ["--workspace", workspace] : [])], cwd);
     if (result.code !== 0) return null;
     const payload: unknown = JSON.parse(result.stdout);
     if (!isRecord(payload) || !isRecord(payload.viewer)) return null;
@@ -31,23 +32,28 @@ async function loadWorkspaceKey(run: Run, cwd: string): Promise<string | null> {
 }
 
 
-export function linearTracker(run: Run): TrackerPort {
-  let keyPromise: Promise<string | null> | null = null;
-  const workspaceKey = (cwd: string): Promise<string | null> => {
-    if (!keyPromise) {
-      keyPromise = loadWorkspaceKey(run, cwd).then((key) => {
-        if (!key) keyPromise = null;
+export function linearTracker(run: Run, options: { configRun?: Run; cliCwd?: string } = {}): TrackerPort {
+  const keys = new Map<string, Promise<string | null>>();
+  const workspaceKey = (cwd: string, workspace: string | undefined): Promise<string | null> => {
+    if (!workspace) return loadWorkspaceKey(run, options.cliCwd ?? cwd);
+    const identity = JSON.stringify([cwd, workspace ?? null]);
+    let promise = keys.get(identity);
+    if (!promise) {
+      promise = loadWorkspaceKey(run, options.cliCwd ?? cwd, workspace).then((key) => {
+        if (!key) keys.delete(identity);
         return key;
       });
+      keys.set(identity, promise);
     }
-    return keyPromise;
+    return promise;
   };
 
   return {
     id: "linear",
     async sample(ticket, cwd) {
       try {
-        const result = await run("lin", ["issues", "get", ticket.toUpperCase(), "--json"], cwd);
+        const workspace = await readLinearWorkspace(cwd, options.configRun ?? run);
+        const result = await run("lin", ["issues", "get", ticket.toUpperCase(), "--json", ...(workspace ? ["--workspace", workspace] : [])], options.cliCwd ?? cwd);
         if (result.code !== 0) return null;
         const payload: unknown = JSON.parse(result.stdout);
         if (!isRecord(payload) || !isRecord(payload.issue)) return null;
@@ -57,7 +63,7 @@ export function linearTracker(run: Run): TrackerPort {
         const identifier = identifierOf(issue.identifier) ?? identifierOf(ticket.toUpperCase());
         let url = httpUrl(issue.url);
         if (!url && identifier) {
-          const key = await workspaceKey(cwd);
+          const key = await workspaceKey(cwd, workspace);
           if (key) url = `https://linear.app/${key}/issue/${identifier}`;
         }
         return { state, url };
@@ -67,7 +73,8 @@ export function linearTracker(run: Run): TrackerPort {
     },
     async search(query, cwd, limit) {
       try {
-        const result = await run("lin", ["search", query, "--json", "--limit", String(limit)], cwd);
+        const workspace = await readLinearWorkspace(cwd, options.configRun ?? run);
+        const result = await run("lin", ["search", query, "--json", "--limit", String(limit), ...(workspace ? ["--workspace", workspace] : [])], options.cliCwd ?? cwd);
         if (result.code !== 0) return null;
         const payload: unknown = JSON.parse(result.stdout);
         if (!isRecord(payload) || !Array.isArray(payload.issues)) return null;
@@ -82,7 +89,7 @@ export function linearTracker(run: Run): TrackerPort {
           hits.push({ ticket: issue.identifier, title: issue.title, state, url: direct });
         }
         if (needKey) {
-          const key = await workspaceKey(cwd);
+          const key = await workspaceKey(cwd, workspace);
           if (key) {
             for (const hit of hits) {
               if (hit.url) continue;

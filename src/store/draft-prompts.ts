@@ -88,8 +88,12 @@ const TRACKER_HINTS: Record<string, string> = {
   none: "local short slugs matching /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/. Generate stable descriptive ids for new missions; no external tickets are required. Linear source documents can still be read with `lin docs get <id> --json`, without creating Linear issues.",
 };
 
-export function schemaFor(tracker: string): string {
-  return seedSchema(TRACKER_HINTS[tracker] ?? TRACKER_HINTS.none!);
+export function schemaFor(tracker: string, linearWorkspace?: string): string {
+  const hint = TRACKER_HINTS[tracker] ?? TRACKER_HINTS.none!;
+  const workspaceHint = linearWorkspace
+    ? ` Every \`lin\` command must include \`--workspace ${JSON.stringify(linearWorkspace)}\`; use the workspace configured for this repository for projects, issues, documents and relations.`
+    : "";
+  return seedSchema(`${hint}${workspaceHint}`);
 }
 
 /** The prompt the draft pane runs: input.md in, seed.json out, nothing else touched. */

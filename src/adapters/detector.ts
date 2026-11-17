@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import { InputError } from "../core/errors.ts";
 import { decode } from "./orca-envelope.ts";
 import type { Run } from "../ports.ts";
+import { readLinearWorkspace } from "./linear-account.ts";
 
 export interface RepoRow {
   path: string;
@@ -131,7 +132,8 @@ export async function detectRepo(
   // Credentialed CLIs live on the board. A remote probe must not use the host path as cwd.
   const probeCwd = options?.probeRun ? process.cwd() : top;
   const ghOk = githubOrigin && (await probe("gh", ["auth", "status"], probeCwd)).code === 0;
-  const linOk = (await probe("lin", ["me", "--json"], probeCwd)).code === 0;
+  const linearWorkspace = await readLinearWorkspace(top, run);
+  const linOk = (await probe("lin", ["me", "--json", ...(linearWorkspace ? ["--workspace", linearWorkspace] : [])], probeCwd)).code === 0;
   const herdrOk = (await probe("herdr", ["--version"], probeCwd)).code === 0;
 
   let frontend: DetectedFields["frontend"];
@@ -149,7 +151,7 @@ export async function detectRepo(
   let tracker: DetectedFields["tracker"];
   if (linOk) {
     tracker = "linear";
-    reasons.tracker = "Linear CLI is authenticated";
+    reasons.tracker = linearWorkspace ? `Linear workspace ${linearWorkspace} is authenticated` : "Linear CLI is authenticated";
   } else if (ghOk) {
     tracker = "github";
     reasons.tracker = "origin is GitHub and gh is signed in";

@@ -165,9 +165,12 @@ The demand-driven Load tooltip renders measurements only.
 
 Operation-table zone filters are browser state keyed by operation and cleared when a zone is
 removed. Ticket navigation rejects PR URLs and resolves missing tracker URLs on demand through
-`GET /api/tracker/issue?op=&ticket=`. Linear uses the authenticated workspace key from `lin me`
-when an issue omits its URL. Tracker-only service wiring supplies valid unused port kinds;
-queued contacts need not enter the watcher's sampling loop to obtain a link.
+`GET /api/tracker/issue?op=&ticket=`. Linear uses the repository's `mission.linearWorkspace`
+Git setting for issue reads, search and `lin me` URL resolution; successful URL-key caches
+are scoped by repository and workspace, never shared across accounts. Remote Git settings
+are read on the execution host, but board tracker credentials and commands remain local.
+Tracker-only service wiring supplies valid unused port kinds; queued contacts need not
+enter the watcher's sampling loop to obtain a link.
 
 Recovery treats producer `hold: quota` as an operator hold, even when the pane is offline:
 neither Continue nor Relaunch is automatic. Serialized relaunches recheck that hold when
@@ -252,6 +255,10 @@ Reach (`src/access.ts`, `settings.access`): `local` binds `127.0.0.1`, `tailscal
 Repo detection (`src/adapters/detector.ts`, all through the injected `Run`): `GET /api/repos` merges project repos, `orca repo list --json`, and `recent-repos.json` (up to five git top-levels recorded by the plugin when `/holotable` runs), deduplicated by realpath, cached ~30 s. `POST /api/projects/detect {repo}` answers `{fields, reasons}`: base from Orca's `worktreeBaseRef`, else remote `origin/HEAD`, else the current branch, else `main`; name from Orca's `displayName` else the folder; frontend `orca`/`herdr`/`none`; tracker `linear` (`lin me`) or `github` (GitHub origin + `gh auth`) or `none`; delivery `github-pr` or `local-merge`; fleet `omp-mission`, integration = the git top-level (non-git paths are a 400). The HTTP response reflects `settings.defaults.pause`; repository detection does not choose mission mode. `POST /api/projects` accepts `{repo}` alone and detects unspecified repository fields.
 
 Agent drafts (`store/drafts.ts`, `drafts/<id>/`): `POST /api/drafts {text, project?|repo?}` opens a terminal through the frontend running `omp` with a prompt to read the text or link and write `seed.json` there; `GET /api/drafts?id=` reports `running`, `ready` (with the validated seed), `invalid` (with the error) or `missing`; `POST /api/drafts/close` closes the pane and deletes the directory. Refused with 409 when the effective frontend is `none`. The board never runs a model itself; the form only fills fields from the seed.
+
+The draft prompt carries the repository's configured Linear workspace for every `lin`
+command, including source documents for a tracker-free project. It does not switch the
+CLI default; the pane's execution host must have the named workspace authenticated.
 
 Draft instructions support both source import and idea development. Linear document URLs resolve
 through `lin docs get <trailing-id> --json`, followed by issue/relationship reads. The draft pane

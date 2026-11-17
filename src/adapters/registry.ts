@@ -64,7 +64,9 @@ function remotePorts(operation: Operation, settings: Settings, run: Run, agentDi
   });
   const remoteCtx: AdapterContext = { operation, settings, run: remoteRunFor(placement, run), agentDir };
   return {
-    tracker: pick(TRACKER_ADAPTERS, "tracker", operation.tracker, { operation, settings, run, agentDir }),
+    tracker: operation.tracker === "linear"
+      ? linearTracker(run, { configRun: remoteCtx.run, cliCwd: process.cwd() })
+      : pick(TRACKER_ADAPTERS, "tracker", operation.tracker, { operation, settings, run, agentDir }),
     frontend: operation.frontend === "orca-chat"
       ? orcaChatFrontend(orcaRemoteFrontend(run, placement, process.cwd(), { noTerminal: true }), run, process.cwd(), operation.host)
       : orcaRemoteFrontend(run, placement),

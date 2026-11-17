@@ -3,13 +3,15 @@ import { join } from "node:path";
 import type { Run } from "./ports.ts";
 import { messageOf } from "./core/errors.ts";
 import { agentDir } from "./paths.ts";
-import { listOperations } from "./store/operations.ts";
+import { listOperations, readOperation } from "./store/operations.ts";
 import { listProjects } from "./store/projects.ts";
 import { DEFAULT_SETTINGS } from "./settings.ts";
 import { readSettings } from "./store/settings.ts";
 import { checkOrcaStartupCommand } from "./adapters/orca-capabilities.ts";
 import { requireOrcaChat } from "./adapters/frontend-orca-chat.ts";
 import { decode } from "./adapters/orca-envelope.ts";
+import { orcaExec } from "./adapters/orca-exec.ts";
+import { readLinearWorkspace } from "./adapters/linear-account.ts";
 import { withTimeout } from "./timeout.ts";
 import { loadProjection } from "./snapshot.ts";
 export interface SetupCheck {
@@ -81,7 +83,7 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
   const frontendsInUse = new Set<string>();
   const deliveriesInUse = new Set<string>();
   const nativeHosts = new Set<string>();
-
+  const linearRepositories: { repo: string; host?: string }[] = [];
   const settings = await readSettings(home).catch(() => null);
   if (settings) {
     trackersInUse.add(settings.defaults.tracker);
@@ -95,6 +97,7 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
     trackersInUse.add(proj.tracker);
     frontendsInUse.add(proj.frontend);
     deliveriesInUse.add(proj.delivery);
+    if (proj.tracker === "linear") linearRepositories.push({ repo: proj.repo, host: proj.host });
     if (proj.frontend === "orca-chat") nativeHosts.add(proj.host ?? "local");
   }
 
@@ -107,6 +110,8 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
       trackersInUse.add(p.operation.tracker);
       frontendsInUse.add(p.operation.frontend);
       deliveriesInUse.add(p.operation.delivery);
+      if (p.operation.tracker === "linear")
+        linearRepositories.push({ repo: (await readOperation(home, row.id)).repo, host: p.operation.host });
       if (p.operation.frontend === "orca-chat") nativeHosts.add(p.operation.host ?? "local");
       contacts += p.contacts.length;
       launched += p.contacts.filter((c) => c.lane !== null).length;
@@ -202,11 +207,68 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
       );
     }
 
-    if (trackersInUse.has("linear")) {
-      addCheck("linear", "Linear CLI", runWithTimeout(run, "lin", ["me", "--json"]).then((res) => {
-        if (res.code === 0) return { ok: true, detail: "Authenticated" };
-        return { ok: false, detail: "Not authenticated or missing", fix: "Install Linear CLI and run `lin auth`" };
+    const useDefaultLinear = linearRepositories.length === 0
+      && (projects ?? []).length === 0
+      && (operations ?? []).length === 0
+      && settings?.defaults.tracker === "linear";
+    if (linearRepositories.length > 0 || useDefaultLinear) {
+      const routes = new Map<string, { workspace?: string; repo?: string }>();
+      const repositories = [...new Map(linearRepositories.map((entry) =>
+        [JSON.stringify([entry.host ?? "local", entry.repo]), entry],
+      )).values()];
+      const workspaceResults = await Promise.allSettled(repositories.map(async ({ repo, host }) => {
+        const repositoryRun: Run = host && host !== "local"
+          ? async (command, args) => {
+              const result = await orcaExec(run, process.cwd(), {
+                host,
+                worktree: repo,
+                argv: [command, ...args],
+                timeoutMs: RUN_TIMEOUT,
+              });
+              return { code: result.exitCode, stdout: result.stdout, stderr: result.stderr };
+            }
+          : run;
+        const timedRun: Run = (command, args, cwd) => runWithTimeout(repositoryRun, command, args, cwd);
+        const workspace = await readLinearWorkspace(repo, timedRun);
+        return { workspace, repo };
       }));
+      const failures: string[] = [];
+      for (const result of workspaceResults) {
+        if (result.status === "fulfilled") routes.set(result.value.workspace ?? "", result.value);
+        else failures.push(messageOf(result.reason));
+      }
+      if (useDefaultLinear) routes.set("", {});
+      if (failures.length > 0) {
+        addCheck("linear-config", "Linear workspace configuration", Promise.resolve({
+          ok: false,
+          detail: failures.join("; "),
+          fix: "Ensure each Linear project repository has a valid mission.linearWorkspace git setting",
+        }));
+      }
+      for (const { workspace, repo } of routes.values()) {
+        const label = workspace ? `Linear CLI (${workspace})` : "Linear CLI (default workspace)";
+        const id = workspace ? `linear:${workspace}` : "linear";
+        addCheck(id, label, runWithTimeout(
+          run,
+          "lin",
+          workspace ? ["me", "--json", "--workspace", workspace] : ["me", "--json"],
+        ).then((res) => {
+          if (res.code !== 0) return {
+            ok: false,
+            detail: "Not authenticated or missing",
+            fix: "Install Linear CLI and run `lin auth`",
+          };
+          let email: string | undefined;
+          try {
+            const viewer = JSON.parse(res.stdout)?.viewer;
+            if (typeof viewer?.email === "string") email = viewer.email;
+          } catch {}
+          return {
+            ok: true,
+            detail: `${workspace ? `Workspace ${workspace}` : "Default workspace"}${email ? `; authenticated as ${email}` : ""}${repo ? ` (${repo})` : ""}`,
+          };
+        }));
+      }
     }
 
     if (trackersInUse.has("github") || deliveriesInUse.has("github-pr")) {
