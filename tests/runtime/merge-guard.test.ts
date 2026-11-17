@@ -29,6 +29,7 @@ async function setup(contacts: Contact[], over: Parameters<typeof seedOperation>
   }
   const extras = () => ({ statuses, owners: {}, probes: Object.fromEntries(fake.world.probes), load: { live: 0, open: 0 }, integrationDirty: null, vanished: new Set<string>(), gone: new Set<string>(), decisionPanes: new Set<string>() });
   const run = async (_command: string, args: string[]) => ({ stdout: args[0] === "rev-parse" ? "main\n" : "", stderr: "", code: 0 });
+  fake.ports.run = run;
   const deps = {
     home,
     now: () => new Date("2026-01-01T03:00:00Z"),
@@ -38,7 +39,6 @@ async function setup(contacts: Contact[], over: Parameters<typeof seedOperation>
     sleep: async () => {},
     token: () => "abc123",
     socketWaitMs: 0,
-    run,
   };
   const watcher=createWatcher({...deps,warn:()=>{}});
   const act=createActionRunner({...deps,captureMetrics:watcher.capture});

@@ -93,9 +93,8 @@ export function schemaFor(tracker: string): string {
 }
 
 /** The prompt the draft pane runs: input.md in, seed.json out, nothing else touched. */
-export function draftPrompt(home: string, id: string): string {
+export function draftPrompt(home: string, id: string, dir = draftDir(home, id)): string {
   assertDraftId(id);
-  const dir = draftDir(home, id);
   return (
     `Read ${join(dir, "SCHEMA.md")} first, then ${join(dir, "input.md")} and its relevant sources ` +
     `(use lin for Linear documents and issues, gh for GitHub references). Inspect the current repository read-only. ` +

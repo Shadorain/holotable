@@ -22,7 +22,10 @@ async function setup(over: { sampleMs?: number } = {}) {
     tracker: "linear",
     contacts: [contact("CHR-1", { lane: lane("/wt/a", "t1", "feat/a") }), contact("CHR-2"), contact("CHR-3", { lane: lane("/wt/z", "t2") })],
   });
-  const fake = fakePorts();
+  const fake = fakePorts(async (command, args) => {
+    if (command === "git" && args[0] === "status") return { stdout: "", stderr: "", code: 0 };
+    throw new Error(`unexpected spawn: ${command} ${args.join(" ")}`);
+  });
   fake.world.statuses.set("/wt/a", status());
   fake.world.statuses.set("/wt/z", status({ id: "run-z", worktree: "/wt/z", ctl: null }));
   fake.world.alive.add("/tmp/x.sock");

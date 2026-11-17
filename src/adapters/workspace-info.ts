@@ -17,7 +17,7 @@ export interface WorkspaceInfo {
 export async function workspaceInfo(op: Operation, settings: Settings, run: Run | undefined): Promise<WorkspaceInfo> {
   if (op.frontend === "none")
     return { path: null, source: "none", note: "No frontend: contacts can only adopt an existing worktree (add --worktree)." };
-  if (op.frontend === "orca") {
+  if (op.frontend === "orca" || op.frontend === "orca-chat") {
     if (!run) return { path: null, source: "none", note: "Orca decides; the board cannot ask it from here." };
     try {
       const result = decode(await run("orca", ["repo", "show", "--repo", `path:${op.repo}`, "--json"], op.repo));

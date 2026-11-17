@@ -496,7 +496,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
     };
   };
 
-  const ports: Omit<Ports, "tracker"> = {
+  const ports: Omit<Ports, "tracker" | "run"> = {
     fleet: {
       id: "omp-mission",
       launch: (i) => {
@@ -764,7 +764,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
     born(worktree, null).closed = true;
   };
   const seedTerminal = (t: TerminalRef, worktree: string) => terminals.set(t.handle, { ...t, worktree });
-  return { ports, run, trackerFor, closePane, seedTerminal };
+  return { ports: { ...ports, run }, run, trackerFor, closePane, seedTerminal };
 }
 
 /** Wipe the demo data but keep the operator's settings.json, so theme, cap and polling survive restarts. */
@@ -892,7 +892,7 @@ async function main(): Promise<void> {
     existsSync(settingsFile(home)) ? { ...(await readSettings(home)), ...bind } : { ...DEFAULT_SETTINGS, ...bind, cap: 8, pollMs: 2_000, sampleMs: 2_000 };
   const portsFor = (op: Operation) => ({ ...ports, tracker: trackerFor(op.tracker) });
   // Closed through the real end path, so their archive reports lead with the closer's review: JSON for `relay`, Markdown only for `ledger`.
-  const endDeps: WinddownDeps = { home, now: () => new Date(), settings, portsFor, run };
+  const endDeps: WinddownDeps = { home, now: () => new Date(), settings, portsFor };
   await seedClosed(home, endDeps, {
     id: "relay",
     name: "Relay cutover",

@@ -65,6 +65,7 @@ async function setup(opts: Opts = {}) {
   const extras = () => ({ statuses, owners: owners(), probes: {}, load: { live: opts.open ?? 1, open: opts.open ?? 1 }, vanished, gone: new Set<string>(), decisionPanes: new Set<string>(), integrationDirty: null });
 
   const noRun: Run = async () => ({ stdout: "", stderr: "", code: 0 });
+  fake.ports.run = noRun;
   const availableMemory = opts.availableMemory ?? (() => 8 * 1024 * 1024 * 1024);
   const act = createActionRunner({
     home,
@@ -75,7 +76,6 @@ async function setup(opts: Opts = {}) {
     sleep: async () => {},
     token: () => "abc123",
     socketWaitMs: 0,
-    run: noRun,
     availableMemory,
   });
   const warnings: string[] = [];

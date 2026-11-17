@@ -149,8 +149,12 @@ export interface FakeCall {
   method: string;
   args: unknown;
 }
+/** A Run for tests that must never spawn: any call fails loudly. */
+export const noRun: Run = async (command, args) => {
+  throw new Error(`unexpected spawn: ${command} ${args.join(" ")}`);
+};
 /** In-memory ports. Mutate `world` between passes; `fail` makes a named method throw. */
-export function fakePorts() {
+export function fakePorts(run: Run = noRun) {
   const calls: FakeCall[] = [];
   const world = {
     statuses: new Map<string, ContactStatus | null>(),
@@ -212,11 +216,8 @@ export function fakePorts() {
         }),
       land: async (i) => call("delivery", "land", i.sourceBranch, () => ({ outcome: "landed" as const, via: "pr" as const })),
     },
+    run,
   };
   return { ports, calls, world, count: (key: string) => calls.filter((c) => `${c.port}.${c.method}` === key).length };
 }
 
-/** A Run for tests that must never spawn: any call fails loudly. */
-export const noRun: Run = async (command, args) => {
-  throw new Error(`unexpected spawn: ${command} ${args.join(" ")}`);
-};

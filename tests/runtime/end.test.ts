@@ -20,15 +20,20 @@ afterEach(() => removeAll(dirs));
 
 const at = () => new Date("2026-01-02T03:04:05Z");
 
-function windDeps(home: string, ports: Ports): WinddownDeps {
-  return { home, now: at, settings: async () => DEFAULT_SETTINGS, portsFor: () => ports, run: gitStatus(new Map()) };
+function windDeps(home: string, ports: Ports, run: Run = gitStatus(new Map())): WinddownDeps {
+  return { home, now: at, settings: async () => DEFAULT_SETTINGS, portsFor: () => ({ ...ports, run }) };
 }
 
-/** A Run that only answers `git status --porcelain`, from a per-directory map. */
-function gitStatus(porcelain: Map<string, string>): Run {
+/** A Run that only answers `git status`, from a per-directory porcelain map. Missing dirs are gone. */
+function gitStatus(porcelain: Map<string, string>, gone = new Set<string>()): Run {
   return async (command, args, cwd) => {
-    if (command === "git" && args.join(" ") === "status --porcelain") {
-      return { stdout: porcelain.get(cwd) ?? "", stderr: "", code: 0 };
+    if (command === "git" && args.includes("status")) {
+      if (gone.has(cwd)) return { stdout: "", stderr: "No such file or directory", code: 128 };
+      const text = porcelain.get(cwd) ?? "";
+      const stdout = args.includes("-z")
+        ? text.split("\n").filter(Boolean).join("\0") + (text.trim() ? "\0" : "")
+        : text;
+      return { stdout, stderr: "", code: 0 };
     }
     throw new Error(`unexpected spawn: ${command} ${args.join(" ")}`);
   };
@@ -46,6 +51,8 @@ describe("windDown", () => {
     const fake = fakePorts();
     await windDown(windDeps(home, fake.ports), "lab", "abort");
 
+    const remove = fake.calls.find((call) => call.method === "removeWorkspace");
+    expect(remove?.args).toMatchObject({ force: true });
     expect(fake.count("frontend.close")).toBe(1);
     expect(fake.count("frontend.removeWorkspace")).toBe(1);
     expect(await kinds(home)).toEqual(["queued:a", "launched:a", "reaped:a", "removed:a"]);
@@ -58,6 +65,8 @@ describe("windDown", () => {
     await seedOperation(home, { contacts: [contact("a", { lane: { worktree: wt, branch: "b/a", frontend: "orca", terminal: null } })] });
     const fake = fakePorts();
     await windDown(windDeps(home, fake.ports), "lab", "abort");
+    const remove = fake.calls.find((call) => call.method === "removeWorkspace");
+    expect(remove?.args).toMatchObject({ force: true });
     expect(fake.count("frontend.removeWorkspace")).toBe(1);
     expect(await kinds(home)).toContain("removed:a");
   });
@@ -79,7 +88,9 @@ describe("windDown", () => {
     expect(got).toContain("reaped:a");
     expect(got).toContain("reaped:b");
     expect(got).toContain("removed:a");
-    expect(got).toContain("removed:b");
+    const removals = fake.calls.filter((call) => call.method === "removeWorkspace");
+    expect(removals).toHaveLength(2);
+    expect(removals.every((call) => (call.args as { force?: boolean }).force === undefined)).toBe(true);
 
     fake.world.fail.clear();
     fake.world.fail.set("frontend.removeWorkspace", new Error("locked"));
@@ -105,7 +116,56 @@ describe("windDown", () => {
     await windDown(windDeps(home, fake.ports), "lab", "abort");
     expect(fake.count("frontend.removeWorkspace")).toBe(0);
   });
+  test("close preserves dirty and ignored Git worktree content; abort removes it forcibly", async () => {
+    const home = tempDir("wd-git", dirs);
+    const repo = join(home, "repo");
+    const wtClose = join(home, "wt-close");
+    const wtAbort = join(home, "wt-abort");
+    mkdirSync(repo, { recursive: true });
+    const git = (args: string[], cwd = repo) => {
+      const result = Bun.spawnSync(["git", ...args], { cwd });
+      if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString()}`);
+      return result;
+    };
+    const run: Run = async (command, args, cwd) => {
+      const result = Bun.spawnSync([command, ...args], { cwd });
+      return { stdout: result.stdout.toString(), stderr: result.stderr.toString(), code: result.exitCode ?? 1 };
+    };
+
+    git(["init", "-q", "-b", "main"]);
+    git(["config", "user.email", "test@example.invalid"]);
+    git(["config", "user.name", "Test"]);
+    writeFileSync(join(repo, ".gitignore"), "ignored.txt\n");
+    writeFileSync(join(repo, "tracked.txt"), "committed\n");
+    git(["add", "."]);
+    git(["commit", "-qm", "initial"]);
+    git(["worktree", "add", "-qb", "close-branch", wtClose]);
+    git(["worktree", "add", "-qb", "abort-branch", wtAbort]);
+
+    const dirty = (worktree: string) => {
+      writeFileSync(join(worktree, "tracked.txt"), "uncommitted\n");
+      writeFileSync(join(worktree, "ignored.txt"), "user data\n");
+    };
+    dirty(wtClose);
+    dirty(wtAbort);
+    const ports = fakePorts(run).ports;
+    ports.frontend.removeWorkspace = async ({ worktree, force }) => {
+      const args = ["worktree", "remove", ...(force ? ["--force"] : []), worktree];
+      const result = Bun.spawnSync(["git", ...args], { cwd: repo });
+      if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString()}`);
+    };
+
+    const closeOp = await seedOperation(home, { id: "close-proof", contacts: [contact("close", { lane: { worktree: wtClose, branch: "close-branch", frontend: "orca", terminal: null } })] });
+    await windDown(windDeps(home, ports, run), closeOp.id, "close");
+    expect(readFileSync(join(wtClose, "tracked.txt"), "utf8")).toBe("uncommitted\n");
+    expect(readFileSync(join(wtClose, "ignored.txt"), "utf8")).toBe("user data\n");
+
+    const abortOp = await seedOperation(home, { id: "abort-proof", contacts: [contact("abort", { lane: { worktree: wtAbort, branch: "abort-branch", frontend: "orca", terminal: null } })] });
+    await windDown(windDeps(home, ports, run), abortOp.id, "abort");
+    expect(() => readdirSync(wtAbort)).toThrow();
+  });
 });
+
 
 describe("abortPreview", () => {
   test("lists terminals, worktrees with the dirty flag, and counts", async () => {
@@ -125,7 +185,9 @@ describe("abortPreview", () => {
     });
     await appendEvent(home, "lab", { v: 1, at: T0, kind: "landed", contact: "ext", via: "manual" });
     const fake = fakePorts();
-    const deps = { ...windDeps(home, fake.ports), run: gitStatus(new Map([[wtB, " M src/app.ts\n"]])) };
+    const gone = join(home, "vanished");
+    const run = gitStatus(new Map([[wtB, " M src/app.ts\n"]]), new Set([gone]));
+    const deps = { ...windDeps(home, fake.ports, run), run };
     const preview = await abortPreview(deps, "lab");
 
     expect(preview.terminals).toEqual(["a"]);
@@ -134,8 +196,8 @@ describe("abortPreview", () => {
     expect(preview.landed).toBe(1);
     // A gone path and an external lane stay out; b reports dirty.
     expect(preview.worktrees).toEqual([
-      { ticket: "a", path: wtA, dirty: false },
-      { ticket: "b", path: wtB, dirty: true },
+      { ticket: "a", path: wtA, dirty: false, state: "clean", detail: "clean" },
+      { ticket: "b", path: wtB, dirty: true, state: "dirty", detail: "1 tracked ( M src/app.ts…)" },
     ]);
   });
 });
@@ -154,7 +216,7 @@ describe("endOperation / ender", () => {
     const home = tempDir("end", dirs);
     await seedOperation(home, { contacts: [contact("a")] });
     const fake = fakePorts();
-    const ender = createEnder({ ...windDeps(home, fake.ports), run: gitStatus(new Map()) });
+    const ender = createEnder(windDeps(home, fake.ports));
     const error = await ender.abort("lab", "nope").catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ActionError);
     expect((error as ActionError).status).toBe(400);
@@ -168,7 +230,7 @@ describe("endOperation / ender", () => {
     mkdirSync(wt, { recursive: true });
     await seedOperation(home, { name: "Lab", contacts: [contact("a", { lane: lane(wt, "t1") }), contact("q")] });
     const fake = fakePorts();
-    const ender = createEnder({ ...windDeps(home, fake.ports), run: gitStatus(new Map()) });
+    const ender = createEnder(windDeps(home, fake.ports));
 
     const { archived } = await ender.abort("lab", "lab");
     expect(archived).toMatch(/^lab-\d{14}$/);
@@ -202,7 +264,7 @@ describe("endOperation / ender", () => {
     let release!: () => void;
     const hold = new Promise<void>((r) => (release = r));
     const ports: Ports = { ...fake.ports, frontend: { ...fake.ports.frontend, close: async () => hold } };
-    const ender = createEnder({ ...windDeps(home, ports), run: gitStatus(new Map()) });
+    const ender = createEnder(windDeps(home, ports));
 
     const first = ender.abort("lab", "lab");
     const second = await ender.abort("lab", "lab").catch((e: unknown) => e);
@@ -217,7 +279,7 @@ describe("endOperation / ender", () => {
     const home = tempDir("end", dirs);
     await seedOperation(home, { auto: { enabled: true, launch: true, land: true, maxLive: 2, plans: false, decide: false }, contacts: [contact("a")] });
     const fake = fakePorts();
-    const ender = createEnder({ ...windDeps(home, fake.ports), run: gitStatus(new Map()) });
+    const ender = createEnder(windDeps(home, fake.ports));
     await ender.abort("lab", "lab");
     const entry = await readArchive(home, (await listArchive(home, new Date()))[0].key, new Date());
     const auto = entry!.events.find((e) => e.kind === "auto");
@@ -231,7 +293,7 @@ describe("endOperation / ender", () => {
     await seedOperation(home, { contacts: [contact("a", { lane: lane(wt, "t1") })] });
     await appendEvent(home, "lab", { v: 1, at: T0, kind: "landed", contact: "a", via: "merge" });
     const fake = fakePorts();
-    const ender = createEnder({ ...windDeps(home, fake.ports), run: gitStatus(new Map()) });
+    const ender = createEnder(windDeps(home, fake.ports));
     const { archived } = await ender.close("lab", "landed");
     const entry = await readArchive(home, archived, new Date());
     expect(entry!.report.outcome).toBe("landed");

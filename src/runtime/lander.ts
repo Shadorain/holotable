@@ -2,7 +2,7 @@ import type { Contact, ContactStatus, Operation, Projection } from "../core/type
 import { contactOf } from "../core/projection.ts";
 import { messageOf } from "../core/errors.ts";
 import { normalizeTicket } from "../core/validate-operation.ts";
-import { PortError, type Run } from "../ports.ts";
+import { PortError } from "../ports.ts";
 import { appendEvent } from "../store/events.ts";
 import { mutateOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
@@ -11,7 +11,6 @@ import { launchContact, type LauncherDeps } from "./launcher.ts";
 import { offered } from "./offer.ts";
 
 export interface LanderDeps extends LauncherDeps {
-  run: Run;
   captureMetrics?(operation:Operation,contact:Contact,status?:ContactStatus|null):Promise<void>;
 }
 
@@ -70,13 +69,13 @@ export async function landContact(deps: LanderDeps, opId: string, ticket: string
   const hex = deps.token();
   const pin = `holotable/conflict-base-${hex}`;
   // Pin the delivered commit to a branch name: every frontend accepts a branch as a base, not all accept a sha.
-  const pinned = await deps.run("git", ["branch", pin, result.deliveredSha], operation.repo);
+  const pinned = await ports.run("git", ["branch", pin, result.deliveredSha], operation.repo);
   if (pinned.code !== 0) throw new PortError("git", `Cannot pin ${result.deliveredSha}: ${pinned.stderr.trim()}`);
-  let workspace: { worktree: string; branch: string | null };
+  let workspace: { worktree: string; branch: string | null; worktreeId?: string };
   try {
     workspace = await ports.frontend.createWorkspace({ repo: operation.repo, name: `conflict-${hex}`, base: pin, ticket: null });
   } finally {
-    await deps.run("git", ["branch", "-D", pin], operation.repo);
+    await ports.run("git", ["branch", "-D", pin], operation.repo);
   }
   const n = operation.contacts.filter((c) => c.conflictOf === ticket).length + 1;
   // The store upper-cases Linear tickets; events and the launch must use the stored form.
@@ -88,20 +87,20 @@ export async function landContact(deps: LanderDeps, opId: string, ticket: string
     kind: "conflict",
     blockedBy: [],
     conflictOf: ticket,
-    lane: { worktree: workspace.worktree, branch: workspace.branch, frontend: operation.frontend, terminal: null },
+    lane: { worktree: workspace.worktree, branch: workspace.branch, frontend: operation.frontend, terminal: null, worktreeId: workspace.worktreeId },
   };
   try {
     // Exit 1 is the point: the merge stops with markers in the files the mission will edit.
-    await deps.run("git", ["merge", "--no-commit", "--no-ff", result.baseSha], workspace.worktree);
-    const marked = await deps.run("git", ["diff", "--name-only", "--diff-filter=U"], workspace.worktree);
+    await ports.run("git", ["merge", "--no-commit", "--no-ff", result.baseSha], workspace.worktree);
+    const marked = await ports.run("git", ["diff", "--name-only", "--diff-filter=U"], workspace.worktree);
     if (marked.stdout.trim() === "")
       throw new PortError("git", "The conflict worktree has no conflict markers; nothing for a conflict mission to resolve");
     await mutateOperation(deps.home, opId, (op) => ({ ...op, contacts: [...op.contacts, created] }));
   } catch (error) {
     // The worktree (and its holotable/conflict-* branch) is recorded nowhere yet; tear it down best-effort.
-    await deps.run("git", ["merge", "--abort"], workspace.worktree).catch(() => {});
-    await ports.frontend.removeWorkspace({ repo: operation.repo, worktree: workspace.worktree }).catch(() => {});
-    if (workspace.branch) await deps.run("git", ["branch", "-D", workspace.branch], operation.repo).catch(() => {});
+    await ports.run("git", ["merge", "--abort"], workspace.worktree).catch(() => {});
+    await ports.frontend.removeWorkspace({ repo: operation.repo, worktree: workspace.worktree, worktreeId: workspace.worktreeId }).catch(() => {});
+    if (workspace.branch) await ports.run("git", ["branch", "-D", workspace.branch], operation.repo).catch(() => {});
     throw error;
   }
   await appendEvent(deps.home, opId, { v: 1, at: at(), kind: "queued", contact: created.ticket, source: "conflict" });

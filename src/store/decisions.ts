@@ -29,6 +29,12 @@ export interface DecisionPane {
   startedAt: string;
   /** Set once an unreadable answer was recorded; the operator fixes or closes the pane. */
   error?: string;
+  /** Mission host when the pane writes on a remote checkout. Absent means the board host. */
+  host?: string;
+  hostSetup?: string;
+  /** Absolute answer path and session directory on `host`. */
+  remoteAnswer?: string;
+  remoteSessions?: string;
 }
 
 export async function writeDecisionPane(home: string, opId: string, ticket: string, pane: DecisionPane): Promise<void> {
@@ -45,8 +51,14 @@ export async function readDecisionPane(home: string, opId: string, ticket: strin
     if (typeof terminal !== "object" || terminal === null) return null;
     const ref = terminal as Record<string, unknown>;
     if (typeof ref.handle !== "string" || typeof ref.incarnationId !== "string") return null;
+    if (ref.host !== undefined && typeof ref.host !== "string") return null;
+    if (ref.worktreeId !== undefined && typeof ref.worktreeId !== "string") return null;
     if (typeof pane.startedAt !== "string") return null;
     if (pane.error !== undefined && typeof pane.error !== "string") return null;
+    if (pane.host !== undefined && typeof pane.host !== "string") return null;
+    if (pane.hostSetup !== undefined && typeof pane.hostSetup !== "string") return null;
+    if (pane.remoteAnswer !== undefined && (typeof pane.remoteAnswer !== "string" || !pane.remoteAnswer.startsWith("/"))) return null;
+    if (pane.remoteSessions !== undefined && (typeof pane.remoteSessions !== "string" || !pane.remoteSessions.startsWith("/"))) return null;
     return raw as DecisionPane;
   } catch {
     return null;
@@ -112,9 +124,11 @@ export function decisionPrompt(i: {
   notes: string | null;
   /** The operation's other decisions, newest last. */
   decided: Array<{ ticket: string; decision: NonNullable<ContactDerived["decision"]> }>;
+  /** Absolute path the pane must write. Defaults to the board-local decision file. */
+  out?: string;
 }): string {
   const { contact } = i;
-  const out = decisionPath(i.home, i.opId, contact.ticket);
+  const out = i.out ?? decisionPath(i.home, i.opId, contact.ticket);
   const lines = [
     `Decide ${contact.ticket}: ${contact.title ?? contact.ticket}.`,
     ...(contact.description ? [`Description:\n${contact.description}`] : []),

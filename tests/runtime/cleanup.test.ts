@@ -53,6 +53,7 @@ async function setup(opts: SetupOpts, contacts: Contact[] = [contact("a", { lane
     if (args[0] === "status") return { stdout: opts.worktreeStatus ?? "", stderr: "", code: 0 };
     throw new Error(`unexpected git ${args.join(" ")} in ${cwd}`);
   };
+  fake.ports.run = run;
   const act = createActionRunner({
     home,
     now: () => new Date("2026-01-01T03:00:00Z"),
@@ -62,7 +63,6 @@ async function setup(opts: SetupOpts, contacts: Contact[] = [contact("a", { lane
     sleep: async () => {},
     token: () => "abc123",
     socketWaitMs: 0,
-    run,
   });
   const events = async () => readEvents(home, "lab");
   const kinds = async () => (await events()).map((e) => e.kind);
@@ -190,6 +190,7 @@ describe("done cleanup", () => {
     fake.world.statuses.set("/wt/a", status({ worktree: "/wt/a", complete: true, phase: "complete", ctl: null }));
     const run = async (_c: string, args: string[]) =>
       ({ stdout: args[0] === "status" ? "" : "", stderr: "", code: 0 });
+    fake.ports.run = run;
     const act = createActionRunner({
       home,
       now: () => new Date("2026-01-01T03:00:00Z"),
@@ -199,7 +200,6 @@ describe("done cleanup", () => {
       sleep: async () => {},
       token: () => "abc123",
       socketWaitMs: 0,
-      run,
     });
     await act({ op: "lab", contact: "a", action: "done", args: {} });
     const kinds = (await readEvents(home, "lab")).map((e) => e.kind);

@@ -67,34 +67,50 @@ export interface WorkspaceInput {
 export interface TerminalCommand {
   argv: string[];
   env: Record<string, string>;
+  /** Native structured frontends apply this through the session mode API, not overlay filenames. */
+  sessionMode?: "plan" | "default";
 }
 
 export interface FrontendPort {
   readonly id: Frontend;
   ensureRepo(repo: string): Promise<void>;
-  createWorkspace(i: WorkspaceInput): Promise<{ worktree: string; branch: string | null }>;
+  /** `worktreeId` is the frontend's host-unique checkout id (Orca `<repoId>::<path>`) when it has one. */
+  createWorkspace(i: WorkspaceInput): Promise<{ worktree: string; branch: string | null; worktreeId?: string }>;
   /** Startup runs in the new checkout; relative paths in its command resolve there. */
   createWorkspaceWithTerminal?(i: WorkspaceInput & { startup: TerminalCommand }): Promise<{
     worktree: string;
     branch: string | null;
+    worktreeId?: string;
     terminal: TerminalRef;
   }>;
+
+  /** `worktreeId` (when recorded) disambiguates a checkout whose path also exists on other hosts. */
   openTerminal(i: {
     worktree: string;
     title: string;
     argv: string[];
     env: Record<string, string>;
+    sessionMode?: "plan" | "default";
+    worktreeId?: string;
   }): Promise<TerminalRef>;
   /** null: the frontend cannot list terminals. */
   listTerminals(): Promise<ListedTerminal[] | null>;
   /** Bring the terminal forward. `purpose` is advisory (e.g. "plan-approval"); frontends may ignore it. */
   focus(t: TerminalRef, worktree: string, purpose?: string): Promise<void>;
   close(t: TerminalRef, worktree: string): Promise<void>;
-  removeWorkspace(i: { repo: string; worktree: string }): Promise<void>;
+  /** Only an operator-confirmed Abort may force removal; normal cleanup must preserve local changes. */
+  removeWorkspace(i: { repo: string; worktree: string; worktreeId?: string; force?: boolean }): Promise<void>;
 }
 
 export interface FleetPort {
   readonly id: Fleet;
+  /**
+   * Remote fleets only: staged before launch so `launch` never touches the board host's filesystem.
+   * Implementations deploy shared artifacts (mission relay, launch config) and return the path the
+   * mission host must see as `launch`'s `overlay`. Absent on local fleets.
+   */
+  prepare?(i: { kind: "plan" | "resume" }): Promise<{ overlay: string }>;
+
   launch(i: {
     operation: Operation;
     contact: Contact;
@@ -154,4 +170,10 @@ export interface Ports {
   fleet: FleetPort;
   frontend: FrontendPort;
   delivery: DeliveryPort;
+  /**
+   * Executes on the operation's execution host: locally for local operations, through the
+   * authenticated remote transport for placed ones. Any argv; the runtime uses it for
+   * file/git/cleanup/landing work in operation paths (never the ambient board run there).
+   */
+  run: Run;
 }

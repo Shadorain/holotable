@@ -24,7 +24,15 @@ export interface CloserView extends CloserReportView {
   brief: string;
 }
 
-async function briefFrom(home: string, operation: Operation, closer: Contact, events: Event[], derived: Derived, now: number): Promise<string> {
+async function briefFrom(
+  home: string,
+  operation: Operation,
+  closer: Contact,
+  events: Event[],
+  derived: Derived,
+  now: number,
+  paths?: { reportPath: string; markdownPath: string },
+): Promise<string> {
   const [notes, brief] = await Promise.all([readNotes(home, operation.id), readBrief(home, operation.id)]);
   const { recommendations } = evaluateOperation(operation, derived, now);
   return closerBrief({
@@ -35,8 +43,8 @@ async function briefFrom(home: string, operation: Operation, closer: Contact, ev
     briefText: brief.brief,
     notesText: notes.text === "" ? null : notes.text,
     recommendations: recommendations.map((r) => r.message),
-    reportPath: closerReviewPath(home, operation.id, closer.ticket),
-    markdownPath: closerReportPath(home, operation.id, closer.ticket),
+    reportPath: paths?.reportPath ?? closerReviewPath(home, operation.id, closer.ticket),
+    markdownPath: paths?.markdownPath ?? closerReportPath(home, operation.id, closer.ticket),
   });
 }
 
@@ -46,9 +54,15 @@ function reportView(operation: Operation, closer: Contact, derived: Derived, fil
 }
 
 /** The closer's review brief from what the board holds now: brief, notes, events and Intel's advice. */
-export async function closerBriefFor(home: string, operation: Operation, closer: Contact, now: number): Promise<string> {
+export async function closerBriefFor(
+  home: string,
+  operation: Operation,
+  closer: Contact,
+  now: number,
+  paths?: { reportPath: string; markdownPath: string },
+): Promise<string> {
   const { events, derived } = await readFolded(home, operation.id);
-  return briefFrom(home, operation, closer, events, derived, now);
+  return briefFrom(home, operation, closer, events, derived, now, paths);
 }
 
 /** What the closer's card shows: its brief as it would launch now, its report, and ticket coverage. */

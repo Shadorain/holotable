@@ -28,6 +28,7 @@ import type { Ports } from "./ports.ts";
 import type { Run } from "./ports.ts";
 import { agentDir } from "./paths.ts";
 import { resolvePorts } from "./adapters/registry.ts";
+import { resolveRemotePlacement } from "./adapters/placement.ts";
 import { createRun } from "./run.ts";
 import { endOperation } from "./runtime/end.ts";
 import { formatSettings, setSettingKey } from "./settings.ts";
@@ -70,6 +71,8 @@ export const SET_FIELDS = [
   "frontend",
   "delivery",
   "worktreeRoot",
+  "host",
+  "hostSetup",
   "ignoreChecks",
   "auto",
   "auto.launch",
@@ -95,6 +98,8 @@ export const PROJECT_FIELDS = [
   "frontend",
   "delivery",
   "worktreeRoot",
+  "host",
+  "hostSetup",
   "ignoreChecks",
 ] as const;
 export type ProjectField = (typeof PROJECT_FIELDS)[number];
@@ -106,7 +111,7 @@ export const HELP = `/holotable: campaign board over omp-mission missions.
   /holotable restart             restart the board without changing missions or data
   /holotable status              report the selected home's board health
   /holotable url                 print the running board URLs
-  /holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--closer] [--no-closer] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]
+  /holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--host ssh:<id>|runtime:<id>|local] [--host-setup <id>] [--pause] [--no-pause] [--closer] [--no-closer] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]
   /holotable list [--all]
   /holotable project <new|list|set|attach|detach|delete> …
   /holotable use <id>
@@ -214,6 +219,10 @@ export interface NewOperationSpec {
   fleet?: Fleet;
   frontend?: Frontend;
   delivery?: Delivery;
+  /** Explicit execution host. Absent follows the project (board host when standalone). "local" pins the board host. */
+  host?: string;
+  /** Orca project-host-setup id on `host`. */
+  hostSetup?: string;
   /** Seed JSON text: zones, contacts, notes, optional "brief" (becomes brief.md); legacy "workflow" becomes task lines. */
   seed?: string;
   /** Brief markdown; overrides a "brief" key in the seed. */
@@ -243,9 +252,23 @@ export async function createFromSpec(
   const project = spec.project !== undefined ? await readProjectOrNull(home, spec.project) : null;
   if (spec.project !== undefined && !project) throw new InputError(`No project "${spec.project}"`);
   const seed = spec.seed !== undefined ? asInput(() => parseSeed(spec.seed!, "seed")) : {};
-  const repo = spec.repo ?? project?.repo;
+  const host = spec.host ?? project?.host;
+  const remote = host !== undefined && host !== "local";
+  const projectOnHost = project !== null && project.host === host;
+  // A remote project's checkout is not a path on the board host, and a local project's checkout
+  // is not a path on a remote host. Inherit a repo only when it lives on the effective host.
+  const repo = spec.repo ?? (projectOnHost || !remote && (project?.host === undefined || project.host === "local") ? project?.repo : undefined);
   const base = spec.base ?? project?.base;
-  if (!repo || !base) throw new InputError("repo and base are required (or pass a project that supplies them)");
+  if (!repo || !base) {
+    throw new InputError(
+      remote
+        ? `repo and base are required on ${host} (pass an absolute path on that host, or --host-setup of a ready setup)`
+        : "repo and base are required (or pass a project that supplies them)",
+    );
+  }
+  if (remote && !repo.startsWith("/")) throw new InputError(`${host} requires an absolute repo path on that host`);
+  const integration = spec.integration ?? (projectOnHost ? project?.integration : undefined) ?? repo;
+  if (remote && !integration.startsWith("/")) throw new InputError(`${host} requires an absolute integration path on that host`);
   let auto = seed.auto;
   if (spec.auto !== undefined) {
     if (auto === undefined) auto = { ...DEFAULT_AUTO, enabled: spec.auto };
@@ -258,7 +281,9 @@ export async function createFromSpec(
     name: spec.name ?? (typeof seed.name === "string" && seed.name.length ? seed.name : spec.id),
     repo,
     base,
-    integration: spec.integration ?? project?.integration ?? repo,
+    integration,
+    ...(spec.host !== undefined ? { host: spec.host } : {}),
+    ...(spec.hostSetup !== undefined && spec.host !== "local" ? { hostSetup: spec.hostSetup } : {}),
     pause: spec.pause ?? project?.pause ?? defaults.pause,
     tracker: spec.tracker ?? project?.tracker ?? defaults.tracker,
     fleet: spec.fleet ?? project?.fleet ?? defaults.fleet,
@@ -315,32 +340,52 @@ function explicitSwitch(flags: ReadonlyMap<string, string | true>, name: string)
 async function cmdNew(tokens: string[], env: CommandEnv): Promise<CommandOutcome> {
 
   const usage =
-    "/holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--closer] [--no-closer] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]";
+    "/holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--host ssh:<id>|runtime:<id>|local] [--host-setup <id>] [--pause] [--no-pause] [--closer] [--no-closer] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]";
   const parsed = parseArgs(
     tokens,
-    ["repo", "base", "project", "name", "tracker", "fleet", "frontend", "delivery", "from", "integration", "brief"],
+    ["repo", "base", "project", "name", "tracker", "fleet", "frontend", "delivery", "from", "integration", "brief", "host", "host-setup"],
     ["no-pause", "pause", "closer", "no-closer", "auto", "recover"],
     usage,
   );
   const [id] = parsed.positional;
-  const repo = flag(parsed, "repo");
+  const host = flag(parsed, "host");
+  const hostSetup = flag(parsed, "host-setup");
+  const remote = host !== undefined && host !== "local";
+  let repo = flag(parsed, "repo");
   const base = flag(parsed, "base");
   const project = flag(parsed, "project");
-  if (!id || parsed.positional.length !== 1 || (!project && (!repo || !base))) throw new Error(`Usage: ${usage}`);
+  if (!id || parsed.positional.length !== 1) throw new Error(`Usage: ${usage}`);
+  if (remote) {
+    if (repo !== undefined && !repo.startsWith("/"))
+      throw new Error(`${host} requires an absolute --repo on that host, not a board-host path`);
+    // --host-setup names the checkout; resolve its path here so createFromSpec stores a remote repo.
+    if (repo === undefined && hostSetup !== undefined) {
+      const placed = await resolveRemotePlacement(env.end?.run ?? createRun(), env.cwd, { host: host!, hostSetup });
+      repo = placed.repo;
+    }
+  } else if (repo !== undefined) {
+    repo = resolve(env.cwd, repo);
+  }
+  if (!project && (!repo || !base) && !(remote && hostSetup && repo)) throw new Error(`Usage: ${usage}`);
   const from = flag(parsed, "from");
   const briefFilePath = flag(parsed, "brief");
   const brief = briefFilePath ? await readFile(resolve(env.cwd, briefFilePath), "utf8").catch((error: unknown) => {
     throw new Error(`Cannot read --brief ${briefFilePath}: ${messageOf(error)}`);
   }) : undefined;
+  const integrationFlag = flag(parsed, "integration");
   const created = await createFromSpec(env.home, env.now, {
     id,
     ...(project ? { project } : {}),
-    ...(repo ? { repo: resolve(env.cwd, repo) } : {}),
+    ...(repo ? { repo } : {}),
     ...(base ? { base } : {}),
     name: flag(parsed, "name"),
-    ...(flag(parsed, "integration") !== undefined || repo !== undefined
-      ? { integration: resolve(env.cwd, flag(parsed, "integration") ?? repo ?? "") }
-      : {}),
+    ...(integrationFlag !== undefined
+      ? { integration: remote ? integrationFlag : resolve(env.cwd, integrationFlag) }
+      : repo !== undefined && !remote
+        ? { integration: repo }
+        : {}),
+    ...(host !== undefined ? { host } : {}),
+    ...(hostSetup !== undefined ? { hostSetup } : {}),
     ...(explicitSwitch(parsed.flags, "pause") !== undefined ? { pause: explicitSwitch(parsed.flags, "pause") } : {}),
     ...(explicitSwitch(parsed.flags, "closer") !== undefined ? { closer: explicitSwitch(parsed.flags, "closer") } : {}),
     ...(parsed.flags.has("auto") ? { auto: true } : {}),
@@ -483,6 +528,14 @@ export function applyOperationField(op: Operation, field: string, raw: string, c
     if (name === "name") throw new Error("name cannot be inherited: it belongs to the operation");
     const inherited = project[name as OverridableField];
     if (inherited === undefined) {
+      if (name === "host") {
+        const { host: _host, hostSetup: _setup, ...rest } = op;
+        return rest;
+      }
+      if (name === "hostSetup") {
+        const { hostSetup: _setup, ...rest } = op;
+        return rest;
+      }
       const { worktreeRoot: _, ...rest } = op;
       return rest;
     }
@@ -495,7 +548,9 @@ export function applyOperationField(op: Operation, field: string, raw: string, c
     case "base":
       return { ...op, base: value };
     case "integration":
-      return { ...op, integration: resolve(cwd, value) };
+      if (op.host !== undefined && op.host !== "local" && !value.startsWith("/"))
+        throw new Error(`${op.host} requires an absolute integration path on that host`);
+      return { ...op, integration: op.host !== undefined && op.host !== "local" ? value : resolve(cwd, value) };
     case "pause":
       return { ...op, pause: oneOf(["true", "false"], value, "pause") === "true" };
     case "ignoreChecks":
@@ -511,6 +566,25 @@ export function applyOperationField(op: Operation, field: string, raw: string, c
     case "worktreeRoot": {
       const { worktreeRoot: _, ...rest } = op;
       return value === "" || value === "default" ? rest : { ...rest, worktreeRoot: value };
+    }
+    case "host": {
+      if (value === "") {
+        const { host: _host, hostSetup: _setup, ...rest } = op;
+        return rest;
+      }
+      if (value !== "local" && !value.startsWith("ssh:") && !value.startsWith("runtime:"))
+        throw new Error('host must be "local", "ssh:<target-id>", or "runtime:<environment-id>"');
+      const { hostSetup: _setup, ...rest } = op;
+      return { ...rest, host: value };
+    }
+    case "hostSetup": {
+      const pinned = op.host ?? project?.host;
+      if (pinned === undefined || pinned === "local") throw new Error("hostSetup requires a remote host");
+      if (value === "") {
+        const { hostSetup: _setup, ...rest } = op;
+        return rest;
+      }
+      return { ...op, hostSetup: value };
     }
     case "auto": {
       const enabled = oneOf(["on", "off", "true", "false"], value, "auto") === "on" || value === "true";
@@ -554,14 +628,18 @@ export function applyProjectField(project: Project, field: string, value: string
     case "name":
       return { ...project, name: value };
     case "repo": {
-      const repo = resolve(cwd, value);
+      const remote = project.host !== undefined && project.host !== "local";
+      if (remote && !value.startsWith("/")) throw new Error(`${project.host} requires an absolute repo path on that host`);
+      const repo = remote ? value : resolve(cwd, value);
       const integration = project.integration === project.repo ? repo : project.integration;
       return { ...project, repo, integration };
     }
     case "base":
       return { ...project, base: value };
     case "integration":
-      return { ...project, integration: resolve(cwd, value) };
+      if (project.host !== undefined && project.host !== "local" && !value.startsWith("/"))
+        throw new Error(`${project.host} requires an absolute integration path on that host`);
+      return { ...project, integration: project.host !== undefined && project.host !== "local" ? value : resolve(cwd, value) };
     case "pause":
       return { ...project, pause: oneOf(["true", "false"], value, "pause") === "true" };
     case "ignoreChecks":
@@ -577,6 +655,24 @@ export function applyProjectField(project: Project, field: string, value: string
     case "worktreeRoot": {
       const { worktreeRoot: _, ...rest } = project;
       return value === "" || value === "default" ? rest : { ...rest, worktreeRoot: value };
+    }
+    case "host": {
+      if (value === "") {
+        const { host: _host, hostSetup: _setup, ...rest } = project;
+        return rest;
+      }
+      if (value !== "local" && !value.startsWith("ssh:") && !value.startsWith("runtime:"))
+        throw new Error('host must be "local", "ssh:<target-id>", or "runtime:<environment-id>"');
+      const { hostSetup: _setup, ...rest } = project;
+      return value === "local" ? rest : { ...rest, host: value };
+    }
+    case "hostSetup": {
+      if (project.host === undefined || project.host === "local") throw new Error("hostSetup requires a remote host");
+      if (value === "") {
+        const { hostSetup: _setup, ...rest } = project;
+        return rest;
+      }
+      return { ...project, hostSetup: value };
     }
     default:
       return project;
@@ -659,7 +755,7 @@ async function cmdClose(tokens: string[], env: CommandEnv): Promise<CommandOutco
   const run = env.end?.run ?? createRun();
   const settings = env.end?.settings ?? (() => readSettings(env.home));
   const archived = await endOperation(
-    { home: env.home, now: () => env.now, settings, portsFor: env.end?.portsFor ?? ((op, s) => resolvePorts(op, s, run, agentDir())), run },
+    { home: env.home, now: () => env.now, settings, portsFor: env.end?.portsFor ?? ((op, s) => resolvePorts(op, s, run, agentDir())) },
     id,
     outcome,
   );

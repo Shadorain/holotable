@@ -32,6 +32,8 @@ export function createUsage(deps: UsageDeps): (opId: string | null) => Promise<U
     base: MachineSample | null;
     next: MachineSample;
     roots: Map<string, string[]>;
+    /** Operations on a remote execution host: their processes must never be attributed to /proc here. */
+    remote: Map<string, string>;
     allRoots: string[];
     memory: number;
     reports: Map<string | null, UsageReport>;
@@ -54,14 +56,20 @@ export function createUsage(deps: UsageDeps): (opId: string | null) => Promise<U
     const { prev: base, next } = await pair();
     const rows = await listOperations(home);
     const roots = new Map<string, string[]>();
+    const remote = new Map<string, string>();
     await Promise.all(rows.map(async ({ id }) => {
       const doc = await readOperationDoc(home, id);
+      if (doc.operation.host !== undefined) {
+        remote.set(id, doc.operation.host);
+        roots.set(id, []);
+        return;
+      }
       const worktrees = new Set(doc.operation.contacts.flatMap((c) => c.lane ? [c.lane.worktree] : []));
       const resolved = await Promise.all([...worktrees].map((wt) => realpath(wt).catch(() => null)));
       roots.set(id, resolved.filter((wt): wt is string => wt !== null));
     }));
     const snapshot: Snapshot = {
-      base, next, roots,
+      base, next, roots, remote,
       allRoots: [...new Set([...roots.values()].flat())],
       memory: usableMemoryBytes(),
       reports: new Map(),
@@ -81,8 +89,12 @@ export function createUsage(deps: UsageDeps): (opId: string | null) => Promise<U
     }
     const cached = snapshot.reports.get(opId);
     if (cached) return cached;
-    const roots = opId === null ? null : snapshot.roots.get(opId) ?? [];
-    const report = buildUsage(snapshot.base, snapshot.next, roots, snapshot.allRoots, snapshot.memory);
+    const remoteHost = opId === null ? undefined : snapshot.remote.get(opId);
+    // Remote lane worktrees are paths on the execution host; /proc on this box cannot see them, so
+    // the op's usage is explicitly unavailable rather than zero or misattributed.
+    const roots = opId === null ? null : remoteHost !== undefined ? null : snapshot.roots.get(opId) ?? [];
+    const report = buildUsage(snapshot.base, snapshot.next, roots, snapshot.allRoots, snapshot.memory,
+      remoteHost !== undefined ? `runs on ${remoteHost}` : undefined);
     snapshot.reports.set(opId, report);
     return report;
   };

@@ -8,6 +8,8 @@ import { listProjects } from "./store/projects.ts";
 import { DEFAULT_SETTINGS } from "./settings.ts";
 import { readSettings } from "./store/settings.ts";
 import { checkOrcaStartupCommand } from "./adapters/orca-capabilities.ts";
+import { requireOrcaChat } from "./adapters/frontend-orca-chat.ts";
+import { decode } from "./adapters/orca-envelope.ts";
 import { withTimeout } from "./timeout.ts";
 import { loadProjection } from "./snapshot.ts";
 export interface SetupCheck {
@@ -78,12 +80,14 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
   const trackersInUse = new Set<string>();
   const frontendsInUse = new Set<string>();
   const deliveriesInUse = new Set<string>();
+  const nativeHosts = new Set<string>();
 
   const settings = await readSettings(home).catch(() => null);
   if (settings) {
     trackersInUse.add(settings.defaults.tracker);
     frontendsInUse.add(settings.defaults.frontend);
     deliveriesInUse.add(settings.defaults.delivery);
+    if (settings.defaults.frontend === "orca-chat") nativeHosts.add("local");
   }
 
   // listProjects already returns validated projects.
@@ -91,6 +95,7 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
     trackersInUse.add(proj.tracker);
     frontendsInUse.add(proj.frontend);
     deliveriesInUse.add(proj.delivery);
+    if (proj.frontend === "orca-chat") nativeHosts.add(proj.host ?? "local");
   }
 
   // loadProjection reads the operation document internally; the resolved
@@ -102,6 +107,7 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
       trackersInUse.add(p.operation.tracker);
       frontendsInUse.add(p.operation.frontend);
       deliveriesInUse.add(p.operation.delivery);
+      if (p.operation.frontend === "orca-chat") nativeHosts.add(p.operation.host ?? "local");
       contacts += p.contacts.length;
       launched += p.contacts.filter((c) => c.lane !== null).length;
     } catch (error) {
@@ -132,36 +138,55 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
 
   if (run) {
     addCheck("omp", "OMP CLI", runWithTimeout(run, "omp", ["--version"]).then((res) => {
-      if (res.code === 0) return { ok: true, detail: res.stdout.trim() };
+      const version = /(?:^|\s)v?(\d+)\.(\d+)\.(\d+)(?:\+[^\s]+)?(?:\s|$)/i.exec(res.stdout.trim());
+      if (res.code === 0 && version && (Number(version[1]) > 18 || (Number(version[1]) === 18 && Number(version[2]) >= 22)))
+        return { ok: true, detail: res.stdout.trim() };
       return {
         ok: false,
-        detail: (res.detail ?? res.stderr.trim()) || "omp not found",
-        fix: "Install OMP globally (e.g. npm i -g @oh-my-pi/pi-coding-agent)",
+        detail: res.code !== 0 ? (res.detail ?? res.stderr.trim()) || "omp not found"
+          : version ? `${res.stdout.trim()} is older than the required OMP 18.22.0`
+            : `Cannot determine the OMP version from ${JSON.stringify(res.stdout.trim())}`,
+        fix: "Install OMP 18.22.0 or newer with native HTML forms and session lifecycle APIs",
       };
     }));
 
     addCheck("omp-mission", "OMP Mission Extension", (async () => {
-      const p = await runWithTimeout(run, "omp", ["plugin", "list", "--json"]);
+      const [p, linked] = await Promise.all([
+        runWithTimeout(run, "omp", ["plugin", "list", "--json"]),
+        stat(join(agentDir(), "extensions", "omp-mission")).then(() => true).catch(() => false),
+      ]);
+      let installed = false;
+      let enabled = false;
+      let verified = false;
       if (p.code === 0) {
         try {
           const parsed = JSON.parse(p.stdout);
-          const npmPlugins = Array.isArray(parsed?.npm) ? parsed.npm : [];
-          if (npmPlugins.some((pl: unknown) => typeof pl === "object" && pl !== null && "name" in pl && typeof pl.name === "string" && pl.name === "omp-mission")) {
-            return { ok: true, detail: "Installed" };
+          verified = Array.isArray(parsed?.npm);
+          const plugins: unknown[] = Array.isArray(parsed?.npm) ? parsed.npm : [];
+          for (const plugin of plugins) {
+            if (typeof plugin !== "object" || plugin === null || !("name" in plugin) || plugin.name !== "omp-mission") continue;
+            installed = true;
+            enabled ||= "enabled" in plugin && plugin.enabled === true;
           }
-        } catch {
-          // Fall back to manual check
-        }
+        } catch {}
       }
-      
-      // Linked or copied extensions live in <agentDir>/extensions, where omp loads them from.
-      const linked = await stat(join(agentDir(), "extensions", "omp-mission")).then(() => true).catch(() => false);
-      if (linked) return { ok: true, detail: "Installed as an extension" };
-
+      if (!verified) return {
+        ok: false,
+        detail: "Cannot verify enabled omp-mission copies from OMP's plugin list",
+        fix: "Run omp plugin list --json and repair its reported error before launching missions",
+      };
+      if (enabled && linked) return {
+        ok: false,
+        detail: "Both the npm plugin and linked omp-mission extension are enabled; duplicate copies can register conflicting tools and shortcuts",
+        fix: "omp plugin disable omp-mission (keep the linked extension enabled), then start fresh OMP sessions",
+      };
+      if (linked) return { ok: true, detail: "Active linked extension; no enabled npm duplicate" };
+      if (enabled) return { ok: true, detail: "Enabled npm plugin" };
       return {
         ok: false,
-        detail: "launched omp sessions will not open a mission plan without it",
-        fix: "omp plugin link <path to your omp-mission checkout>",
+        detail: installed ? "The installed omp-mission plugin is disabled; launched sessions cannot open mission plans"
+          : "No active omp-mission extension found; launched sessions cannot open mission plans",
+        fix: installed ? "omp plugin enable omp-mission" : "omp plugin link <path to your omp-mission checkout>",
       };
     })());
 
@@ -204,6 +229,18 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
               detail: `Installed (${version.stdout.trim()}), but ${capability.detail}`,
               fix: "Restore the host CLI extension exposing `orca worktree create --command`; upgrades may replace it",
             };
+      })());
+    }
+    for (const host of nativeHosts) {
+      addCheck(host === "local" ? "orca-chat" : `orca-chat:${host}`, `Orca native Chat (${host})`, (async () => {
+        try {
+          await requireOrcaChat(run, process.cwd(), host);
+          const inventory = decode(await runWithTimeout(run, "orca", ["session", "list", "--host", host, "--json"]));
+          if (!Array.isArray(inventory.sessions)) throw new Error("Orca omitted its native session inventory");
+          return { ok: true, detail: "CLI and runtime mission lifecycle APIs available; the OMP provider is checked at launch" };
+        } catch (error) {
+          return { ok: false, detail: error instanceof Error ? error.message : String(error), fix: "Install Orca with native mission lifecycle APIs; terminal fallback is disabled" };
+        }
       })());
     }
 

@@ -31,13 +31,21 @@ export function abortOperation(op, ctx) {
   function renderPreview(preview) {
     const { list, item } = iconList();
     item("circle-x", `Close ${plural(preview.terminals.length, "mission pane")}: running missions stop where they are.`);
-    item("git-branch", `Delete ${plural(preview.worktrees.length, "worktree")}.`);
-    const dirty = preview.worktrees.filter((w) => w.dirty);
+    const removable = preview.worktrees.filter((w) => w.state === "clean" || w.state === "dirty");
+    item("git-branch", `Delete ${plural(removable.length, "inspectable worktree")}.`);
+    const dirty = preview.worktrees.filter((w) => w.state === "dirty");
     if (dirty.length) {
-      const warn = item("triangle-alert", `${plural(dirty.length, "worktree has", "worktrees have")} uncommitted changes that will be lost:`, "warn");
+      const warn = item("triangle-alert", `${plural(dirty.length, "worktree has", "worktrees have")} local contents that forced deletion will lose:`, "warn");
       const paths = el("ul", "modal-paths mono");
-      for (const w of dirty) paths.append(el("li", "", `${w.ticket}  ${w.path}`));
+      for (const w of dirty) paths.append(el("li", "", `${w.ticket}  ${w.path} — ${w.detail}`));
       warn.append(paths);
+    }
+    const unknown = preview.worktrees.filter((w) => w.state !== "clean" && w.state !== "dirty");
+    if (unknown.length) {
+      const keep = item("triangle-alert", `Keep ${plural(unknown.length, "worktree")} whose status could not be read:`, "warn");
+      const paths = el("ul", "modal-paths mono");
+      for (const w of unknown) paths.append(el("li", "", `${w.ticket}  ${w.path} — ${w.detail}`));
+      keep.append(paths);
     }
     item("archive", `Archive the operation (${preview.landed} landed, ${preview.live} started, ${preview.queued} queued). Its report stays under Plan → Archive.`);
     modal.step([el("p", "", "This cannot be undone."), list], [
@@ -105,13 +113,13 @@ export function closeOperation(projection, ctx) {
     if (panes.length) {
       does.item("circle-x", `Closes ${plural(panes.length, "mission pane")}:`).append(el("div", "modal-tickets mono", panes.join(", ")));
     } else does.item("circle-x", "No mission panes are open.");
-    const clean = preview.worktrees.filter((w) => !w.dirty);
-    const dirty = preview.worktrees.filter((w) => w.dirty);
+    const clean = preview.worktrees.filter((w) => w.state === "clean");
+    const kept = preview.worktrees.filter((w) => w.state !== "clean");
     does.item("git-branch", clean.length ? `Removes ${plural(clean.length, "clean worktree")}.` : "No clean worktrees to remove.");
-    if (dirty.length) {
-      const keep = does.item("triangle-alert", `Keeps ${plural(dirty.length, "worktree")} with uncommitted changes:`, "warn");
+    if (kept.length) {
+      const keep = does.item("triangle-alert", `Keeps ${plural(kept.length, "worktree")} with local contents or an unreadable status:`, "warn");
       const paths = el("ul", "modal-paths mono");
-      for (const w of dirty) paths.append(el("li", "", `${w.ticket}  ${w.path}`));
+      for (const w of kept) paths.append(el("li", "", `${w.ticket}  ${w.path} — ${w.detail}`));
       keep.append(paths);
     }
     does.item("bot", "Turns auto mode and Recovery off.");

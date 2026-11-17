@@ -114,6 +114,8 @@ Keys (`?` or Settings → Help shows them): WASD/HJKL/arrows move, Enter moves f
 
 The card has three tabs (`[` and `]` switch): **Overview** (actions first, directly under the tabs, then progress, what happens next, the mission or closer report, what it waits for and unblocks, conflict links), **Details** (origin, kind, tracker, delivery, workers, branch, worktree, terminal) and **History** (every event for this contact, with who caused it). Land, Approve and the rest never sink below a long report.
 
+Details also offers **Check session lease**, a read-only, on-demand OMP writer-lease diagnostic for the mission's execution host. It shows the checked session, host and time. Unknown is not free, and no observed lease does not prove the session exists or authorize takeover; this probe never changes ownership or the board's launch decision.
+
 ### Mission reports
 
 **Mission reports.** Once a mission has delivery or verification evidence its status carries a `report` ([contract](contract.md#mission-report-v1)): the delivery summary, verification outcome, work items done and open, review numbers (rounds, findings, repaired, rejected, deferred, escalated), follow-ups and the PR link. The card's **Overview** shows it, below the actions, as **Report** for complete and landed contacts of every kind, and as **Report · in progress** while a mission that already has one runs. Each pass saves a changed report to `reports/<ticket>.json`, so a landed contact whose pane was reaped still shows it.
@@ -162,7 +164,7 @@ Frontend commands, `cap` and **Reap** are described under [Frontends](reference.
 
 ### Review the plan
 
-A contact with a pending plan shows a "Plan" tab (primary action "Review plan"). Edit and Save update the plan file with revision checks; Refine sends feedback through OMP's native plan review. **Approve plan** resolves that review with compacted context through the mission socket when advertised. Otherwise **Approve in pane** opens the mission; use `/plan-review`, or update and relaunch older OMP sessions. Native approval requires OMP 18.10.4 or newer.
+A contact with a pending plan shows a "Plan" tab (primary action "Review plan"). Edit and Save update the plan file with revision checks without approving it. Line and range comments carry the displayed plan revision; an externally changed plan refuses stale feedback before sending it. Refine sends feedback through OMP's native review. **Approve plan** is a separate action, advertised only while native review can accept it; it resolves through the mission socket with compacted context. Otherwise **Approve in pane** opens the mission. OMP 18.22.0 or newer is required; restart or relaunch older sessions.
 
 ### Answer questions and tool approvals
 

@@ -162,7 +162,7 @@ function toastOrMark(f, ctx) {
   };
 }
 
-const OVERRIDE_KEYS = ["base", "integration", "pause", "tracker", "fleet", "frontend", "delivery", "worktreeRoot"];
+const OVERRIDE_KEYS = ["base", "integration", "pause", "tracker", "fleet", "frontend", "delivery", "worktreeRoot", "host", "hostSetup"];
 let setupOpen = false;
 
 function setupSection(p, doc, ctx) {
@@ -226,6 +226,8 @@ function setupSection(p, doc, ctx) {
     ctx,
   );
   inheritance(switchRow(grid, "Pause gates", "pause", of.pause, ctx.saveOp, { note: "Missions stop at each Pause gate for your approval." }), "pause", cfg, ctx);
+  inheritance(textRow(grid, "Execution host", "host", of.host || "local", ctx.saveOp, { mono: true, note: "Explicit local, ssh:<target-id> or runtime:<environment-id>. No local fallback; remote execution requires Orca + omp-mission." }), "host", cfg, ctx);
+  inheritance(textRow(grid, "Orca project-host setup", "hostSetup", of.hostSetup ?? "", ctx.saveOp, { mono: true, note: "Ready setup ID on this host. Changing placement is refused while lanes still belong to another host." }), "hostSetup", cfg, ctx);
   body.append(grid);
   const ports = el("div", "set-grid ports-grid");
   for (const kind of ["tracker", "fleet", "frontend", "delivery"])

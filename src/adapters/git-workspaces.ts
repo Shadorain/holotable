@@ -18,7 +18,7 @@ export interface GitWorkspacePorts {
     /** local-merge lands without pushing: prefer the local base ref over origin. */
     delivery?: Delivery;
   }): Promise<{ worktree: string; branch: string | null }>;
-  removeWorkspace(i: { repo: string; worktree: string }): Promise<void>;
+  removeWorkspace(i: { repo: string; worktree: string; force?: boolean }): Promise<void>;
 }
 
 /** `root` is a folder template (core/worktrees.ts); its parent folders are created by git. */
@@ -56,7 +56,7 @@ export function gitWorkspaces(run: Run, root: string = DEFAULT_WORKTREE_ROOT): G
     },
 
     async removeWorkspace(i) {
-      fail(await run("git", ["worktree", "remove", "--force", i.worktree], i.repo), "git worktree remove");
+      fail(await run("git", ["worktree", "remove", ...(i.force ? ["--force"] : []), i.worktree], i.repo), "git worktree remove");
     },
   };
 }

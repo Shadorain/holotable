@@ -2,7 +2,7 @@ import type { ContactEvaluation, FoldEvaluation } from "./evaluation.ts";
 
 export const TRACKERS = ["linear", "github", "none"] as const;
 export const FLEETS = ["omp-mission", "none"] as const;
-export const FRONTENDS = ["orca", "herdr", "custom", "none"] as const;
+export const FRONTENDS = ["orca", "orca-chat", "herdr", "custom", "none"] as const;
 export const DELIVERIES = ["github-pr", "local-merge", "none"] as const;
 export const KINDS = ["implement", "audit", "decision", "conflict", "closer"] as const;
 export const OPERATOR_OPS = [
@@ -71,6 +71,10 @@ export type RecoveryDeferral = (typeof RECOVERY_DEFERRALS)[number];
 export interface TerminalRef {
   handle: string;
   incarnationId: string;
+  /** Execution host that advertised this session. Absent on legacy terminal rows. */
+  host?: string;
+  /** Host-unique checkout id (`<repoId>::<path>`) when the frontend returned one. */
+  worktreeId?: string;
 }
 export interface Lane {
   worktree: string;
@@ -79,6 +83,8 @@ export interface Lane {
   terminal: TerminalRef | null;
   /** Explicit launch model override; null resets to OMP default. */
   model?: string | null;
+  /** Orca worktree id (`<repoId>::<path>`) when the frontend returned one: host-unique, unlike `worktree`. */
+  worktreeId?: string;
 }
 export interface Zone {
   id: string;
@@ -111,12 +117,20 @@ export interface Project {
   fleet: Fleet;
   frontend: Frontend;
   delivery: Delivery;
+  /** Execution host every lane lands on; absent/`local` = this machine. Only orca and orca-chat honor it. */
+  host?: ExecutionHost;
+  /** Orca project-host-setup id; with `host`, names exactly which remote project clones workspace. */
+  hostSetup?: string;
   /** Land PRs whose checks are failing (CI that is often red for unrelated reasons). Branch protection still applies. */
   ignoreChecks: boolean;
   createdAt: string;
   worktreeRoot?: string;
 }
 /** Fields an operation may carry itself or inherit from its project (an absent key = inherit). */
+
+/** `local`, `ssh:<target-id>` or `runtime:<env-id>` — Orca executionHostId spellings for explicit placement. */
+export type ExecutionHost = string;
+
 export const OVERRIDABLE_FIELDS = [
   "repo",
   "base",
@@ -128,6 +142,8 @@ export const OVERRIDABLE_FIELDS = [
   "delivery",
   "worktreeRoot",
   "ignoreChecks",
+  "host",
+  "hostSetup",
 ] as const;
 export type OverridableField = (typeof OVERRIDABLE_FIELDS)[number];
 /** operation.json on disk: with `project` set, any overridable key may be absent to inherit it. */
@@ -148,6 +164,10 @@ export interface StoredOperation {
   ignoreChecks?: boolean;
   zones: Zone[];
   contacts: Contact[];
+  /** See Operation.host. */
+  host?: ExecutionHost;
+  /** See Operation.hostSetup. */
+  hostSetup?: string;
   createdAt: string;
   auto?: AutoMode;
   /** Recovery (relaunch dead panes, continue resume holds); absent = off. Never inherited. */
@@ -174,6 +194,10 @@ export interface Operation {
   project: string | null;
   /** Overrides settings.worktrees.root for this operation's git-managed lanes (herdr, custom). */
   worktreeRoot?: string;
+  /** Explicit execution host; absent/undefined/`local` = board host. Only honored by frontend `orca`. */
+  host?: ExecutionHost;
+  /** Orca project-host-setup id pairing with `host`; disambiguates which remote project creates workspaces. */
+  hostSetup?: string;
   /** Auto mode; absent until first enabled. See runtime/auto.ts. */
   auto?: AutoMode;
   /** Recovery mode: the board relaunches dead panes and continues resume holds. See runtime/recover.ts. */
@@ -733,6 +757,8 @@ export interface Projection {
     name: string;
     base: string;
     frontend: Frontend;
+    host: ExecutionHost;
+    hostSetup: string | null;
     tracker: Tracker;
     fleet: Fleet;
     auto: (AutoMode & { landWait?: string | null; capacityWait?: string | null }) | null;
@@ -757,7 +783,7 @@ export interface Projection {
 
 export interface MeasurementConfig {
   graph: "local" | "beads";
-  frontend: "none" | "orca" | "herdr" | "custom" | "subagent";
+  frontend: "none" | "orca" | "orca-chat" | "herdr" | "custom" | "subagent";
   maxWorkers: number;
   reviewConcurrency: number;
   mode: Mode;

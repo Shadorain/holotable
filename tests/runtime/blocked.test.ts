@@ -5,7 +5,7 @@ import { createWatcher } from "../../src/runtime/watcher.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings.ts";
 import { loadProjection } from "../../src/snapshot.ts";
 import { appendEvent, readEvents } from "../../src/store/events.ts";
-import { contact, fakePorts, noRun, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
+import { contact, fakePorts, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
 
 const dirs: string[] = [];
 afterEach(() => removeAll(dirs));
@@ -26,7 +26,7 @@ async function setup() {
   const fake = fakePorts();
   const now = () => new Date("2026-01-01T01:00:00Z");
   const watcher = createWatcher({ home, now, settings: async () => DEFAULT_SETTINGS, portsFor: () => fake.ports, warn: () => {} });
-  const act = createActionRunner({ home, now, settings: async () => DEFAULT_SETTINGS, portsFor: () => fake.ports, extras: watcher.extras, sleep: async () => {}, token: () => "abc123", socketWaitMs: 0, run: noRun });
+  const act = createActionRunner({ home, now, settings: async () => DEFAULT_SETTINGS, portsFor: () => fake.ports, extras: watcher.extras, sleep: async () => {}, token: () => "abc123", socketWaitMs: 0 });
   const unblocked = async () => (await readEvents(home, "lab")).filter((e) => e.kind === "unblocked").map((e) => ("contact" in e ? e.contact : ""));
   const view = async (ticket: string) => (await loadProjection(home, "lab", DEFAULT_SETTINGS, now().getTime(), watcher.extras("lab"))).contacts.find((c) => c.ticket === ticket)!;
   const refused = async (p: Promise<unknown>) => {

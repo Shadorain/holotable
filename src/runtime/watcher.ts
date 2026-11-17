@@ -1,5 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { pullFile, pullSessions, relayFor } from "../adapters/remote-artifacts.ts";
 import { holdsSlot } from "../core/fold.ts";
 import { contactOf } from "../core/projection.ts";
 import { unmetBlockers } from "../core/graph.ts";
@@ -24,7 +25,7 @@ import type {
 import type { ListedTerminal, Ports, Run } from "../ports.ts";
 import type { ProjectionExtras } from "../snapshot.ts";
 import { appendEvent, readFolded } from "../store/events.ts";
-import { decisionsDir, listDecisionPanes, readDecisionDoc, readDecisionPane, removeDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
+import { decisionPath, decisionSessionsDir, decisionsDir, listDecisionPanes, readDecisionDoc, readDecisionPane, removeDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
 import { summarizePaneSessions } from "../store/pane-usage.ts";
 import { saveContactReport } from "../store/reports.ts";
 import { listOperations, readOperation } from "../store/operations.ts";
@@ -35,10 +36,10 @@ export interface WatcherDeps {
   now(): Date;
   settings(): Promise<Settings>;
   portsFor(operation: Operation, settings: Settings): Ports;
+  /** Board-local Run. Remote decision retrieval warns and skips without it. */
+  localRun?: Run;
   /** Port failures and similar; the watcher never throws out of a pass. */
   warn(message: string): void;
-  /** Shell for the integration dirtiness probe; absent leaves integrationDirty null. */
-  run?: Run;
 }
 
 /** What the watcher has already written for a contact, so a restart or a repeated pass emits nothing twice. */
@@ -348,7 +349,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     force: boolean,
     omp: number,
     settings: Settings,
-    getTerminals: (ports: Ports) => Promise<ListedTerminal[] | null>,
+    getTerminals: (ports: Ports, host?: string) => Promise<ListedTerminal[] | null>,
     folded: Derived,
   ): Promise<void> {
     const now = deps.now().getTime();
@@ -359,10 +360,10 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       await passContact(op, contact, state, ports, seeds(contact.ticket), folded.contacts[contact.ticket], sampling, omp);
     if (sampling) state.lastSampleAt = now;
     const needsTerminals = needsTerminalList(op, folded, state);
-    const listed = needsTerminals ? await getTerminals(ports) : null;
+    const listed = needsTerminals ? await getTerminals(ports, op.host) : null;
     trackTerminals(op, folded, state, listed);
     await trackDecisionPanes(op, folded, state, ports, listed);
-    await probeIntegration(op, state);
+    await probeIntegration(op, state, ports);
     for (const contact of op.contacts) {
       if (contact.lane || folded.contacts[contact.ticket]?.landed) continue;
       if (seeds(contact.ticket).blocked && unmetBlockers(op, folded, contact.ticket).length === 0)
@@ -378,13 +379,13 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     }
   }
 
-  /** Dirty-path count of the integration checkout: the header warns before a land ever runs. */
-  async function probeIntegration(op: Operation, state: OpState): Promise<void> {
-    if (!deps.run || !op.integration) {
+  /** Dirty-path count of the integration checkout, queried on the operation's execution host. */
+  async function probeIntegration(op: Operation, state: OpState, ports: Ports): Promise<void> {
+    if (!op.integration) {
       state.integrationDirty = null;
       return;
     }
-    const r = await guard(`integration status ${op.id}`, () => deps.run!("git", ["status", "--porcelain"], op.integration));
+    const r = await guard(`integration status ${op.id}`, () => ports.run("git", ["status", "--porcelain"], op.integration));
     if (r === undefined) return;
     state.integrationDirty = r.code === 0 ? r.stdout.split("\n").filter((l) => l.trim().length > 0).length : null;
   }
@@ -435,7 +436,23 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         state.decisionPanes.delete(ticket);
         continue;
       }
-      const doc = await guard(`decision read ${ticket}`, () => readDecisionDoc(deps.home, op.id, ticket));
+      const doc = await guard(`decision read ${ticket}`, async () => {
+        if (pane.remoteAnswer && pane.host && pane.host !== "local") {
+          if (!deps.localRun) {
+            deps.warn(`remote decision ${ticket} has no board run; answer stays on the host`);
+            return null;
+          }
+          const relay = await relayFor(deps.localRun, {
+            host: pane.host,
+            ...(pane.hostSetup !== undefined ? { hostSetup: pane.hostSetup } : {}),
+            repo: op.repo,
+          });
+          await pullFile(relay, pane.remoteAnswer, decisionPath(deps.home, op.id, ticket), deps.home);
+          if (pane.remoteSessions)
+            await pullSessions(relay, pane.remoteSessions, decisionSessionsDir(deps.home, op.id, ticket), deps.home);
+        }
+        return readDecisionDoc(deps.home, op.id, ticket);
+      });
       if (doc === undefined) continue;
       if (doc !== null) {
         try {
@@ -547,13 +564,15 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     }
     const omp = loaded.reduce((sum, item) => sum + item.state.open, 0);
     const terminalCache = new Map<string, Promise<ListedTerminal[] | null>>();
-    const getTerminals = async (ports: Ports): Promise<ListedTerminal[] | null> => {
+    const getTerminals = async (ports: Ports, host?: string): Promise<ListedTerminal[] | null> => {
       const id = ports.frontend.id;
+      // Same frontend on two hosts is two inventories; explicit local shares the board-host list.
+      const cacheKey = `${id}\0${host && host !== "local" ? host : ""}`;
       if (GLOBAL_FRONTENDS[id]) {
-        let pending = terminalCache.get(id);
+        let pending = terminalCache.get(cacheKey);
         if (!pending) {
           pending = guard("terminals", () => ports.frontend.listTerminals()).then((res) => res ?? null);
-          terminalCache.set(id, pending);
+          terminalCache.set(cacheKey, pending);
         }
         return await pending;
       }

@@ -22,6 +22,7 @@ import { readSettings } from "./store/settings.ts";
 import { acquireBoard, ensureToken, type BoardInfo, type BoardLock } from "./store/board.ts";
 import { availableMemoryBytes } from "./machine.ts";
 import { watchMissionStatuses } from "./runtime/status-watch.ts";
+import { probeSessionLease } from "./adapters/session-lease.ts";
 
 export class ServiceError extends Error {
   constructor(
@@ -123,7 +124,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     warned.add(message);
     console.error(`holotable: ${message}`);
   };
-  const watcher = createWatcher({ home, now: () => new Date(), settings: settingsFn, portsFor, warn, run });
+  const watcher = createWatcher({ home, now: () => new Date(), settings: settingsFn, portsFor, warn, localRun: run });
   const captureMetrics:Watcher["capture"]=async(...args)=>{
     try{await watcher.capture(...args);}catch(error){warn(`evaluation capture ${args[0].id}/${args[1].ticket}: ${messageOf(error)}`);}
   };
@@ -140,10 +141,10 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
       return promise;
     },
     token: () => randomBytes(3).toString("hex"),
-    run,
     inFlight,
     availableMemory: availableMemoryBytes,
     captureMetrics,
+    localRun: run,
   });
   const auto = createAuto({
     home,
@@ -151,7 +152,9 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     settings: settingsFn,
     extras: watcher.extras,
     run: action,
-    integrationReady: (op, branch) => assertIntegrationReady(run, op.integration, op.base, branch),
+    integrationReady: async (op, branch) =>
+      // Placement-aware: `op.integration` is a path on the operation's execution host.
+      assertIntegrationReady(portsFor(op, await settingsFn()).run, op.integration, op.base, branch),
     warn,
     settle: (id) => watcher.pass(id),
   });
@@ -165,7 +168,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     availableMemory: availableMemoryBytes,
     settle: (id) => watcher.pass(id),
   });
-  const ender=createEnder({home,now:()=>new Date(),settings:settingsFn,portsFor,run,inFlight,captureMetrics});
+  const ender=createEnder({home,now:()=>new Date(),settings:settingsFn,portsFor,inFlight,captureMetrics,localRun:run});
 
   let bootSettings: Settings;
   try {
@@ -189,6 +192,19 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
             if (error instanceof PortError && (error.code === "no-plan" || error.code === "no-session")) return null;
             throw error;
           }
+        },
+        sessionLease: async (opId, ticket) => {
+          const operation = await readOperation(home, opId);
+          const lane = operation.contacts.find((contact) => contact.ticket === ticket)?.lane;
+          const ports = portsFor(operation, await settingsFn());
+          const status = lane ? watcher.extras(opId).statuses[ticket] ?? await ports.fleet.read({ worktree: lane.worktree }) : null;
+          const sessionId = status?.session?.id;
+          const host = operation.host ?? "local";
+          if (!lane || !sessionId) return {
+            sessionId: null, host, state: "unknown", checkedAt: Date.now(),
+            detail: "This mission has not advertised a session identity to probe.",
+          };
+          return probeSessionLease(ports.run, sessionId, lane.worktree, host);
         },
         tracker: async (kind) => portsFor(
           { tracker: kind, fleet: "none", frontend: "none", delivery: "none" } as Operation,

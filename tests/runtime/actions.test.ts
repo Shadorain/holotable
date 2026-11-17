@@ -8,7 +8,7 @@ import { ActionError } from "../../src/runtime/errors.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings.ts";
 import { readEvents } from "../../src/store/events.ts";
 import { holotableToolDefs } from "../../src/plugin/tools.ts";
-import { contact, fakePorts, noRun, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
+import { contact, fakePorts, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
 
 const dirs: string[] = [];
 const servers: Server[] = [];
@@ -53,7 +53,6 @@ async function setup(reply: Reply = { v: 1, ok: true, revision: "r1" }, { listen
     extras: () => ({}),
     sleep: async () => {},
     token: () => "abc123",
-    run: noRun,
   });
   const events = async () => (await readEvents(home, "lab")).filter((e) => e.kind === "operator");
   const refused = async (p: Promise<unknown>) => {
@@ -121,6 +120,19 @@ test("focus forwards the purpose to the frontend", async () => {
   await t.act({ op: "lab", contact: "a", action: "focus", args: { purpose: "plan-approval" } });
   expect(t.fake.calls.at(-1)?.args).toMatchObject({ purpose: "plan-approval" });
 });
+test("plan comments retain the reviewed revision through the owner's refinement socket", async () => {
+  const t = await setup();
+  await t.act({
+    op: "lab",
+    contact: "a",
+    action: "plan-refine",
+    args: { message: "Comment on plan lines 2-3.", revision: "rev-current" },
+  });
+  expect(t.requests).toEqual([
+    { v: 1, op: "plan-refine", args: { message: "Comment on plan lines 2-3.", revision: "rev-current" }, operator: true },
+  ]);
+});
+
 
 test("answer goes to the owner's socket only while that same form is open and answerable", async () => {
   const t = await setup();

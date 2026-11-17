@@ -13,7 +13,7 @@ import { archiveDir, operationDir, operationsDir } from "../src/paths.ts";
 import { appendEvent } from "../src/store/events.ts";
 import { archiveOperation, createOperation } from "../src/store/operations.ts";
 import { createProject } from "../src/store/projects.ts";
-import { contact, fakePorts, noRun, operation } from "./helpers.ts";
+import { contact, fakePorts, operation } from "./helpers.ts";
 
 const cleanup: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -405,7 +405,7 @@ test("archive routes: list newest first, report with history, traversal and unkn
   const { home, api } = await boot();
   // Two archives: one with report.json (written by the real end path), one without (built on read).
   const fake = fakePorts();
-  await endOperation({ home, now: () => new Date("2026-01-04T00:00:00Z"), settings: async () => DEFAULT_SETTINGS, portsFor: () => fake.ports, run: noRun }, "lab", "abandoned");
+  await endOperation({ home, now: () => new Date("2026-01-04T00:00:00Z"), settings: async () => DEFAULT_SETTINGS, portsFor: () => fake.ports }, "lab", "abandoned");
   await createOperation(home, operation({ id: "old", name: "Old", contacts: [] }));
   await appendEvent(home, "old", { v: 1, at: "2026-01-02T00:00:00.000Z", kind: "closed", outcome: "failed" });
   await archiveOperation(home, "old", new Date("2026-01-03T00:00:00Z"));
@@ -433,7 +433,7 @@ test("a closed operation's archive report carries its closer review with coverag
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "CLOSER.json"), JSON.stringify({ v: 1, summary: "All good.", verification: [{ command: "bun test", outcome: "passed" }], tickets: [{ ticket: "a", verdict: "fixed" }], fixes: [{ title: "One helper", commit: "3f2c1ab" }] }));
   writeFileSync(join(dir, "CLOSER.md"), "## Checked\n\nEverything.");
-  const key = await endOperation({ home, now: () => new Date("2026-01-04T00:00:00Z"), settings: async () => DEFAULT_SETTINGS, portsFor: () => fakePorts().ports, run: noRun }, "lab", "abandoned");
+  const key = await endOperation({ home, now: () => new Date("2026-01-04T00:00:00Z"), settings: async () => DEFAULT_SETTINGS, portsFor: () => fakePorts().ports }, "lab", "abandoned");
 
   type Detail = { closer: { ticket: string; review: { summary: string } | null; report: string | null; reviewError: string | null; coverage: { tickets: Array<{ ticket: string; verdict: string }>; checked: number; total: number } | null } | null };
   const closed = (await (await api(`/api/archive/report?key=${key}`)).json()) as Detail;
@@ -453,7 +453,7 @@ test("a closed operation's archive report carries its closer review with coverag
 test("abort: wrong confirm is a 400, right confirm runs the end hook and returns the archive key", async () => {
   const { api } = await boot({
     end: {
-      preview: async () => ({ terminals: ["a"], worktrees: [{ ticket: "a", path: "/wt/a", dirty: true }], live: 1, queued: 2, landed: 0 }),
+      preview: async () => ({ terminals: ["a"], worktrees: [{ ticket: "a", path: "/wt/a", dirty: true, state: "dirty", detail: "dirty" }], live: 1, queued: 2, landed: 0 }),
       abort: async (opId, confirm) => {
         if (confirm !== opId) throw new ActionError(400, "confirm", "confirm must be the operation id");
         return { archived: `${opId}-20260102030405` };
@@ -626,7 +626,7 @@ test("Intel archives keep frozen evidence without reading histories and leave le
   let clock = Date.parse("2026-01-04T00:00:00Z");
   const { home, api } = await boot({ now: () => clock });
   const fake = fakePorts();
-  await endOperation({ home, now: () => new Date(clock), settings: async () => DEFAULT_SETTINGS, portsFor: () => fake.ports, run: noRun }, "lab", "abandoned");
+  await endOperation({ home, now: () => new Date(clock), settings: async () => DEFAULT_SETTINGS, portsFor: () => fake.ports }, "lab", "abandoned");
   const sources = await (await api("/api/intel/sources")).json() as { archives: Array<{ key: string }> };
   const key = sources.archives[0].key;
   const first = await (await api(`/api/intel?archive=${key}`)).json() as { evaluation: { asOf: number }; closedAt: string };

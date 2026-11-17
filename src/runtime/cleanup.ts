@@ -1,7 +1,7 @@
 import { messageOf } from "../core/errors.ts";
 import { contactOf } from "../core/projection.ts";
 import type { Operation, Settings } from "../core/types.ts";
-import { PortError, type Ports, type Run } from "../ports.ts";
+import { PortError, type Ports } from "../ports.ts";
 import { appendEvent, readFolded } from "../store/events.ts";
 import { readOperation } from "../store/operations.ts";
 
@@ -10,7 +10,6 @@ export interface CleanupDeps {
   now: () => Date;
   settings: () => Promise<Settings>;
   portsFor: (operation: Operation, settings: Settings) => Ports;
-  run: Run;
 }
 
 function cleanupFailed(deps: CleanupDeps, opId: string, contact: string, error: unknown) {
@@ -25,8 +24,8 @@ function cleanupFailed(deps: CleanupDeps, opId: string, contact: string, error: 
   });
 }
 
-async function removeWorkspace(deps: CleanupDeps, opId: string, operation: Operation, ports: Ports, contact: string, worktree: string) {
-  await ports.frontend.removeWorkspace({ repo: operation.repo, worktree });
+async function removeWorkspace(deps: CleanupDeps, opId: string, operation: Operation, ports: Ports, contact: string, worktree: string, worktreeId?: string) {
+  await ports.frontend.removeWorkspace({ repo: operation.repo, worktree, worktreeId });
   await appendEvent(deps.home, opId, { v: 1, at: deps.now().toISOString(), kind: "removed", contact, worktree });
 }
 
@@ -68,9 +67,9 @@ export async function cleanupAfterLand(deps: CleanupDeps, opId: string, ticket: 
     // 2. Workspace removal
     if (lane.frontend !== "external") {
       try {
-        const gitStatus = await deps.run("git", ["status", "--porcelain"], lane.worktree);
+        const gitStatus = await ports.run("git", ["status", "--porcelain"], lane.worktree);
         if (gitStatus.code === 0 && gitStatus.stdout.trim() === "") {
-          await removeWorkspace(deps, opId, operation, ports, target.ticket, lane.worktree);
+          await removeWorkspace(deps, opId, operation, ports, target.ticket, lane.worktree, lane.worktreeId);
         } else {
           await cleanupFailed(deps, opId, target.ticket, gitStatus.code !== 0 ? gitStatus.stderr.trim() || `git exit ${gitStatus.code}` : "worktree is dirty");
         }
@@ -93,7 +92,7 @@ export async function cleanupAbandonedConflict(deps: CleanupDeps, opId: string, 
   const lane = contactOf(operation, ticket)?.lane;
   if (!lane || lane.frontend === "external") return;
   try {
-    await removeWorkspace(deps, opId, operation, deps.portsFor(operation, settings), ticket, lane.worktree);
+    await removeWorkspace(deps, opId, operation, deps.portsFor(operation, settings), ticket, lane.worktree, lane.worktreeId);
   } catch (error) {
     await cleanupFailed(deps, opId, ticket, error);
   }

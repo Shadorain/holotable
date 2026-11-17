@@ -10,7 +10,7 @@ import { launchContact } from "../../src/runtime/launcher.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings.ts";
 import { appendEvent, readEvents } from "../../src/store/events.ts";
 import { readOperation } from "../../src/store/operations.ts";
-import { contact, fakePorts, noRun, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
+import { contact, fakePorts, lane, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
 
 const dirs: string[] = [];
 afterEach(() => removeAll(dirs));
@@ -32,7 +32,6 @@ async function setup(over: Partial<Operation> = {}, deps: Partial<LanderDeps> = 
     sleep: async (ms) => void sleeps.push(ms),
     token: () => "abc123",
     socketWaitMs: 3_000,
-    run: noRun,
     ...deps,
   };
   const act = createActionRunner(base);

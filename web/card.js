@@ -1,5 +1,6 @@
 // The contact card: what this contact is, what happens next, what the operator can do.
 import { askBox } from "./ask.js";
+import { leaseBox } from "./lease.js";
 import { closerBody } from "./closer.js";
 import { icon } from "./icons.js";
 import { renderMarkdown } from "./markdown.js";
@@ -19,7 +20,7 @@ const planState = (opId, ticket) => {
   const key = `${opId}/${ticket}`;
   let s = planUi.get(key);
   if (!s) {
-    s = { mode: "read", draft: "", refine: "", stale: false };
+    s = { mode: "read", draft: "", refine: "", comment: "", commentLines: "", stale: false };
     planUi.set(key, s);
   }
   return s;
@@ -176,7 +177,7 @@ function prLabel(url) {
 }
 
 /** Every row always shows; a missing value says why instead of vanishing. */
-function facts(contact, projection) {
+function facts(contact, projection, ctx) {
   const op = projection.operation;
   const root = el("div", "facts-groups");
   const group = (title) => {
@@ -240,6 +241,7 @@ function facts(contact, projection) {
   }
   lane("Workers", contact.workers ? `${contact.workers.live} running of ${contact.workers.total}` : ["none reported"]);
   lane("Model", contact.model ? el("span", "mono", contact.model) : ["not reported"]);
+  if (contact.lane && op.fleet === "omp-mission") lane("Session lease", leaseBox(contact, ctx));
   if (contact.review) {
     const r = contact.review;
     const stale = Date.parse(r.deadlineAt) <= Date.now();
@@ -548,6 +550,67 @@ function planTab(contact, data, ctx, projection) {
 
   box.append(renderMarkdown(data.text));
 
+  if (ui.mode === "comment") {
+    const wrap = el("div", "plan-compose");
+    wrap.append(el("div", "kicker", "Comment on the current plan"));
+    wrap.append(el("div", "set-note", `This sends feedback to the mission to revise plan revision ${ui.base}.`));
+    const lines = el("input", "");
+    lines.type = "text";
+    lines.inputMode = "numeric";
+    lines.placeholder = "Line or range (e.g. 4 or 4-6)";
+    lines.value = ui.commentLines;
+    lines.setAttribute("aria-label", "Plan lines to comment on");
+    lines.dataset.key = `plan/comment-lines/${contact.ticket}`;
+    const area = el("textarea", "");
+    area.maxLength = 6000;
+    area.value = ui.comment;
+    area.placeholder = "What should change about these lines?";
+    area.setAttribute("aria-label", `Comment on plan for ${contact.ticket}`);
+    area.dataset.key = `plan/comment/${contact.ticket}`;
+    const foot = el("div", "plan-compose-foot");
+    const send = planButton("send", "Send comment", "primary");
+    const blocked = !editable(refine) || ctx.busy.has(`${contact.ticket}/*`);
+    const lineMatch = () => {
+      const match = /^([1-9]\d*)(?:\s*-\s*([1-9]\d*))?$/.exec(lines.value.trim());
+      if (!match) return null;
+      const start = Number(match[1]);
+      const end = Number(match[2] ?? match[1]);
+      return start <= end && end <= data.text.split("\n").length ? { start, end } : null;
+    };
+    const sync = () => {
+      send.disabled = blocked || !area.value.trim() || !lineMatch();
+    };
+    sync();
+    const submit = async () => {
+      const target = lineMatch();
+      if (send.disabled || !target) return;
+      const excerpt = data.text.split("\n").slice(target.start - 1, target.end).join("\n").slice(0, 1000);
+      const message = `Comment on plan lines ${target.start}${target.end === target.start ? "" : `-${target.end}`} (revision ${ui.base}).\nSelected plan text:\n> ${excerpt.replaceAll("\n", "\n> ")}\n\nOperator comment: ${area.value.trim()}`;
+      const res = await ctx.run(contact.ticket, "plan-refine", { message, revision: ui.base });
+      if (res?.ok) {
+        ui.mode = "read";
+        ui.comment = "";
+        ui.commentLines = "";
+        ctx.rerender();
+      }
+    };
+    lines.addEventListener("input", () => { ui.commentLines = lines.value; sync(); });
+    area.addEventListener("input", () => { ui.comment = area.value; sync(); });
+    area.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        submit();
+      }
+    });
+    send.addEventListener("click", submit);
+    const cancel = planButton("x", "Cancel");
+    cancel.addEventListener("click", () => { ui.mode = "read"; ctx.rerender(); });
+    foot.append(el("span", "hint", "Ctrl+Enter sends"), cancel, send);
+    wrap.append(lines, area, foot);
+    box.append(wrap);
+    return box;
+  }
+
   if (ui.mode === "refine") {
     const wrap = el("div", "plan-compose");
     wrap.append(el("div", "kicker", "Ask the mission to revise"));
@@ -562,9 +625,7 @@ function planTab(contact, data, ctx, projection) {
     const send = planButton("send", "Send to mission", "primary");
     const blocked = !editable(refine) || ctx.busy.has(`${contact.ticket}/*`);
     if (!editable(refine)) send.title = why(refine, "the mission is not accepting refinements");
-    const sync = () => {
-      send.disabled = blocked || !area.value.trim();
-    };
+    const sync = () => { send.disabled = blocked || !area.value.trim(); };
     sync();
     const submit = async () => {
       if (send.disabled) return;
@@ -575,10 +636,7 @@ function planTab(contact, data, ctx, projection) {
         ctx.rerender();
       }
     };
-    area.addEventListener("input", () => {
-      ui.refine = area.value;
-      sync();
-    });
+    area.addEventListener("input", () => { ui.refine = area.value; sync(); });
     area.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
@@ -587,10 +645,7 @@ function planTab(contact, data, ctx, projection) {
     });
     send.addEventListener("click", submit);
     const cancel = planButton("x", "Cancel");
-    cancel.addEventListener("click", () => {
-      ui.mode = "read";
-      ctx.rerender();
-    });
+    cancel.addEventListener("click", () => { ui.mode = "read"; ctx.rerender(); });
     foot.append(el("span", "hint", "Ctrl+Enter sends"), cancel, send);
     wrap.append(area, foot);
     box.append(wrap);
@@ -619,7 +674,17 @@ function planTab(contact, data, ctx, projection) {
     ui.focusRefine = true;
     ctx.rerender();
   });
-  row.append(edit, refineBtn);
+  const commentBtn = planButton("message-square", "Comment");
+  commentBtn.disabled = !editable(refine) || ui.mode !== "read" || ctx.busy.has(`${contact.ticket}/*`);
+  if (!editable(refine)) commentBtn.title = why(refine, "the mission is not accepting comments");
+  commentBtn.addEventListener("click", () => {
+    ui.mode = "comment";
+    ui.base = data.revision;
+    ui.comment = "";
+    ui.commentLines = "";
+    ctx.rerender();
+  });
+  row.append(edit, refineBtn, commentBtn);
 
   const planApproval = contact.actions.find((a) => a.id === "plan-approve");
   const canApprove = editable(planApproval);
@@ -686,7 +751,7 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan, c
   root.append(body);
 
   if (active === "details") {
-    body.append(facts(contact, projection));
+    body.append(facts(contact, projection, ctx));
     if (contact.kind === "closer") body.append(closerBriefBox(contact, closer));
     return;
   }

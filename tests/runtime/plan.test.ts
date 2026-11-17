@@ -8,7 +8,7 @@ import { foldEvents } from "../../src/core/fold.ts";
 import { createActionRunner } from "../../src/runtime/actions.ts";
 import { ActionError } from "../../src/runtime/errors.ts";
 import { DEFAULT_SETTINGS } from "../../src/settings.ts";
-import { contact, fakePorts, lane, noRun, operation, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
+import { contact, fakePorts, lane, operation, removeAll, seedOperation, status, tempDir } from "../helpers.ts";
 
 const dirs: string[] = [];
 const servers: Server[] = [];
@@ -61,7 +61,6 @@ async function setup(handler: Handler) {
     extras: () => ({ statuses: {}, owners: {}, probes: {}, load: { live: 0, open: 0 }, vanished: new Set<string>(), decisionPanes: new Set<string>() }),
     sleep: async () => {},
     token: () => "abc123",
-    run: noRun,
   });
   const refused = async (p: Promise<unknown>) => {
     try {

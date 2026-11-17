@@ -61,7 +61,7 @@ function shellCommand(i: TerminalCommand): string {
 }
 
 /** `cwd` only gives the spawns a directory: orca commands do not depend on it. */
-export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
+export function orcaFrontend(run: Run, cwd = process.cwd(), options: { noTerminal?: boolean } = {}): FrontendPort {
   async function terminalRows(): Promise<OrcaTerminalRow[]> {
     return parseTerminalList(decode(await run("orca", ["terminal", "list", "--json"], cwd)));
   }
@@ -95,7 +95,10 @@ export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
       "--repo", `path:${i.repo}`,
       "--name", i.name,
       "--base-branch", i.base,
+      // Board-owned: native automatic cleanup must not delete live or awaiting-land work.
+      "--pinned",
     ];
+    if (options.noTerminal) args.push("--no-terminal");
     if (i.ticket !== null) args.push("--linear-issue", i.ticket);
     if (startup) {
       // The setup/startup wrapper can exceed terminal line limits with a long mission scope.
@@ -113,6 +116,7 @@ export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
     return {
       worktree: worktree.path,
       branch: rawBranch === null ? null : rawBranch.replace(/^refs\/heads\//, ""),
+      worktreeId: typeof worktree.id === "string" ? worktree.id : undefined,
       startup: payload.startupTerminal,
     };
   }
@@ -120,7 +124,7 @@ export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
     id: "orca",
 
     async ensureRepo(repo) {
-      await requireStartupCommand();
+      if (!options.noTerminal) await requireStartupCommand();
       const wanted = await realpath(repo).catch(() => repo);
       const listed = decode(await run("orca", ["repo", "list", "--json"], cwd));
       const repos = Array.isArray(listed.repos) ? listed.repos : [];
@@ -134,21 +138,20 @@ export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
     },
 
     async createWorkspace(i) {
-      await requireStartupCommand();
-      const { worktree, branch } = await createWorkspace(i);
-      return { worktree, branch };
+      if (!options.noTerminal) await requireStartupCommand();
+      const { worktree, branch, worktreeId } = await createWorkspace(i);
+      return { worktree, branch, worktreeId };
     },
 
     async createWorkspaceWithTerminal(i) {
-      await requireStartupCommand();
-      const { worktree, branch, startup } = await createWorkspace(i, i.startup);
+      const { worktree, branch, worktreeId, startup } = await createWorkspace(i, i.startup);
       if (!isRecord(startup) || typeof startup.handle !== "string")
         throw new PortError("orca", "Orca worktree create omitted result.startupTerminal.handle; CLI needs worktree create --command support");
       const wanted = await realpath(worktree).catch(() => worktree);
       for (const row of await terminalRows()) {
         const path = await realpath(row.worktreePath).catch(() => row.worktreePath);
         if (row.handle === startup.handle && path === wanted && row.connected)
-          return { worktree, branch, terminal: { handle: row.handle, incarnationId: row.incarnationId } };
+          return { worktree, branch, worktreeId, terminal: { handle: row.handle, incarnationId: row.incarnationId } };
       }
       throw new PortError("terminal-missing", `Startup terminal ${startup.handle} is not connected to ${worktree}`);
     },
@@ -158,7 +161,7 @@ export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
       const payload = decode(
         await run(
           "orca",
-          ["terminal", "create", "--worktree", `path:${i.worktree}`, "--title", i.title, "--command", command, "--json"],
+          ["terminal", "create", "--worktree", i.worktreeId ? `id:${i.worktreeId}` : `path:${i.worktree}`, "--title", i.title, "--command", command, "--json"],
           cwd,
         ),
       );
@@ -193,7 +196,7 @@ export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
     },
 
     async removeWorkspace(i) {
-      decode(await run("orca", ["worktree", "rm", "--worktree", `path:${i.worktree}`, "--json"], cwd));
+      decode(await run("orca", ["worktree", "rm", "--worktree", i.worktreeId ? `id:${i.worktreeId}` : `path:${i.worktree}`, ...(i.force ? ["--force"] : []), "--json"], cwd));
     },
   };
 }

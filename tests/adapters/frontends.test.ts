@@ -82,6 +82,7 @@ describe("orca frontend", () => {
       "--repo", "path:/repo",
       "--name", "chr-1",
       "--base-branch", "main",
+      "--pinned",
       "--linear-issue", "CHR-1",
       "--no-parent", "--json",
     ]);
@@ -434,7 +435,7 @@ describe("gitWorkspaces", () => {
     ).rejects.toMatchObject({ code: "git" });
   });
 
-  test("removeWorkspace runs git worktree remove --force", async () => {
+  test("removes a clean worktree from the filesystem", async () => {
     const repo = await makeRepo();
     const workspaces = gitWorkspaces(realRun);
     const created = await workspaces.createWorkspace({ repo, name: "gone", base: "main", ticket: null });

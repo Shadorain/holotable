@@ -22,7 +22,7 @@ const DECISION: Partial<Contact> = { kind: "decision", options: ["Stay", "Move"]
 async function setup(contacts: Contact[], over: { load?: { live: number; open: number }; auto?: AutoMode } = {}) {
   const home = tempDir("decide", dirs);
   await seedOperation(home, { contacts, ...(over.auto ? { auto: over.auto } : {}) });
-  const fake = fakePorts();
+  const fake = fakePorts(async () => ({ stdout: "", stderr: "", code: 0 }));
   const act = createActionRunner({
     home,
     now: () => new Date("2026-01-01T03:00:00Z"),
@@ -32,7 +32,6 @@ async function setup(contacts: Contact[], over: { load?: { live: number; open: n
     sleep: async () => {},
     token: () => "abc123",
     socketWaitMs: 0,
-    run: async () => ({ stdout: "", stderr: "", code: 0 }),
   });
   const warnings: string[] = [];
   const watcher = createWatcher({

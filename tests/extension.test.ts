@@ -24,6 +24,7 @@ interface CommandStub {
 interface ToolStub {
   name: string;
   defaultInactive?: boolean;
+  execute?: (id: string, params: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>;
 }
 
 function fixture(kind: "main" | "sub" = "main") {
@@ -50,6 +51,7 @@ function fixture(kind: "main" | "sub" = "main") {
   const statuses: Array<string | undefined> = [];
   const tools = new Map<string, ToolStub>();
   const timers = new Set<Timer>();
+  const schemes: string[] = [];
   let active = ["read"];
   // A hand-rolled ExtensionAPI: the test double is deliberately narrower than the real surface.
   const pi = {
@@ -58,6 +60,7 @@ function fixture(kind: "main" | "sub" = "main") {
       tools.set(tool.name, tool);
       if (!tool.defaultInactive) active.push(tool.name);
     },
+    registerLinkScheme: (scheme: string) => schemes.push(scheme),
     getActiveTools: () => [...active],
     setActiveTools: async (names: string[]) => void (active = names),
     on: (name: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<void>) => handlers.set(name, handler),
@@ -101,12 +104,15 @@ function fixture(kind: "main" | "sub" = "main") {
     handlers,
     notices,
     statuses,
+    schemes,
     lastStatus: () => statuses.at(-1),
     run: (args: string) => command.handler(args, ctx),
     complete: (prefix: string) => command.getArgumentCompletions?.(prefix),
     start: () => handlers.get("session_start")?.({}, ctx),
     switch: () => handlers.get("session_switch")?.({}, ctx),
     branch: () => handlers.get("session_branch")?.({}, ctx),
+    clear: () => handlers.get("session_clear")?.({}, ctx),
+    activateLink: (url: string) => handlers.get("link_activate")?.({ type: "link_activate", scheme: "holotable", url }, ctx),
     timers: () => timers.size,
     serve,
     shutdown: () => handlers.get("session_shutdown")?.({}, ctx),
@@ -120,6 +126,7 @@ test("a board-launched child process registers nothing", () => {
   const f = fixture();
   expect(f.commands.size).toBe(0);
   expect(f.tools.size).toBe(0);
+  expect(f.schemes).toEqual([]);
 });
 
 test("store commands select locally without starting the board service", async () => {
@@ -226,4 +233,51 @@ test("switching or branching clears activation until this session runs holotable
   expect(f.lastStatus()).toBeUndefined();
   expect(f.timers()).toBe(0);
   expect(f.active()).toEqual(["read"]);
+});
+test("session_clear deactivates only this OMP session", async () => {
+  const f = fixture();
+  await createOperation(f.home, operation());
+  await f.serve();
+  await f.run("");
+  await f.run("use lab");
+  expect(f.notices.at(-1)?.text).toContain("[Open lab](holotable:operation/lab)");
+  expect(f.active()).toContain("holotable_state");
+  expect(f.timers()).toBe(1);
+  await f.clear();
+  expect(f.lastStatus()).toBeUndefined();
+  expect(f.timers()).toBe(0);
+  expect(f.active()).toEqual(["read"]);
+  expect((await serviceHealth(f.home)).running).toBe(true);
+  expect((await readOperation(f.home, "lab")).id).toBe("lab");
+  await expect(f.tools.get("holotable_state")!.execute!("test", {})).rejects.toThrow("No operation selected");
+});
+
+test("Holotable links only navigate to a fresh, existing operation", async () => {
+  const f = fixture();
+  await createOperation(f.home, operation());
+  expect(f.schemes).toEqual(["holotable"]);
+  for (const url of [
+    "holotable:operation/unknown",
+    "holotable:close/lab",
+    "holotable:operation/lab?query=1",
+    "holotable:operation/lab#fragment",
+    "holotable://user@host/operation/lab",
+    "holotable:operation/lab:42",
+    "holotable:operation/lab/extra",
+  ]) await f.activateLink(url);
+  expect(f.active()).toEqual(["read"]);
+  expect(f.timers()).toBe(0);
+  expect(f.notices.every((notice) => notice.type === "warning")).toBe(true);
+
+  await f.activateLink("holotable:operation/lab");
+  expect(f.active()).toContain("holotable_state");
+  expect(f.timers()).toBe(1);
+  expect(f.lastStatus()).toContain("board offline");
+  const stateTool = f.tools.get("holotable_state")!;
+  const selectedState = await stateTool.execute!("test", {});
+  const explicitState = await stateTool.execute!("test", { operation: "lab" });
+  expect(selectedState.content[0]?.text).toBe(explicitState.content[0]?.text);
+  expect(f.notices.at(-1)?.text).toContain("Selected Lab (lab)");
+  expect(f.notices.at(-1)?.text).toContain("Read-only.");
+  expect((await readOperation(f.home, "lab")).id).toBe("lab");
 });

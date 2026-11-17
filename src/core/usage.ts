@@ -52,6 +52,8 @@ export interface MachineUsage {
 
 export interface UsageReport {
   op: UsageStats | null;
+  /** Why `op` is null although an operation was selected (e.g. remote execution host). */
+  opUnavailable?: string;
   all: UsageStats;
   machine: MachineUsage;
 }
@@ -150,7 +152,8 @@ export function machineUsage(prev: MachineSample | null, next: MachineSample): M
 /**
  * Fold two snapshots into the report shape `GET /api/usage` answers. `roots` maps an
  * operation's lane worktrees (realpath'ed); `allRoots` is every open operation's union.
- * Null `roots` means "no operation selected".
+ * Null `roots` means "no operation selected"; pair it with `opUnavailable` when the
+ * operation exists but its processes live on another host (never attributed locally).
  */
 export function buildUsage(
   prev: MachineSample | null,
@@ -158,9 +161,11 @@ export function buildUsage(
   roots: readonly string[] | null,
   allRoots: readonly string[],
   usableMemBytes: number | null,
+  opUnavailable?: string,
 ): UsageReport {
   return {
     op: roots === null ? null : usageFor(prev, next, attributeProcesses(next.procs, roots), usableMemBytes),
+    ...(roots === null && opUnavailable !== undefined ? { opUnavailable } : {}),
     all: usageFor(prev, next, attributeProcesses(next.procs, allRoots), usableMemBytes),
     machine: machineUsage(prev, next),
   };

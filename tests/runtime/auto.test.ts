@@ -46,6 +46,7 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
   const statuses = new Map(Object.entries(opts.statuses ?? {}));
   const probes = new Map(Object.entries(opts.probes ?? {}));
   const run: Run = async () => ({ stdout: "", stderr: "", code: 0 });
+  fake.ports.run = run;
   let autoNow = Date.parse("2026-01-01T03:00:00Z");
   const act = createActionRunner({
     home,
@@ -61,7 +62,6 @@ async function setup(contacts: ReturnType<typeof contact>[], opts: {
     sleep: async () => {},
     token: () => "abc123",
     socketWaitMs: 0,
-    run: async () => ({ stdout: "", stderr: "", code: 0 }),
   });
   const warnings: string[] = [];
   let integrationError = opts.integrationError;

@@ -53,7 +53,7 @@ async function setup(capture = false, { ticket = "a", tracker }: { ticket?: stri
     ...(tracker ? { tracker } : {}),
     contacts: [contact(ticket, { lane: lane(join(root, "wt-a"), "t1", "feat/a") })],
   });
-  const fake = fakePorts();
+  const fake = fakePorts(run);
   const conflictWt = `${repo}-holotable-conflict-abc123`;
   const statuses = new Map<string, ContactStatus>([
     [ticket, status({ worktree: join(root, "wt-a"), complete: true, phase: "complete", ctl: null })],
@@ -74,7 +74,6 @@ async function setup(capture = false, { ticket = "a", tracker }: { ticket?: stri
     sleep: async () => {},
     token: () => "abc123",
     socketWaitMs: 0,
-    run,
     captureMetrics:capture?watcher.capture:undefined,
   });
   const events = async () => (await readEvents(home, "lab")).map((e) => e.kind);
@@ -225,7 +224,6 @@ test("failing checks hold Land; operator-only Land anyway merges past them and i
     sleep: async () => {},
     token: () => "abc123",
     socketWaitMs: 0,
-    run,
   });
   expect((await t.refused(act({ op: "lab", contact: "a", action: "land", args: {} }))).message).toBe("failing check: Flaky e2e");
   expect((await t.refused(act({ op: "lab", contact: "a", action: "land-anyway", args: {}, by: "auto" }))).status).toBe(403);
@@ -253,7 +251,6 @@ test("pending checks hold Land; operator-only Skip CI and land merges and record
     sleep: async () => {},
     token: () => "abc123",
     socketWaitMs: 0,
-    run,
   });
   expect((await t.refused(act({ op: "lab", contact: "a", action: "land-anyway", args: {}, by: "auto" }))).status).toBe(403);
   await act({ op: "lab", contact: "a", action: "land-anyway", args: {} });
