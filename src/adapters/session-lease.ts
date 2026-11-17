@@ -4,15 +4,14 @@ import { withTimeout } from "../timeout.ts";
 
 export interface SessionLeaseReport {
   sessionId: string | null;
-  host: string;
   state: "held" | "not-held" | "unknown";
   checkedAt: number;
   detail: string;
 }
 
 /** Diagnostic only: an unheld lease neither proves session existence nor grants ownership. */
-export async function probeSessionLease(run: Run, sessionId: string, cwd: string, host: string): Promise<SessionLeaseReport> {
-  const report: SessionLeaseReport = { sessionId, host, state: "unknown", checkedAt: Date.now(), detail: "" };
+export async function probeSessionLease(run: Run, sessionId: string, cwd: string): Promise<SessionLeaseReport> {
+  const report: SessionLeaseReport = { sessionId, state: "unknown", checkedAt: Date.now(), detail: "" };
   try {
     const result = await withTimeout(run("omp", ["session", "lease", "--json", "--", sessionId], cwd), 5000, "Lease probe timed out");
     if (result.code !== 0) throw new Error(result.stderr.trim() || `Lease probe exited ${result.code}`);

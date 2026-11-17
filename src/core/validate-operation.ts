@@ -8,7 +8,6 @@ import {
   OVERRIDABLE_FIELDS,
   TRACKERS,
   type Contact,
-  type ExecutionHost,
   type Kind,
   type Lane,
   type Operation,
@@ -121,28 +120,6 @@ export function validateOperationDoc(
     if (typeof raw.ignoreChecks !== "boolean") return fail("ignoreChecks must be a boolean");
     doc.ignoreChecks = raw.ignoreChecks;
   }
-  if (raw.host !== undefined) {
-    // Explicit execution host: Orca's `local | ssh:<id> | runtime:<id>` spellings. "local" is a
-    // real override — it pins the board host over a remote project's inherited host.
-    const hostOk =
-      typeof raw.host === "string" &&
-      (raw.host === "local" ||
-        (raw.host.length > 4 && (raw.host.startsWith("ssh:") || raw.host.startsWith("runtime:"))));
-    if (!hostOk)
-      return fail('host must be "local", "ssh:<target-id>", or "runtime:<environment-id>" (absent = follow the project, else board host)');
-    doc.host = raw.host;
-  }
-  if (raw.hostSetup !== undefined) {
-    if (typeof raw.hostSetup !== "string" || raw.hostSetup.trim().length === 0)
-      return fail("hostSetup must be a non-empty string (Orca project-host-setup id)");
-    doc.hostSetup = raw.hostSetup;
-  }
-  // hostSetup without a non-local host (own or inherited) names nothing on the board host.
-  const effectiveHost = doc.host !== undefined ? doc.host : project?.host;
-  if (doc.hostSetup !== undefined && (effectiveHost === undefined || effectiveHost === "local"))
-    return fail("hostSetup requires a remote host: it names a setup on the placement host");
-  // An explicit local override must not drag the project's remote setup pin along.
-  if (doc.host === "local") doc.hostSetup = undefined;
   // Legacy documents may still carry `workflow`: validate it so a malformed list
   // is rejected before the store's migration turns it into notes.md task lines.
   if (value.workflow !== undefined) {
@@ -168,12 +145,6 @@ export function validateOperationDoc(
       effective[field] = doc[field];
       continue;
     }
-    // A project's setup pin only applies to that project's host. Explicit local, a different
-    // host, or no host must not inherit a stale setup id. Absent is valid.
-    if (field === "hostSetup") {
-      const pinned = effective.host;
-      if (pinned === undefined || pinned === "local" || (doc.host !== undefined && doc.host !== project?.host)) continue;
-    }
     if (project !== null && projectId === project.id) {
       const fromProject = project[field as keyof Project];
       if (fromProject !== undefined) {
@@ -185,20 +156,6 @@ export function validateOperationDoc(
     // worktreeRoot alone may be absent everywhere: settings.worktrees.root applies then, and with a
     // project that still means "following the project", not an override.
     if (field === "worktreeRoot") {
-      if (project !== null && projectId === project.id) inherited.push(field);
-      continue;
-    }
-    // host/hostSetup are optional but inheritable: a remote project's operations land on its
-    // host by default; absent everywhere means the board host.
-    if (field === "host") {
-      if (project !== null && projectId === project.id) inherited.push(field);
-      continue;
-    }
-    if (field === "hostSetup") {
-      // A project's setup pin only applies to that project's host. An explicit local override,
-      // or a different host, must not inherit a stale setup id.
-      const pinned = effective.host;
-      if (pinned === undefined || pinned === "local" || (doc.host !== undefined && doc.host !== project?.host)) continue;
       if (project !== null && projectId === project.id) inherited.push(field);
       continue;
     }
@@ -356,14 +313,11 @@ export function validateOperationDoc(
           return fail(`${at}.lane.terminal.handle must be a non-empty string`);
         if (typeof t.incarnationId !== "string" || t.incarnationId.length === 0)
           return fail(`${at}.lane.terminal.incarnationId must be a non-empty string`);
-        if (t.host !== undefined && (typeof t.host !== "string" || t.host.length === 0))
-          return fail(`${at}.lane.terminal.host must be a non-empty string`);
         if (t.worktreeId !== undefined && (typeof t.worktreeId !== "string" || t.worktreeId.length === 0))
           return fail(`${at}.lane.terminal.worktreeId must be a non-empty string`);
         terminal = {
           handle: t.handle,
           incarnationId: t.incarnationId,
-          ...(typeof t.host === "string" ? { host: t.host } : {}),
           ...(typeof t.worktreeId === "string" ? { worktreeId: t.worktreeId } : {}),
         };
       }
@@ -440,8 +394,6 @@ export function validateOperationDoc(
     ...(doc.delivery !== undefined ? { delivery: doc.delivery as StoredOperation["delivery"] } : {}),
     ...(doc.worktreeRoot !== undefined ? { worktreeRoot: doc.worktreeRoot as string } : {}),
     ...(doc.ignoreChecks !== undefined ? { ignoreChecks: doc.ignoreChecks as boolean } : {}),
-    ...(doc.host !== undefined ? { host: doc.host as ExecutionHost } : {}),
-    ...(doc.hostSetup !== undefined ? { hostSetup: doc.hostSetup as string } : {}),
     ...(auto ? { auto } : {}),
     ...(recover ? { recover } : {}),
   };
@@ -466,8 +418,6 @@ export function validateOperationDoc(
     contacts,
     createdAt: stored.createdAt,
     ...(effective.worktreeRoot !== undefined ? { worktreeRoot: effective.worktreeRoot as string } : {}),
-    ...(effective.host !== undefined ? { host: effective.host as ExecutionHost } : {}),
-    ...(effective.hostSetup !== undefined ? { hostSetup: effective.hostSetup as string } : {}),
     ...(auto ? { auto } : {}),
     recover,
   };

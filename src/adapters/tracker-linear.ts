@@ -32,14 +32,14 @@ async function loadWorkspaceKey(run: Run, cwd: string, workspace?: string): Prom
 }
 
 
-export function linearTracker(run: Run, options: { configRun?: Run; cliCwd?: string } = {}): TrackerPort {
+export function linearTracker(run: Run): TrackerPort {
   const keys = new Map<string, Promise<string | null>>();
   const workspaceKey = (cwd: string, workspace: string | undefined): Promise<string | null> => {
-    if (!workspace) return loadWorkspaceKey(run, options.cliCwd ?? cwd);
+    if (!workspace) return loadWorkspaceKey(run, cwd);
     const identity = JSON.stringify([cwd, workspace ?? null]);
     let promise = keys.get(identity);
     if (!promise) {
-      promise = loadWorkspaceKey(run, options.cliCwd ?? cwd, workspace).then((key) => {
+      promise = loadWorkspaceKey(run, cwd, workspace).then((key) => {
         if (!key) keys.delete(identity);
         return key;
       });
@@ -52,8 +52,8 @@ export function linearTracker(run: Run, options: { configRun?: Run; cliCwd?: str
     id: "linear",
     async sample(ticket, cwd) {
       try {
-        const workspace = await readLinearWorkspace(cwd, options.configRun ?? run);
-        const result = await run("lin", ["issues", "get", ticket.toUpperCase(), "--json", ...(workspace ? ["--workspace", workspace] : [])], options.cliCwd ?? cwd);
+        const workspace = await readLinearWorkspace(cwd, run);
+        const result = await run("lin", ["issues", "get", ticket.toUpperCase(), "--json", ...(workspace ? ["--workspace", workspace] : [])], cwd);
         if (result.code !== 0) return null;
         const payload: unknown = JSON.parse(result.stdout);
         if (!isRecord(payload) || !isRecord(payload.issue)) return null;
@@ -73,8 +73,8 @@ export function linearTracker(run: Run, options: { configRun?: Run; cliCwd?: str
     },
     async search(query, cwd, limit) {
       try {
-        const workspace = await readLinearWorkspace(cwd, options.configRun ?? run);
-        const result = await run("lin", ["search", query, "--json", "--limit", String(limit), ...(workspace ? ["--workspace", workspace] : [])], options.cliCwd ?? cwd);
+        const workspace = await readLinearWorkspace(cwd, run);
+        const result = await run("lin", ["search", query, "--json", "--limit", String(limit), ...(workspace ? ["--workspace", workspace] : [])], cwd);
         if (result.code !== 0) return null;
         const payload: unknown = JSON.parse(result.stdout);
         if (!isRecord(payload) || !Array.isArray(payload.issues)) return null;

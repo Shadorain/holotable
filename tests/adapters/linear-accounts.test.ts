@@ -55,24 +55,6 @@ test("a failed selected account or configuration lookup never reads the CLI defa
   expect(linearCalls).toHaveLength(2);
 });
 
-test("remote repository configuration and board credentials use separate execution scopes", async () => {
-  const { run: accountRun } = accounts();
-  const configRun: Run = async (command, args, cwd) => {
-    expect(command).toBe("git");
-    expect(cwd).toBe("/remote/repo");
-    expect(args).toContain("mission.linearWorkspace");
-    return text("lyricin\n");
-  };
-  const run: Run = async (command, args, cwd) => {
-    expect(command).toBe("lin");
-    expect(cwd).toBe("/board");
-    return accountRun(command, args, cwd);
-  };
-  const tracker = linearTracker(run, { configRun, cliCwd: "/board" });
-  expect(await tracker.sample("APP-1", "/remote/repo")).toEqual({ state: "lyricin", url: "https://linear.app/lyricin/issue/APP-1" });
-  expect((await tracker.search("query", "/remote/repo", 5))?.[0]?.title).toBe("lyricin");
-});
-
 test("repository detection authenticates its selected workspace rather than the CLI default", async () => {
   let authenticated = true;
   const run: Run = async (command, args, cwd) => {

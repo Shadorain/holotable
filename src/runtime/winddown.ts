@@ -3,7 +3,7 @@ import { messageOf } from "../core/errors.ts";
 import { describeStatus, worktreeStatus } from "./worktree-status.ts";
 import { appendEvent, readFolded } from "../store/events.ts";
 import { readOperation } from "../store/operations.ts";
-import type { Ports, Run } from "../ports.ts";
+import type { Ports } from "../ports.ts";
 import { PortError } from "../ports.ts";
 
 export interface WinddownDeps {
@@ -11,8 +11,6 @@ export interface WinddownDeps {
   now(): Date;
   settings(): Promise<Settings>;
   portsFor(operation: Operation, settings: Settings): Ports;
-  /** Board-local Run. Remote closer retrieval fails closed without it. */
-  localRun?: Run;
   /** Shared action-runner keys (op/ticket → action); End refuses while any op action runs. */
   inFlight?: Map<string, string>;
   captureMetrics?(operation:Operation,contact:Contact,status?:ContactStatus|null):Promise<void>;
@@ -48,8 +46,6 @@ export async function windDown(deps: WinddownDeps, opId: string, op: "abort" | "
     return ports;
   };
   const frontend = async () => (await resolve()).frontend;
-  // Host-routed run: placed operations run git on their execution host via the relay.
-  const runOnHost = async () => (await resolve()).run;
 
   for (const contact of operation.contacts) {
     const lane = contact.lane;
@@ -70,7 +66,7 @@ export async function windDown(deps: WinddownDeps, opId: string, op: "abort" | "
 
     if (lane.frontend !== "external" && !d?.removed) {
       try {
-        const status = await worktreeStatus(await runOnHost(), lane.worktree);
+        const status = await worktreeStatus((await resolve()).run, lane.worktree);
         if (status.state === "gone") {
           // The checkout is already gone; the registry may still know it, so try removal anyway.
         } else if (status.state === "unknown") {

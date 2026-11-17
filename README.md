@@ -49,8 +49,7 @@ flowchart LR
 - **OMP 18.22.0 or later.** Mission panes and the board use the same current SDK, including native HTML-form questions and plan review.
 - **[omp-mission](https://github.com/Shadorain/omp-mission)** installed as an OMP extension. Launched panes must load it.
 - **[Bun](https://bun.sh/docs/installation)** on `PATH`, and a browser.
-- **A launch frontend:** Orca terminal (`orca` CLI with the host `worktree create --command` extension), opt-in native Orca Chat (`orca-chat`), Herdr (`herdr` CLI), or your own shell templates. Setup checks launch capabilities before workspace creation. Native Chat also requires the new OMP ACP mission APIs and Orca mission-lifecycle capability; it never falls back to a terminal. Without a frontend, the board can still organize work.
-- **Remote placement is explicit.** An operation stays on this machine unless `--host ssh:<id>|runtime:<id>` (or its project) names an Orca execution host. The mission host needs Bun on `PATH` and a ready project-host-setup (`--host-setup`). `host local` clears a setup pin. Existing operations are not migrated.
+- **A launch frontend:** Orca terminal (`orca` CLI plus the `orca-cli-patch` extension that adds `orca worktree create --command`), Herdr (`herdr` CLI), or your own shell templates. Setup checks launch capabilities before workspace creation. Without a frontend, the board can still organize work.
 - Optional, per project: `lin` for Linear tickets, `gh` for GitHub tickets and PR delivery, Git for local-merge delivery. See [Integrations](docs/guide.md#integrations).
 - **Multiple Linear logins:** pin `mission.linearWorkspace` in each repository's local Git config to its `lin auth list` workspace name. Board ticket reads, search, drafting and mission panes use that login without changing the CLI default. See [Linear accounts](docs/guide.md#linear-accounts).
 

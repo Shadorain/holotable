@@ -92,31 +92,24 @@ export function isGitHubRemote(url: string | null): boolean {
 /**
  * Detect project fields for one repo. Runs every check through `run` so tests and the
  * playground can fake the CLIs; any missing binary or command failure degrades to
- * the next fallback, never an error.
- *
- * `canonicalize` defaults to a local realpath. Remote callers must pass a host canonicalizer:
- * a remote path is never realpath'd on the board. Pass `orca` (including `[]`) to skip
- * `orca repo list` — a remote host is not asked for it.
+ * the next fallback, never an error. Pass `orca` (including `[]`) to skip `orca repo list`.
  */
 export async function detectRepo(
   repo: string,
   run: Run,
   orca?: OrcaRepoEntry[] | null,
-  options?: { canonicalize?: (path: string) => Promise<string>; /** Non-git CLIs (gh, lin, herdr). Defaults to `run`. */ probeRun?: Run },
 ): Promise<DetectionResult> {
   const reasons: Record<string, string> = {};
-  const canonicalize = options?.canonicalize ?? ((path: string) => realpath(path).catch(() => path));
-  const probe = options?.probeRun ?? run;
 
   const top = await gitTopLevel(run, repo);
   if (!top) throw new InputError(`${repo} is not inside a git work tree`);
 
-  const orcaRow = orca === undefined ? await orcaRepos(probe) : orca;
-  const repoReal = await canonicalize(top);
+  const orcaRow = orca === undefined ? await orcaRepos(run) : orca;
+  const repoReal = await realpath(top).catch(() => top);
   let orcaEntry: OrcaRepoEntry | null = null;
   if (orcaRow) {
     for (const entry of orcaRow) {
-      const entryReal = await canonicalize(entry.path);
+      const entryReal = await realpath(entry.path).catch(() => entry.path);
       if (entryReal === repoReal || entry.path === top || entry.path === repo) {
         orcaEntry = entry;
         break;
@@ -129,12 +122,10 @@ export async function detectRepo(
 
   const remote = await remoteUrl(run, top);
   const githubOrigin = isGitHubRemote(remote);
-  // Credentialed CLIs live on the board. A remote probe must not use the host path as cwd.
-  const probeCwd = options?.probeRun ? process.cwd() : top;
-  const ghOk = githubOrigin && (await probe("gh", ["auth", "status"], probeCwd)).code === 0;
+  const ghOk = githubOrigin && (await run("gh", ["auth", "status"], top)).code === 0;
   const linearWorkspace = await readLinearWorkspace(top, run);
-  const linOk = (await probe("lin", ["me", "--json", ...(linearWorkspace ? ["--workspace", linearWorkspace] : [])], probeCwd)).code === 0;
-  const herdrOk = (await probe("herdr", ["--version"], probeCwd)).code === 0;
+  const linOk = (await run("lin", ["me", "--json", ...(linearWorkspace ? ["--workspace", linearWorkspace] : [])], top)).code === 0;
+  const herdrOk = (await run("herdr", ["--version"], top)).code === 0;
 
   let frontend: DetectedFields["frontend"];
   if (orcaEntry) {

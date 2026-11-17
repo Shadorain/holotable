@@ -19,7 +19,7 @@ const FINAL_STATES: readonly string[] = ["unqueued", "queued", "blocked", "runni
 export function parseMeasurementConfig(value: unknown): MeasurementConfig | null {
   if (!isRecord(value)) return null;
   if (typeof value.graph !== "string" || !["local", "beads"].includes(value.graph)) return null;
-  if (typeof value.frontend !== "string" || !["none", "orca", "orca-chat", "herdr", "custom", "subagent"].includes(value.frontend)) return null;
+  if (typeof value.frontend !== "string" || !["none", "orca", "herdr", "custom", "subagent"].includes(value.frontend)) return null;
   if (!isCount(value.maxWorkers) || value.maxWorkers < 1 || value.maxWorkers > MAX_WORKERS) return null;
   if (!isCount(value.reviewConcurrency) || value.reviewConcurrency < 1 || value.reviewConcurrency > MAX_WORKERS) return null;
   if (!MODES.includes(value.mode as never)) return null;

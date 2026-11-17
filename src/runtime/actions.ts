@@ -11,7 +11,6 @@ import { readBrief } from "../store/brief.ts";
 import { decisionPrompt, decisionSessionsDir, readDecisionPane, validateDecision, writeDecisionPane } from "../store/decisions.ts";
 import { readNotes } from "../store/notes.ts";
 import { readCloserFiles } from "../store/closer.ts";
-import { pullCloser, relayFor, remoteSegment, stageDir } from "../adapters/remote-artifacts.ts";
 import { readContactReport } from "../store/reports.ts";
 import { prBody } from "../core/pr-body.ts";
 import { readOperation } from "../store/operations.ts";
@@ -60,11 +59,6 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
         // An audit or closer that committed code delivers no PR; without one, Mark done could only refuse forever.
         // Open the review it never opened, and Land takes over once the probe sees it.
         if ((contact.kind === "audit" || contact.kind === "closer") && delivery.publish && !view.delivery?.url && !deps.extras(opId).probes?.[ticket]) {
-          if (contact.kind === "closer") {
-            if (operation.host && operation.host !== "local" && !deps.localRun)
-              throw new ActionError(503, "host-unprepared", "Remote closer retrieval needs the board run");
-            if (deps.localRun) await pullCloser(deps.localRun, deps.home, operation);
-          }
           const review = contact.kind === "closer" ? (await readCloserFiles(deps.home, opId, ticket)).review : null;
           const report = review ? null : await readContactReport(deps.home, opId, ticket);
           const body = prBody({ operation, contact, review, report });
@@ -121,24 +115,8 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       throw new ActionError(409, "refused", `${ticket} is already asking an agent`);
     const ports = deps.portsFor(operation, settings);
     const [brief, notes] = await Promise.all([readBrief(deps.home, opId), readNotes(deps.home, opId)]);
-    const remote = operation.host !== undefined && operation.host !== "local";
-    let sessionsDir = decisionSessionsDir(deps.home, opId, ticket);
-    let answerPath: string | undefined;
-    if (remote) {
-      if (!deps.localRun) throw new ActionError(503, "host-unprepared", "Remote decision staging needs the board run");
-      const relay = await relayFor(deps.localRun, {
-        host: operation.host!,
-        ...(operation.hostSetup !== undefined ? { hostSetup: operation.hostSetup } : {}),
-        repo: operation.repo,
-      });
-      const dir = await stageDir(relay, `ops/${remoteSegment(opId)}/decisions`);
-      const name = encodeURIComponent(ticket);
-      answerPath = join(dir, `${name}.json`);
-      sessionsDir = join(dir, `${name}.sessions`);
-      await stageDir(relay, `ops/${remoteSegment(opId)}/decisions/${name}.sessions`);
-    } else {
-      await mkdir(sessionsDir, { recursive: true, mode: 0o700 });
-    }
+    const sessionsDir = decisionSessionsDir(deps.home, opId, ticket);
+    await mkdir(sessionsDir, { recursive: true, mode: 0o700 });
     const prompt = decisionPrompt({
       home: deps.home,
       opId,
@@ -148,7 +126,6 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       decided: projection.contacts
         .filter((c) => c.ticket !== ticket && c.decision !== null)
         .map((c) => ({ ticket: c.ticket, decision: c.decision as NonNullable<typeof c.decision> })),
-      ...(answerPath !== undefined ? { out: answerPath } : {}),
     });
     const selectedModel = modelOverride !== undefined
       ? modelOverride
@@ -167,14 +144,6 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     await writeDecisionPane(deps.home, opId, ticket, {
       terminal,
       startedAt: deps.now().toISOString(),
-      ...(remote
-        ? {
-            host: operation.host,
-            ...(operation.hostSetup !== undefined ? { hostSetup: operation.hostSetup } : {}),
-            remoteAnswer: answerPath,
-            remoteSessions: sessionsDir,
-          }
-        : {}),
     });
   }
 

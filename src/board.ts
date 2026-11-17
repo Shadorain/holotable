@@ -1,17 +1,12 @@
 import { mkdir, readdir, realpath } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { usableMemoryBytes } from "./machine.ts";
 import { asInput } from "./core/errors.ts";
 import { zoneIdFor } from "./core/zones.ts";
 import { PANE_MEMORY_BYTES } from "./core/policy.ts";
 import { workspaceInfo, type WorkspaceInfo } from "./adapters/workspace-info.ts";
 import { doltState, installDolt, restartDolt, type DoltState } from "./adapters/beads-dolt.ts";
-import { detectRemoteRepo, resolveRemotePlacement } from "./adapters/placement.ts";
-import { createRemotePlacement, orcaRemoteFrontend, type RemotePlacement } from "./adapters/frontend-orca-remote.ts";
 import { readLinearWorkspace } from "./adapters/linear-account.ts";
-import { pullCloser, pullFile, pullSessions, relayFor, remoteSegment, removeRemote, stageText } from "./adapters/remote-artifacts.ts";
-import { orcaChatFrontend } from "./adapters/frontend-orca-chat.ts";
-import type { RelayOps } from "./adapters/orca-exec.ts";
 import {
   applyOperationField,
   applyProjectField,
@@ -123,10 +118,6 @@ export interface OperationConfig {
     frontend: string;
     delivery: string;
     worktreeRoot: string;
-    /** Explicit execution host; "" follows the project (board host when standalone). "local" pins the board host over a remote project. */
-    host: string;
-    /** Orca project-host-setup id; "" follows the project. Cleared by an explicit local host. */
-    hostSetup: string;
     auto: AutoMode | null;
     recover: boolean;
     /** The operation's project id, "" while standalone. */
@@ -179,7 +170,7 @@ export interface BoardService {
   setOperationField(opId: string, field: string, value: string): Promise<OperationConfig>;
   /** The pending plan text of a contact awaiting plan-approval; null when none. */
   plan?(opId: string, ticket: string): Promise<{ text: string; path: string; revision: string } | null>;
-  /** Read-only, host-routed writer-lease evidence; never grants mission ownership. */
+  /** Read-only writer-lease evidence; never grants mission ownership. */
   sessionLease?(opId: string, ticket: string): Promise<SessionLeaseReport>;
   /** Live CPU/memory for the Load tooltip; null `op` answers only `all`+`machine`. */
   usage?(opId: string | null): Promise<UsageReport>;
@@ -242,7 +233,7 @@ export interface BoardService {
   /** Candidate repos for the project repo picker; cached ~30s. */
   repos(): Promise<RepoRow[]>;
   /** Detect project fields and reasons for a repo path. */
-  detect(repo: string, placement?: { host?: string; hostSetup?: string }): Promise<DetectionResult>;
+  detect(repo: string): Promise<DetectionResult>;
   /** Model catalog from real omp models CLI; cached ~30s. */
   models(refresh?: boolean, includeUsage?: boolean): Promise<ModelsResult>;
 }
@@ -257,10 +248,6 @@ export interface ProjectSpec {
   id?: string;
   name?: string;
   repo: string;
-  /** Remote placement: "ssh:<id>" or "runtime:<id>". Absent = board host; repo then names a local checkout. */
-  host?: string;
-  /** Orca project-host-setup id on `host`; its checkout path is the remote repo. */
-  hostSetup?: string;
   base?: string;
   integration?: string;
   tracker?: string;
@@ -284,10 +271,6 @@ export interface ProjectConfig {
     frontend: string;
     delivery: string;
     worktreeRoot: string;
-    /** "" = board host. Operations inherit it unless they override (including explicit "local"). */
-    host: string;
-    /** Orca project-host-setup id; "" when the project is local. */
-    hostSetup: string;
   };
   options: { tracker: string[]; fleet: string[]; frontend: string[]; delivery: string[] };
   workspace: WorkspaceInfo | null;
@@ -350,7 +333,7 @@ export interface BoardHooks {
   };
   /** For the workspace panel's `orca repo show` call. */
   run?: Run;
-  /** Process sampler (`src/usage.ts`); absent on hosts where /proc sampling is not wired. */
+  /** Process sampler (`src/usage.ts`); absent where /proc sampling is not wired. */
   usage?(opId: string | null): Promise<UsageReport>;
   urls?(): string[];
   now?: () => number;
@@ -365,7 +348,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
   async function cachedWorkspaceInfo(op: Operation): Promise<WorkspaceInfo> {
     const settings = await readSettings(home);
     // Only Orca spawns; every other frontend answers from the documents just read.
-    if (op.frontend !== "orca" && op.frontend !== "orca-chat") return workspaceInfo(op, settings, hooks.run);
+    if (op.frontend !== "orca") return workspaceInfo(op, settings, hooks.run);
     const key = `${op.frontend}\0${op.repo}`;
     const n = now();
     const hit = workspaceCache.get(key);
@@ -421,8 +404,6 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         frontend: op.frontend,
         delivery: op.delivery,
         worktreeRoot: op.worktreeRoot ?? "",
-        host: op.host ?? "",
-        hostSetup: op.hostSetup ?? "",
         auto: op.auto ?? null,
         recover: op.recover,
         project: op.project ?? "",
@@ -446,8 +427,6 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         frontend: project.frontend,
         delivery: project.delivery,
         worktreeRoot: project.worktreeRoot ?? "",
-        host: project.host ?? "",
-        hostSetup: project.hostSetup ?? "",
       },
       options: { tracker: [...TRACKERS], fleet: [...FLEETS], frontend: [...FRONTENDS], delivery: [...DELIVERIES] },
       workspace,
@@ -468,19 +447,6 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       await cachedWorkspaceInfo(stub),
       await doltState(project.id, project.repo, { run }),
     );
-  }
-  async function syncDraft(id: string): Promise<void> {
-    const doc = await readDraftDoc(home, id);
-    if (!doc?.remoteDir || !doc.host || doc.host === "local") return;
-    if (doc.terminal?.host && doc.terminal.host !== doc.host)
-      throw new HttpError(409, `Draft terminal is on ${doc.terminal.host}, not the recorded placement ${doc.host}`);
-    if (!hooks.run) throw new HttpError(503, "Remote drafts need the board run");
-    const relay = await relayFor(hooks.run, {
-      host: doc.host,
-      ...(doc.hostSetup !== undefined ? { hostSetup: doc.hostSetup } : {}),
-      repo: doc.repo,
-    });
-    await pullFile(relay, join(doc.remoteDir, "seed.json"), join(draftDir(home, id), "seed.json"), home);
   }
 
   return {
@@ -556,10 +522,6 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       const operation = await readOperation(home, opId);
       const closer = closerOf(operation);
       if (!closer) return null;
-      if (operation.host && operation.host !== "local") {
-        if (!hooks.run) throw new HttpError(503, "Remote closer retrieval needs the board run");
-        await pullCloser(hooks.run, home, operation);
-      }
       return closerView(home, operation, closer, now());
     },
     async report(opId, ticket) {
@@ -629,17 +591,6 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       return { url };
     },
     async createOperation(spec) {
-      const host = spec.host;
-      const remote = host !== undefined && host !== "local";
-      // --host-setup without a path: the setup's checkout is the remote repo. Explicit --repo is stored
-      // as given and verified when ports first resolve (never realpath'd on the board host).
-      if (remote && spec.repo === undefined && spec.hostSetup) {
-        const placed = await resolveRemotePlacement(hooks.run ?? createRun(), process.cwd(), {
-          host,
-          hostSetup: spec.hostSetup,
-        });
-        return createFromSpec(home, new Date(now()), { ...spec, repo: placed.repo });
-      }
       return createFromSpec(home, new Date(now()), spec);
     },
     async intelSources() {
@@ -697,52 +648,6 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
     projectConfig,
     async createProject(input) {
       const { defaults } = await readSettings(home);
-      const remote = input.host !== undefined && input.host !== "local";
-      if (remote) {
-        if (input.repo !== undefined && !input.repo.startsWith("/") && input.hostSetup === undefined)
-          throw new HttpError(400, `${input.host} requires an absolute path on that host, or hostSetup`);
-        const resolved = await detectRemoteRepo(hooks.run ?? createRun(), process.cwd(), {
-          host: input.host!,
-          ...(input.hostSetup ? { hostSetup: input.hostSetup } : {}),
-          ...(input.repo !== undefined && input.repo.startsWith("/") ? { repo: input.repo } : {}),
-        }).catch((error: unknown) => {
-          throw new HttpError(400, error instanceof Error ? error.message : String(error));
-        });
-        const topRepo = resolved.placement.repo;
-        for (const existing of await listProjects(home)) {
-          if (existing.host !== input.host) continue;
-          if (existing.repo === topRepo) return { id: existing.id };
-          const [realExisting, realNew] = await Promise.all([
-            resolved.placement.realpath(existing.repo),
-            resolved.placement.realpath(topRepo),
-          ]);
-          if (realExisting !== null && realExisting === realNew) return { id: existing.id };
-        }
-        const detected = resolved.detected;
-        const from = input.name?.trim() || detected.fields.name || (topRepo.split("/").filter(Boolean).pop() ?? "project");
-        const slug = from.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/g, "") || "project";
-        const id = input.id || slug;
-        const integration = input.integration && input.integration.startsWith("/") ? input.integration : topRepo;
-        const project = asInput(() => validateProject({
-          v: 1,
-          id,
-          name: input.name?.trim() || from || id,
-          repo: topRepo,
-          base: input.base ?? detected.fields.base,
-          integration,
-          pause: input.pause ?? defaults.pause,
-          tracker: input.tracker ?? detected.fields.tracker ?? defaults.tracker,
-          fleet: input.fleet ?? detected.fields.fleet ?? defaults.fleet,
-          frontend: input.frontend ?? detected.fields.frontend ?? defaults.frontend,
-          delivery: input.delivery ?? detected.fields.delivery ?? defaults.delivery,
-          host: input.host,
-          ...(resolved.placement.setup.id ? { hostSetup: resolved.placement.setup.id } : {}),
-          createdAt: new Date(now()).toISOString(),
-        }));
-        await createProject(home, project);
-        reposCache = null;
-        return { id };
-      }
       const detected = await detectRepo(input.repo, hooks.run ?? createRun());
       const topRepo = detected.fields.integration;
 
@@ -841,100 +746,45 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       const kind = project?.frontend ?? settings.defaults.frontend;
       if (kind === "none")
         throw new HttpError(409, "A draft needs a terminal frontend (set one on the project or in settings)");
-      const remote = project?.host !== undefined && project.host !== "local";
-      if (remote) {
-        if (kind !== "orca" && kind !== "orca-chat") throw new HttpError(409, "A remote draft needs the orca or orca-chat frontend");
-        if (!hooks.run) throw new HttpError(503, "Remote drafts need the board run");
-        if (input.repo !== undefined && input.repo !== project.repo)
-          throw new HttpError(400, "repo must be the project's remote checkout");
-      }
       const tracker = project?.tracker ?? settings.defaults.tracker;
-      let remoteDir: string | undefined;
-      let relay: RelayOps | null = null;
-      let placement: RemotePlacement | null = null;
-      let repositoryRun = hooks.run ?? createRun();
-      if (remote && project && hooks.run) {
-        placement = createRemotePlacement(hooks.run, process.cwd(), {
-          host: project.host!,
-          ...(project.hostSetup !== undefined ? { hostSetup: project.hostSetup } : {}),
-          repo: project.repo,
-        });
-        relay = await placement.relay();
-        const relayed = relay;
-        repositoryRun = (command, args, cwd, env) => relayed.run(command, args, cwd, env);
-      }
-      const linearWorkspace = await readLinearWorkspace(repo, repositoryRun);
+      const linearWorkspace = await readLinearWorkspace(repo, hooks.run ?? createRun());
       const cap = settings.cap;
       const open = hooks.extras?.("")?.load?.open ?? 0;
       if (open >= cap) throw new HttpError(409, `The board is at its cap (${open}/${cap} live)`);
       const id = newDraftId();
       const selectedModel = input.model !== undefined ? input.model : (settings.ai.draft ?? settings.ai.model);
       try {
-        if (remote && project && hooks.run && placement) {
-          const segment = remoteSegment(id);
-          remoteDir = dirname(await stageText(relay!, `drafts/${segment}/input.md`, text));
-          await stageText(relay!, `drafts/${segment}/SCHEMA.md`, schemaFor(tracker, linearWorkspace));
-          await stageText(relay!, `drafts/${segment}/sessions/.keep`, "");
-          await createDraftDir(home, id, {
-            text,
-            repo: project.repo,
-            frontend: kind,
-            tracker,
-            ...(linearWorkspace !== undefined ? { linearWorkspace } : {}),
-            ...(project.worktreeRoot !== undefined ? { worktreeRoot: project.worktreeRoot } : {}),
-            host: project.host,
-            ...(project.hostSetup !== undefined ? { hostSetup: project.hostSetup } : {}),
-            remoteDir,
-            createdAt: new Date(now()).toISOString(),
-          });
-          const argv = ["omp"];
-          if (selectedModel) argv.push("--model", selectedModel);
-          if (settings.ai.thinking) argv.push("--thinking", settings.ai.thinking);
-          argv.push("--session-dir", join(remoteDir, "sessions"), draftPrompt(home, id, remoteDir));
-          const base = orcaRemoteFrontend(hooks.run, placement);
-          const frontend = kind === "orca-chat" ? orcaChatFrontend(base, hooks.run, process.cwd(), project.host!) : base;
-          const terminal = await frontend.openTerminal({
-            worktree: project.repo,
-            title: `draft ${id}`,
-            argv,
-            env: { OMP_HOLOTABLE_CHILD: "1" },
-          });
-          await recordDraftTerminal(home, id, terminal);
-        } else {
-          const frontend = await ports.frontend(kind, project?.worktreeRoot);
-          await createDraftDir(home, id, {
-            text,
-            repo,
-            frontend: kind,
-            tracker,
-            ...(linearWorkspace !== undefined ? { linearWorkspace } : {}),
-            ...(project?.worktreeRoot !== undefined ? { worktreeRoot: project.worktreeRoot } : {}),
-            createdAt: new Date(now()).toISOString(),
-          });
-          await frontend.ensureRepo(repo);
-          const sessionsDir = join(draftDir(home, id), "sessions");
-          await mkdir(sessionsDir, { recursive: true, mode: 0o700 });
-          const argv = ["omp"];
-          if (selectedModel) argv.push("--model", selectedModel);
-          if (settings.ai.thinking) argv.push("--thinking", settings.ai.thinking);
-          argv.push("--session-dir", sessionsDir, draftPrompt(home, id));
-          const terminal = await frontend.openTerminal({
-            worktree: repo,
-            title: `draft ${id}`,
-            argv,
-            env: { OMP_HOLOTABLE_CHILD: "1" },
-          });
-          await recordDraftTerminal(home, id, terminal);
-        }
+        const frontend = await ports.frontend(kind, project?.worktreeRoot);
+        await createDraftDir(home, id, {
+          text,
+          repo,
+          frontend: kind,
+          tracker,
+          ...(linearWorkspace !== undefined ? { linearWorkspace } : {}),
+          ...(project?.worktreeRoot !== undefined ? { worktreeRoot: project.worktreeRoot } : {}),
+          createdAt: new Date(now()).toISOString(),
+        });
+        await frontend.ensureRepo(repo);
+        const sessionsDir = join(draftDir(home, id), "sessions");
+        await mkdir(sessionsDir, { recursive: true, mode: 0o700 });
+        const argv = ["omp"];
+        if (selectedModel) argv.push("--model", selectedModel);
+        if (settings.ai.thinking) argv.push("--thinking", settings.ai.thinking);
+        argv.push("--session-dir", sessionsDir, draftPrompt(home, id));
+        const terminal = await frontend.openTerminal({
+          worktree: repo,
+          title: `draft ${id}`,
+          argv,
+          env: { OMP_HOLOTABLE_CHILD: "1" },
+        });
+        await recordDraftTerminal(home, id, terminal);
       } catch (error) {
         await removeDraft(home, id).catch(() => undefined);
-        if (relay && remoteDir) await removeRemote(relay, remoteDir).catch(() => undefined);
         throw error;
       }
       return { id };
     },
     async draft(id) {
-      if (isDraftId(id)) await syncDraft(id);
       const entry = await draftEntry(home, id);
       if (!entry) return { id, state: "missing", createdAt: "" };
       return entry;
@@ -942,26 +792,6 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
     async closeDraft(id) {
       if (!isDraftId(id)) throw new HttpError(400, `Invalid draft id "${id}"`);
       const doc = await readDraftDoc(home, id);
-      if (doc?.host && doc.host !== "local" && doc.remoteDir) {
-        if (doc.terminal?.host && doc.terminal.host !== doc.host)
-          throw new HttpError(409, `Draft terminal is on ${doc.terminal.host}, not the recorded placement ${doc.host}`);
-        if (!hooks.run) throw new HttpError(503, "Remote drafts need the board run");
-        const placement = createRemotePlacement(hooks.run, process.cwd(), {
-          host: doc.host,
-          ...(doc.hostSetup !== undefined ? { hostSetup: doc.hostSetup } : {}),
-          repo: doc.repo,
-        });
-        const base = orcaRemoteFrontend(hooks.run, placement);
-        const frontend = doc.frontend === "orca-chat" ? orcaChatFrontend(base, hooks.run, process.cwd(), doc.host) : base;
-        if (doc.terminal) await frontend.close(doc.terminal, doc.repo).catch(() => undefined);
-        const relay = await placement.relay();
-        await pullFile(relay, join(doc.remoteDir, "seed.json"), join(draftDir(home, id), "seed.json"), home);
-        await pullSessions(relay, join(doc.remoteDir, "sessions"), join(draftDir(home, id), "sessions"), home);
-        await recordDraftUsage(home, id, new Date(now()).toISOString());
-        await removeRemote(relay, doc.remoteDir);
-        await removeDraft(home, id);
-        return;
-      }
       if (doc?.terminal && hooks.drafts) {
         const frontend = await hooks.drafts.frontend(doc.frontend, doc.worktreeRoot).catch(() => null);
         await frontend?.close(doc.terminal, doc.repo).catch(() => undefined);
@@ -976,7 +806,6 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
-      for (const id of ids) if (isDraftId(id)) await syncDraft(id);
       return listDrafts(home);
     },
     async setup() {
@@ -995,11 +824,9 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       reposCache = { timestamp: n, result: rows };
       return rows;
     },
-    async detect(repo, placement) {
+    async detect(repo) {
       const run = hooks.run ?? createRun();
-      const detected = placement?.host && placement.host !== "local"
-        ? (await detectRemoteRepo(run, process.cwd(), { host: placement.host, hostSetup: placement.hostSetup, repo })).detected
-        : await detectRepo(repo, run);
+      const detected = await detectRepo(repo, run);
       const { defaults } = await readSettings(home);
       return {
         fields: { ...detected.fields, pause: defaults.pause },

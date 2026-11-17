@@ -203,28 +203,15 @@ Frontends (per operation, `--frontend` or `/holotable set frontend`):
 |Frontend|Worktrees|Terminal|
 |---|---|---|
 |`orca`|`orca worktree create … --no-parent --command …`|Mission runs in the first terminal; `orca terminal create` only for existing lanes and relaunches|
-|`orca-chat`|`orca worktree create … --pinned --no-terminal`|Native OMP Chat session; no PTY, shell, or terminal fallback|
 |`herdr`|`git worktree add -b holotable/<name>` in the `worktrees.root` folder (default beside the repo)|`herdr tab create` + `herdr agent start`|
 |`custom`|same as herdr|shell templates `custom.terminal`, `custom.focus`, `custom.close` (`{cwd} {title} {command} {handle}`)|
 |`none`|never|never|
 
 Requirements: the launched `omp` must load `omp-mission` (install it as an OMP extension). Orca puts worktrees in its own project's worktree folder (Orca project settings) and ignores `worktrees.root`; it creates worktrees only for repos where that folder is set, and the settings drawer shows the folder or says it is missing. `cap` (default 8, maximum 64) counts live `omp` sessions across every open operation; an idle `omp` is about 600 MB. **Reap** closes the contact's terminal after checking its handle, incarnation and worktree against what the frontend lists; it never uses `--all` and never types into a terminal.
 
-New Orca workspaces start the mission in the workspace's first terminal instead of leaving an unused shell beside it. This requires an Orca CLI exposing `worktree create --command` (the host CLI extension forwards Orca's existing `startupCommand` RPC field). Setup is not skipped: Orca's repository setup/startup policy still applies. The separate Setup tab remains available for logs; this change does not auto-close it or touch existing tabs. Long mission commands use a private temporary startup script that removes itself when started; an unstarted script remains in the host's temporary directory for diagnosis.
+New Orca workspaces start the mission in the workspace's first terminal instead of leaving an unused shell beside it. This requires the `orca-cli-patch` extension, which adds `orca worktree create --command` (it forwards Orca's existing `startupCommand` RPC field). Setup is not skipped: Orca's repository setup/startup policy still applies. The separate Setup tab remains available for logs; this change does not auto-close it or touch existing tabs. Long mission commands use a private temporary startup script that removes itself when started; an unstarted script remains in the system's temporary directory for diagnosis.
 
-Before adding a repository or creating a worktree, the `orca` terminal adapter probes the exact CLI's `worktree create --help` for `--command` (five-second bound, ten-second cache). Setup reports this capability separately from the version. A missing flag refuses launch before mutation and asks you to restore the host CLI extension; an Orca upgrade may have replaced it. It never substitutes an `--agent` launch. Native Chat is a separately selected frontend.
-
-Select native Chat explicitly with `--frontend orca-chat`. Its strict structured launch forwards the mission environment, config files, system prompt, model, effort, session directory, and plan/default mode. The Orca runtime must advertise `agent.mission-lifecycle.v1`; the OMP ACP provider must advertise `omp.missionLifecycle: 1`. The OMP 18.22 terminal baseline alone does not supply that new ACP capability. An older runtime or provider refuses launch rather than starting an unbound mission or falling back to a terminal.
-
-Native Chat inventory records the exact execution host, opaque worktree id, absolute checkout path, session id, incarnation fence, and liveness. Focus and Reap validate that complete identity before mutation. Missing paths, ambiguous inventory, foreign hosts, stale fences, and WSL paths that the board cannot address fail closed.
-
-## Execution host
-
-`host` is `local`, `ssh:<target-id>`, or `runtime:<environment-id>`. Absent follows the project; absent everywhere means this machine. Nothing is guessed, and an upgrade does not move an existing operation onto a remote host. `hostSetup` is an Orca project-host-setup id on that host. It is not inherited onto `local` or onto a different host. Setting `host` to `local` clears a stored setup pin.
-
-A remote operation needs Bun on the mission host and a setup whose state is `ready`. The board deploys a small relay through `orca worktree exec` and checks the host id, checkout path, and argv the relay echoes. Remote paths are never resolved on the board. Status and control use the same mission socket protocol as a local fleet. A missing or foreign inventory fails closed.
-
-Draft input, decision answers, closer reports, and session transcripts are staged under the mission host's `~/.holotable` and copied back only into the board's draft, decision, and closer files, mode 0600. Those files can contain secrets. A symlink that leaves the relay directory is refused. An unreadable worktree status is not treated as clean: close and abort keep the checkout.
+Before adding a repository or creating a worktree, the `orca` terminal adapter probes the exact CLI's `worktree create --help` for `--command` (five-second bound, ten-second cache). Setup reports this capability separately from the version. A missing flag refuses launch before mutation and asks you to restore `orca-cli-patch`; an Orca upgrade may have replaced it. It never substitutes an `--agent` launch.
 
 ## Watching missions
 

@@ -167,8 +167,7 @@ Operation-table zone filters are browser state keyed by operation and cleared wh
 removed. Ticket navigation rejects PR URLs and resolves missing tracker URLs on demand through
 `GET /api/tracker/issue?op=&ticket=`. Linear uses the repository's `mission.linearWorkspace`
 Git setting for issue reads, search and `lin me` URL resolution; successful URL-key caches
-are scoped by repository and workspace, never shared across accounts. Remote Git settings
-are read on the execution host, but board tracker credentials and commands remain local.
+are scoped by repository and workspace, never shared across accounts.
 Tracker-only service wiring supplies valid unused port kinds; queued contacts need not
 enter the watcher's sampling loop to obtain a link.
 
@@ -211,23 +210,18 @@ kind `queued`) is not a deferral and records nothing.
 |---|---|---|
 |Tracker|`linear`, `github`, `none`|sample a ticket's state and URL; `search` feeds the Add contact ticket picker (`GET /api/tracker/search?op=<id>|project=<id>&q=<text>` → `{tracker, hits, error?}`, hits already on the operation flagged `taken`)|
 |Fleet|`omp-mission`, `none`|read mission status, ping and control the owning session, build the launch command|
-|Frontend|`orca`, `orca-chat`, `herdr`, `custom`, `none`|create worktrees, open/focus/close mission panes|
+|Frontend|`orca`, `herdr`, `custom`, `none`|create worktrees, open/focus/close mission panes|
 |Delivery|`github-pr`, `local-merge`, `none`|probe delivery state, land on the integration checkout|
 
 Orca supports the frontend's optional `createWorkspaceWithTerminal` capability. New lanes pass the fleet command and environment to `orca worktree create --command`, which uses the runtime's existing `startupCommand` field and returns the first terminal's handle. The adapter resolves that handle to a connected incarnation in the exact new checkout; it never chooses a terminal by title. The launcher records the workspace and returned mission terminal before waiting for its socket and does not open a second terminal. Existing lanes and relaunches still use `openTerminal`. The new checkout is supplied to the fleet as `.`; the child resolves it from its own working directory, preserving reuse-only mission binding.
 
-Startup is a short `sh <script>` command: a private mode-0700 temporary script contains the shell-quoted environment and argv, removes itself and its directory, then execs the child. This avoids terminal line limits when Orca wraps a long mission command to wait for setup. A script that never starts is retained in the host temp directory. Orca still owns setup ordering and failure behavior; no setup skip, gate approval, tab reaping or runtime restart is added. The execution host's CLI must expose `worktree create --command`; the terminal frontend never substitutes an `--agent` launch.
-
-The opt-in `orca-chat` frontend creates pinned workspaces without an initial terminal, then requests a strict structured OMP session with the complete mission environment and session options. Orca fences the runtime with `agent.mission-lifecycle.v1` and the ACP provider with `omp.missionLifecycle: 1` before opening the mission session. Inventory, Focus, and Reap require the exact execution host, worktree id and path, session id, and incarnation fence. A missing capability or identity fails closed; there is no PTY downgrade. The same fleet socket remains the sole mission control path.
+Startup is a short `sh <script>` command: a private mode-0700 temporary script contains the shell-quoted environment and argv, removes itself and its directory, then execs the child. This avoids terminal line limits when Orca wraps a long mission command to wait for setup. A script that never starts is retained in the system temp directory. Orca still owns setup ordering and failure behavior; no setup skip, gate approval, tab reaping or runtime restart is added. The local `orca` CLI must expose `worktree create --command`; the terminal frontend never substitutes an `--agent` launch.
 
 The operation and project pages show where Orca will put the next lane from `orca repo show --repo path:<repo>` (`adapters/workspace-info.ts`). The board reuses that answer per frontend and repo for 60 seconds, because the CLI takes seconds under the service's CPU quota; any operation, project or settings write through the board drops it, so a changed setting shows on the next read. A change made in Orca itself shows within the minute.
 
 An operation names one adapter per port; all four can be `none`.
 
-An operation or project may name an execution host (`host`: `local`, `ssh:<id>`, or `runtime:<id>`) and, for a remote host, `hostSetup` (a ready Orca project-host-setup id). Absent host stays on the board machine. There is no implicit migration: a document written before placement existed remains local, and an explicit `local` override drops an inherited setup pin rather than carrying it. Remote work requires Bun on the mission host. The board never stats a remote path locally, never treats a remote pid as local, and fails closed when the host inventory omits the host or stamps a different one.
-
-Draft, decision, and closer artifacts are staged through the relay under the mission host's `~/.holotable` and pulled back only to the matching board files. The same prompt builders run locally and remotely; only the output path changes. Files are mode 0600. A pull refuses a destination outside those draft, decision, and closer paths, including pane records and `placement.json`. Symlinks that resolve outside the relay root are refused. Worktree cleanup does not delete a checkout whose git status is unknown.
-
+Worktree cleanup does not delete a checkout whose git status is unknown.
 
 ## Data flow
 
@@ -258,7 +252,7 @@ Agent drafts (`store/drafts.ts`, `drafts/<id>/`): `POST /api/drafts {text, proje
 
 The draft prompt carries the repository's configured Linear workspace for every `lin`
 command, including source documents for a tracker-free project. It does not switch the
-CLI default; the pane's execution host must have the named workspace authenticated.
+CLI default; the pane's `lin` must have the named workspace authenticated.
 
 Draft instructions support both source import and idea development. Linear document URLs resolve
 through `lin docs get <trailing-id> --json`, followed by issue/relationship reads. The draft pane

@@ -466,8 +466,6 @@ export function project(input: ProjectionInput): Projection {
       name: op.name,
       base: op.base,
       frontend: op.frontend,
-      host: op.host ?? "local",
-      hostSetup: op.hostSetup ?? null,
       tracker: op.tracker,
       fleet: op.fleet,
       delivery: op.delivery,

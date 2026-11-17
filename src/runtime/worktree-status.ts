@@ -1,8 +1,7 @@
 import type { CommandResult, Run } from "../ports.ts";
 
-// Host-routed `git status` for deletion/cleanup decisions: runs through Ports.run, so a placed
-// operation's worktree is queried on its execution host (never `git -C` on the board host).
-// A status that cannot be read is "unknown" — callers must warn/skip, never treat it as clean.
+// `git status` for deletion/cleanup decisions. A status that cannot be read is "unknown" —
+// callers must warn/skip, never treat it as clean.
 
 export interface WorktreeStatus {
   /** "gone" → the path is not a git worktree; "unknown" → status could not be read. */

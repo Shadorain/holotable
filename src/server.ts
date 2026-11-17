@@ -300,29 +300,14 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       if (!service.createOperation) throw new HttpError(404, "Operation creation is unavailable");
       const body = await readBody(req);
       const project = typeof body.project === "string" && body.project.length ? body.project : undefined;
-      for (const key of ["host", "hostSetup"])
-        if (body[key] !== undefined && typeof body[key] !== "string") throw new HttpError(400, `${key} must be a string`);
-      let host = typeof body.host === "string" ? body.host : undefined;
-      if (host === undefined && project) {
-        try {
-          host = (await service.projectConfig(project)).fields.host;
-        } catch (error) {
-          if (error instanceof HttpError && error.status === 404)
-            throw new HttpError(400, `Unknown project "${project}"`);
-          throw error;
-        }
-      }
-      const remote = !!host && host !== "local";
       // With a project the repo/base come from it; without one both are required.
       let repo: string | undefined;
       if (body.repo !== undefined) {
         repo = requireString(body, "repo");
         if (!isAbsolute(repo)) throw new HttpError(400, "repo must be an absolute path");
-        if (!remote) {
-          const resolved = await realpath(repo).catch(() => null);
-          if (resolved === null) throw new HttpError(400, `repo ${repo} does not exist`);
-          repo = resolved;
-        }
+        const resolved = await realpath(repo).catch(() => null);
+        if (resolved === null) throw new HttpError(400, `repo ${repo} does not exist`);
+        repo = resolved;
       } else if (!project) throw new HttpError(400, "repo is required (or pass a project)");
       let base: string | undefined;
       if (body.base !== undefined) base = requireString(body, "base");
@@ -348,8 +333,6 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         ...(typeof body.seed === "string" ? { seed: body.seed } : {}),
         ...(typeof body.recover === "boolean" ? { recover: body.recover } : {}),
         ...(typeof body.closer === "boolean" ? { closer: body.closer } : {}),
-        ...(typeof body.host === "string" ? { host: body.host } : {}),
-        ...(typeof body.hostSetup === "string" ? { hostSetup: body.hostSetup } : {}),
       };
       const created = await service.createOperation(spec);
       return { id: created.id };
@@ -357,18 +340,13 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
     "GET /api/repos": () => service.repos(),
     "POST /api/projects/detect": async ({ req }) => {
       const body = await readBody(req);
-      for (const key of ["host", "hostSetup"])
-        if (body[key] !== undefined && typeof body[key] !== "string") throw new HttpError(400, `${key} must be a string`);
-      return service.detect(requireString(body, "repo"), {
-        ...(typeof body.host === "string" ? { host: body.host } : {}),
-        ...(typeof body.hostSetup === "string" ? { hostSetup: body.hostSetup } : {}),
-      });
+      return service.detect(requireString(body, "repo"));
     },
     "GET /api/projects": () => service.projects(),
     "POST /api/projects": async ({ req }) => {
       const body = await readBody(req);
       const repo = requireString(body, "repo");
-      for (const key of ["id", "name", "base", "integration", "tracker", "fleet", "frontend", "delivery", "worktreeRoot", "host", "hostSetup"])
+      for (const key of ["id", "name", "base", "integration", "tracker", "fleet", "frontend", "delivery", "worktreeRoot"])
         if (body[key] !== undefined && typeof body[key] !== "string") throw new HttpError(400, `${key} must be a string`);
       if (body.pause !== undefined && typeof body.pause !== "boolean") throw new HttpError(400, "pause must be a boolean");
       const spec: ProjectSpec = {
@@ -383,8 +361,6 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         ...(typeof body.frontend === "string" ? { frontend: body.frontend } : {}),
         ...(typeof body.delivery === "string" ? { delivery: body.delivery } : {}),
         ...(typeof body.worktreeRoot === "string" ? { worktreeRoot: body.worktreeRoot } : {}),
-        ...(typeof body.host === "string" ? { host: body.host } : {}),
-        ...(typeof body.hostSetup === "string" ? { hostSetup: body.hostSetup } : {}),
       };
       return service.createProject(spec);
     },

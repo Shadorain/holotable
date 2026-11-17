@@ -9,7 +9,7 @@ import { fetchJson, titleCase } from "./ui.js";
 export const PORT_OPTIONS = {
   tracker: ["linear", "github", "none"],
   fleet: ["omp-mission", "none"],
-  frontend: ["orca", "orca-chat", "herdr", "custom", "none"],
+  frontend: ["orca", "herdr", "custom", "none"],
   delivery: ["github-pr", "local-merge", "none"],
 };
 const PORTS = ["tracker", "fleet", "frontend", "delivery"];
@@ -62,10 +62,6 @@ export function projectFields(defaults, api) {
   let detecting = Promise.resolve();
   let detectedFor = "";
 
-  const host = textField({ label: "Execution host", value: defaults?.host ?? "local", placeholder: "local, ssh:<id> or runtime:<id>", spellcheck: false });
-  const hostF = field(box, "Execution host", host.root, { note: "Explicit placement. Remote work uses a ready Orca project-host setup, never a local fallback." });
-  const hostSetup = textField({ label: "Orca project-host setup", value: defaults?.hostSetup ?? "", placeholder: "ready setup id (optional when the repo matches uniquely)", spellcheck: false });
-  const hostSetupF = field(box, "Orca project-host setup", hostSetup.root, { note: "Find IDs with orca project setups --host <host> --json. The setup's checkout must match this repo." });
   const picker = repoPicker(api, { onPick: (repo) => detect(repo) });
   const repoF = field(box, "Repository *", picker.root, { note: "The git checkout missions branch from." });
 
@@ -100,10 +96,6 @@ export function projectFields(defaults, api) {
     toggle.replaceChildren(icon("settings", { size: 12 }), document.createTextNode(open ? "Hide settings" : "Adjust"));
   };
   toggle.addEventListener("click", () => setOpen(adjust.hidden));
-  for (const input of [host.input, hostSetup.input]) input.addEventListener("change", () => {
-    detectedFor = "";
-    void detect(picker.input.value.trim());
-  });
 
   function showSummary(fields, reasons) {
     summary.replaceChildren();
@@ -121,17 +113,15 @@ export function projectFields(defaults, api) {
   }
 
   function detect(repo) {
-    const placement = { host: host.input.value.trim() || "local", hostSetup: hostSetup.input.value.trim() };
-    const key = JSON.stringify([repo, placement.host, placement.hostSetup]);
-    if (!repo || key === detectedFor) return detecting;
-    detectedFor = key;
+    if (!repo || repo === detectedFor) return detecting;
+    detectedFor = repo;
     repoF.setError(null);
     summary.hidden = false;
     summary.replaceChildren(el("div", "set-note", "Looking at the repo…"));
-    detecting = api("/api/projects/detect", { method: "POST", body: JSON.stringify({ repo, ...placement }) })
+    detecting = api("/api/projects/detect", { method: "POST", body: JSON.stringify({ repo }) })
       .then(fetchJson)
       .then(({ fields, reasons }) => {
-        if (detectedFor !== key) return;
+        if (detectedFor !== repo) return;
         picker.input.value = fields.repo ?? repo;
         base.input.value = fields.base ?? "";
         integ.input.value = fields.integration && fields.integration !== (fields.repo ?? repo) ? fields.integration : "";
@@ -141,7 +131,7 @@ export function projectFields(defaults, api) {
         box.dispatchEvent(new CustomEvent("detected", { detail: fields }));
       })
       .catch((error) => {
-        if (detectedFor !== key) return;
+        if (detectedFor !== repo) return;
         detectedFor = "";
         summary.hidden = true;
         repoF.setError(error instanceof Error ? error : new Error(String(error)));
@@ -158,25 +148,9 @@ export function projectFields(defaults, api) {
     clearErrors() {
       repoF.setError(null);
       baseF.setError(null);
-      hostF.setError(null);
-      hostSetupF.setError(null);
     },
     read() {
       const out = { repo: picker.input.value.trim(), base: base.input.value.trim() };
-      const target = host.input.value.trim() || "local";
-      if (!/^(?:local|ssh:\S+|runtime:\S+)$/.test(target)) {
-        hostF.setError(new Error("Use local, ssh:<target-id> or runtime:<environment-id>."));
-        return null;
-      }
-      const setup = hostSetup.input.value.trim();
-      if (target === "local" && setup) {
-        hostSetupF.setError(new Error("A project-host setup needs a remote execution host."));
-        return null;
-      }
-      if (target !== "local") {
-        out.host = target;
-        if (setup) out.hostSetup = setup;
-      }
       if (!out.repo.startsWith("/")) {
         repoF.setError(new Error("required: pick a repo or type an absolute path"));
         return null;
@@ -189,10 +163,6 @@ export function projectFields(defaults, api) {
       if (integ.input.value.trim()) out.integration = integ.input.value.trim();
       out.pause = pause.root.getAttribute("aria-checked") === "true";
       for (const kind of PORTS) out[kind] = ports[kind].value;
-      if (target !== "local" && (!["orca", "orca-chat"].includes(out.frontend) || out.fleet !== "omp-mission")) {
-        hostF.setError(new Error("Remote placement requires Orca and the omp-mission fleet."));
-        return null;
-      }
       return out;
     },
   };

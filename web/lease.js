@@ -30,7 +30,7 @@ export function leaseBox(contact, ctx) {
     if (state.error) root.append(el("p", "set-note error", state.error));
     if (state.report) {
       const report = state.report;
-      root.append(el("p", "set-note", `${report.state} · ${report.host} · ${new Date(report.checkedAt).toLocaleTimeString()}`));
+      root.append(el("p", "set-note", `${report.state} · ${new Date(report.checkedAt).toLocaleTimeString()}`));
       if (report.sessionId) root.append(el("div", "mono", report.sessionId));
       root.append(el("p", "set-note", report.detail));
     } else root.append(el("p", "set-note", "Snapshot only; not used to authorize mission actions."));

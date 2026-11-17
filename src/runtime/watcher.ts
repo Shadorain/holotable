@@ -1,6 +1,5 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { pullFile, pullSessions, relayFor } from "../adapters/remote-artifacts.ts";
 import { holdsSlot } from "../core/fold.ts";
 import { contactOf } from "../core/projection.ts";
 import { unmetBlockers } from "../core/graph.ts";
@@ -36,8 +35,6 @@ export interface WatcherDeps {
   now(): Date;
   settings(): Promise<Settings>;
   portsFor(operation: Operation, settings: Settings): Ports;
-  /** Board-local Run. Remote decision retrieval warns and skips without it. */
-  localRun?: Run;
   /** Port failures and similar; the watcher never throws out of a pass. */
   warn(message: string): void;
 }
@@ -349,7 +346,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     force: boolean,
     omp: number,
     settings: Settings,
-    getTerminals: (ports: Ports, host?: string) => Promise<ListedTerminal[] | null>,
+    getTerminals: (ports: Ports) => Promise<ListedTerminal[] | null>,
     folded: Derived,
   ): Promise<void> {
     const now = deps.now().getTime();
@@ -360,7 +357,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       await passContact(op, contact, state, ports, seeds(contact.ticket), folded.contacts[contact.ticket], sampling, omp);
     if (sampling) state.lastSampleAt = now;
     const needsTerminals = needsTerminalList(op, folded, state);
-    const listed = needsTerminals ? await getTerminals(ports, op.host) : null;
+    const listed = needsTerminals ? await getTerminals(ports) : null;
     trackTerminals(op, folded, state, listed);
     await trackDecisionPanes(op, folded, state, ports, listed);
     await probeIntegration(op, state, ports);
@@ -379,7 +376,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     }
   }
 
-  /** Dirty-path count of the integration checkout, queried on the operation's execution host. */
+  /** Dirty-path count of the integration checkout. */
   async function probeIntegration(op: Operation, state: OpState, ports: Ports): Promise<void> {
     if (!op.integration) {
       state.integrationDirty = null;
@@ -436,23 +433,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         state.decisionPanes.delete(ticket);
         continue;
       }
-      const doc = await guard(`decision read ${ticket}`, async () => {
-        if (pane.remoteAnswer && pane.host && pane.host !== "local") {
-          if (!deps.localRun) {
-            deps.warn(`remote decision ${ticket} has no board run; answer stays on the host`);
-            return null;
-          }
-          const relay = await relayFor(deps.localRun, {
-            host: pane.host,
-            ...(pane.hostSetup !== undefined ? { hostSetup: pane.hostSetup } : {}),
-            repo: op.repo,
-          });
-          await pullFile(relay, pane.remoteAnswer, decisionPath(deps.home, op.id, ticket), deps.home);
-          if (pane.remoteSessions)
-            await pullSessions(relay, pane.remoteSessions, decisionSessionsDir(deps.home, op.id, ticket), deps.home);
-        }
-        return readDecisionDoc(deps.home, op.id, ticket);
-      });
+      const doc = await guard(`decision read ${ticket}`, () => readDecisionDoc(deps.home, op.id, ticket));
       if (doc === undefined) continue;
       if (doc !== null) {
         try {
@@ -564,10 +545,9 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     }
     const omp = loaded.reduce((sum, item) => sum + item.state.open, 0);
     const terminalCache = new Map<string, Promise<ListedTerminal[] | null>>();
-    const getTerminals = async (ports: Ports, host?: string): Promise<ListedTerminal[] | null> => {
+    const getTerminals = async (ports: Ports): Promise<ListedTerminal[] | null> => {
       const id = ports.frontend.id;
-      // Same frontend on two hosts is two inventories; explicit local shares the board-host list.
-      const cacheKey = `${id}\0${host && host !== "local" ? host : ""}`;
+      const cacheKey = id;
       if (GLOBAL_FRONTENDS[id]) {
         let pending = terminalCache.get(cacheKey);
         if (!pending) {

@@ -20,16 +20,12 @@ function asDraftDoc(raw: unknown): DraftDoc | null {
   if (!FRONTENDS.includes(doc.frontend as Frontend)) return null;
   if (typeof doc.repo !== "string" || !isAbsolute(doc.repo)) return null;
   if (doc.worktreeRoot !== undefined && typeof doc.worktreeRoot !== "string") return null;
-  if (doc.host !== undefined && (typeof doc.host !== "string" || doc.host.length === 0)) return null;
-  if (doc.hostSetup !== undefined && typeof doc.hostSetup !== "string") return null;
-  if (doc.remoteDir !== undefined && (typeof doc.remoteDir !== "string" || !doc.remoteDir.startsWith("/"))) return null;
   if (typeof doc.createdAt !== "string" || doc.createdAt.length === 0) return null;
   const terminal = doc.terminal;
   if (terminal !== null) {
     if (typeof terminal !== "object" || terminal === null) return null;
     const ref = terminal as Record<string, unknown>;
     if (typeof ref.handle !== "string" || typeof ref.incarnationId !== "string") return null;
-    if (ref.host !== undefined && typeof ref.host !== "string") return null;
     if (ref.worktreeId !== undefined && typeof ref.worktreeId !== "string") return null;
   }
   return raw as DraftDoc;
@@ -41,11 +37,6 @@ export interface DraftDoc {
   frontend: Frontend;
   repo: string;
   worktreeRoot?: string;
-  /** Mission host when the pane writes on a remote checkout. Absent means the board host. */
-  host?: string;
-  hostSetup?: string;
-  /** Absolute draft directory on `host` (input.md, SCHEMA.md, seed.json, sessions/). */
-  remoteDir?: string;
   createdAt: string;
   terminal: TerminalRef | null;
 }
@@ -59,7 +50,7 @@ function metaPath(dir: string): string {
 export async function createDraftDir(
   home: string,
   id: string,
-  input: { text: string; repo: string; frontend: Frontend; tracker: string; linearWorkspace?: string; worktreeRoot?: string; createdAt: string; host?: string; hostSetup?: string; remoteDir?: string },
+  input: { text: string; repo: string; frontend: Frontend; tracker: string; linearWorkspace?: string; worktreeRoot?: string; createdAt: string },
 ): Promise<string> {
   assertDraftId(id);
   const dir = draftDir(home, id);
@@ -69,7 +60,6 @@ export async function createDraftDir(
     frontend: input.frontend,
     repo: input.repo,
     ...(input.worktreeRoot !== undefined ? { worktreeRoot: input.worktreeRoot } : {}),
-    ...(input.host !== undefined ? { host: input.host, ...(input.hostSetup !== undefined ? { hostSetup: input.hostSetup } : {}), remoteDir: input.remoteDir } : {}),
     terminal: null,
     createdAt: input.createdAt,
   };

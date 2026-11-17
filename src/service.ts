@@ -124,7 +124,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     warned.add(message);
     console.error(`holotable: ${message}`);
   };
-  const watcher = createWatcher({ home, now: () => new Date(), settings: settingsFn, portsFor, warn, localRun: run });
+  const watcher = createWatcher({ home, now: () => new Date(), settings: settingsFn, portsFor, warn });
   const captureMetrics:Watcher["capture"]=async(...args)=>{
     try{await watcher.capture(...args);}catch(error){warn(`evaluation capture ${args[0].id}/${args[1].ticket}: ${messageOf(error)}`);}
   };
@@ -144,7 +144,6 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     inFlight,
     availableMemory: availableMemoryBytes,
     captureMetrics,
-    localRun: run,
   });
   const auto = createAuto({
     home,
@@ -153,7 +152,6 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     extras: watcher.extras,
     run: action,
     integrationReady: async (op, branch) =>
-      // Placement-aware: `op.integration` is a path on the operation's execution host.
       assertIntegrationReady(portsFor(op, await settingsFn()).run, op.integration, op.base, branch),
     warn,
     settle: (id) => watcher.pass(id),
@@ -168,7 +166,7 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
     availableMemory: availableMemoryBytes,
     settle: (id) => watcher.pass(id),
   });
-  const ender=createEnder({home,now:()=>new Date(),settings:settingsFn,portsFor,inFlight,captureMetrics,localRun:run});
+  const ender=createEnder({home,now:()=>new Date(),settings:settingsFn,portsFor,inFlight,captureMetrics});
 
   let bootSettings: Settings;
   try {
@@ -199,12 +197,11 @@ export async function startBoard(options: StartBoardOptions): Promise<Board> {
           const ports = portsFor(operation, await settingsFn());
           const status = lane ? watcher.extras(opId).statuses[ticket] ?? await ports.fleet.read({ worktree: lane.worktree }) : null;
           const sessionId = status?.session?.id;
-          const host = operation.host ?? "local";
           if (!lane || !sessionId) return {
-            sessionId: null, host, state: "unknown", checkedAt: Date.now(),
+            sessionId: null, state: "unknown", checkedAt: Date.now(),
             detail: "This mission has not advertised a session identity to probe.",
           };
-          return probeSessionLease(ports.run, sessionId, lane.worktree, host);
+          return probeSessionLease(ports.run, sessionId, lane.worktree);
         },
         tracker: async (kind) => portsFor(
           { tracker: kind, fleet: "none", frontend: "none", delivery: "none" } as Operation,

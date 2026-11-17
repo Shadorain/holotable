@@ -19,8 +19,7 @@ const SHELLS: Record<string, true> = { sh: true, bash: true, zsh: true, fish: tr
 
 /**
  * Orca leaves an idle default shell (untitled, or titled after the shell) and the "Setup" tab that ran
- * the worktree's setup hook (worktree create, local and remote) in a worktree. Omp titles its pane
- * "π …"; any other title may be a session still starting, so it counts as one.
+ * the worktree's setup hook (worktree create) in a worktree. Omp titles its pane
  */
 function isSession(title: unknown): boolean {
   if (title === null || title === undefined) return false;
@@ -61,7 +60,7 @@ function shellCommand(i: TerminalCommand): string {
 }
 
 /** `cwd` only gives the spawns a directory: orca commands do not depend on it. */
-export function orcaFrontend(run: Run, cwd = process.cwd(), options: { noTerminal?: boolean } = {}): FrontendPort {
+export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
   async function terminalRows(): Promise<OrcaTerminalRow[]> {
     return parseTerminalList(decode(await run("orca", ["terminal", "list", "--json"], cwd)));
   }
@@ -96,7 +95,6 @@ export function orcaFrontend(run: Run, cwd = process.cwd(), options: { noTermina
       "--name", i.name,
       "--base-branch", i.base,
     ];
-    if (options.noTerminal) args.push("--no-terminal");
     if (i.ticket !== null) args.push("--linear-issue", i.ticket);
     if (startup) {
       // The setup/startup wrapper can exceed terminal line limits with a long mission scope.
@@ -122,7 +120,7 @@ export function orcaFrontend(run: Run, cwd = process.cwd(), options: { noTermina
     id: "orca",
 
     async ensureRepo(repo) {
-      if (!options.noTerminal) await requireStartupCommand();
+      await requireStartupCommand();
       const wanted = await realpath(repo).catch(() => repo);
       const listed = decode(await run("orca", ["repo", "list", "--json"], cwd));
       const repos = Array.isArray(listed.repos) ? listed.repos : [];
@@ -136,7 +134,7 @@ export function orcaFrontend(run: Run, cwd = process.cwd(), options: { noTermina
     },
 
     async createWorkspace(i) {
-      if (!options.noTerminal) await requireStartupCommand();
+      await requireStartupCommand();
       const { worktree, branch, worktreeId } = await createWorkspace(i);
       return { worktree, branch, worktreeId };
     },

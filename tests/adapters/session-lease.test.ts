@@ -11,15 +11,14 @@ test("lease diagnostics cannot treat ambiguous, foreign or malformed evidence as
     [{ held: ["another-session"], unknown: [] }, "unknown"],
     [{ held: [] }, "unknown"],
   ] as const) {
-    const report = await probeSessionLease(async () => ({ code: 0, stdout: JSON.stringify(raw), stderr: "" }), sessionId, "/isolated", "ssh:test");
+    const report = await probeSessionLease(async () => ({ code: 0, stdout: JSON.stringify(raw), stderr: "" }), sessionId, "/isolated");
     expect(report.state).toBe(expected);
     expect(report.sessionId).toBe(sessionId);
-    expect(report.host).toBe("ssh:test");
   }
 });
 
 test("a failed native lease probe stays unknown rather than freeing a session", async () => {
-  const report = await probeSessionLease(async () => { throw new Error("host disconnected"); }, "isolated-session", "/isolated", "ssh:test");
+  const report = await probeSessionLease(async () => { throw new Error("host disconnected"); }, "isolated-session", "/isolated");
   expect(report.state).toBe("unknown");
   expect(report.detail).toBe("host disconnected");
 });

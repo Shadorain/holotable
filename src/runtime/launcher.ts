@@ -7,7 +7,6 @@ import type { ProjectionExtras } from "../snapshot.ts";
 import { appendEvent, readEvents } from "../store/events.ts";
 import { ensureLaunchOverlay } from "../store/launch.ts";
 import { ensureCloserReportDir } from "../store/closer.ts";
-import { relayFor, remoteSegment, stageDir, writeCloserPlacement } from "../adapters/remote-artifacts.ts";
 import { closerBriefFor } from "./closer.ts";
 import { mutateOperation, readOperation } from "../store/operations.ts";
 import { ActionError } from "./errors.ts";
@@ -20,8 +19,6 @@ export interface LauncherDeps {
   now(): Date;
   settings(): Promise<Settings>;
   portsFor(operation: Operation, settings: Settings): Ports;
-  /** Board-local Run. Remote artifact staging fails closed without it. */
-  localRun?: Run;
   extras(opId: string): ProjectionExtras;
   sleep(ms: number): Promise<void>;
   /** 6 hex chars naming a conflict worktree. */
@@ -53,28 +50,8 @@ function workspaceName(contact: Contact, token: () => string): string {
 /** The closer's review brief as of this launch; its report directory exists before the pane starts. */
 async function closerLaunchBrief(deps: LauncherDeps, operation: Operation, closer: Contact): Promise<string> {
   await ensureCloserReportDir(deps.home, operation.id);
-  if (operation.host === undefined || operation.host === "local")
-    return closerBriefFor(deps.home, operation, closer, deps.now().getTime());
-  if (!deps.localRun) throw new Error("Remote closer staging needs the board run");
-  const relay = await relayFor(deps.localRun, {
-    host: operation.host,
-    ...(operation.hostSetup !== undefined ? { hostSetup: operation.hostSetup } : {}),
-    repo: operation.repo,
-  });
-  const dir = await stageDir(relay, `ops/${remoteSegment(operation.id)}/closer`);
-  await writeCloserPlacement(deps.home, operation.id, {
-    host: operation.host,
-    ...(operation.hostSetup !== undefined ? { hostSetup: operation.hostSetup } : {}),
-    repo: operation.repo,
-    dir,
-  });
-  const name = encodeURIComponent(closer.ticket);
-  return closerBriefFor(deps.home, operation, closer, deps.now().getTime(), {
-    reportPath: join(dir, `${name}.json`),
-    markdownPath: join(dir, `${name}.md`),
-  });
+  return closerBriefFor(deps.home, operation, closer, deps.now().getTime());
 }
-
 async function recordedConflictPaths(deps: LauncherDeps, opId: string, original: string): Promise<string[]> {
   const events = await readEvents(deps.home, opId);
   for (const e of [...events].reverse())
@@ -163,10 +140,7 @@ export async function launchContact(
     operation,
     contact,
     worktree,
-    // Remote fleets stage the overlay on the mission host; local fleets use the board-side file.
-    overlay: ports.fleet.prepare
-      ? (await ports.fleet.prepare({ kind: "plan" })).overlay
-      : await ensureLaunchOverlay(deps.home),
+    overlay: await ensureLaunchOverlay(deps.home),
     ...(conflictPaths.length ? { conflictPaths } : {}),
     ...(closerBrief !== undefined ? { closerBrief } : {}),
     model: selectedModel,
@@ -209,7 +183,6 @@ export async function launchContact(
         title: `${ticket} ${operation.name}`,
         argv,
         env,
-        sessionMode: "plan",
         worktreeId: lane.worktreeId,
       });
       try {
@@ -277,13 +250,11 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
     // A quiet or manually resumed mission can outlive both its socket and recorded incarnation.
     if (listed === null)
       throw new ActionError(409, "refused", "Automatic relaunch requires terminal inventory; inspect the existing pane");
-    // A remote lane's paths are remote: realpath them on the board host and nothing ever matches.
-    const remotePaths = operation.host !== undefined && operation.host !== "local";
-    const worktree = remotePaths ? lane.worktree : await realpath(lane.worktree).catch(() => resolve(lane.worktree));
+    const worktree = await realpath(lane.worktree).catch(() => resolve(lane.worktree));
     for (const row of listed) {
       // The frontend's leftover setup tab or idle shell is not a second session.
       if (row.session === false && row.handle !== terminal.handle) continue;
-      const path = remotePaths ? row.worktree : await realpath(row.worktree).catch(() => resolve(row.worktree));
+      const path = await realpath(row.worktree).catch(() => resolve(row.worktree));
       if (path === worktree || row.handle === terminal.handle)
         throw new ActionError(409, "refused", "Automatic relaunch requires an empty workspace; use the existing pane or inspect it before manual Relaunch");
     }
@@ -296,9 +267,7 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
     }
   }
   // A saved mission past its plan resumes outside plan mode, where `continue` is allowed; one still planning reopens in it.
-  const overlay = ports.fleet.prepare
-    ? (await ports.fleet.prepare({ kind: saved && saved.phase !== "plan" ? "resume" : "plan" })).overlay
-    : await ensureLaunchOverlay(deps.home, saved && saved.phase !== "plan" ? "resume" : "plan");
+  const overlay = await ensureLaunchOverlay(deps.home, saved && saved.phase !== "plan" ? "resume" : "plan");
   const selectedModel = lane.model !== undefined
     ? lane.model
     : (settings.ai.mission ?? settings.ai.model);
@@ -316,7 +285,6 @@ export async function relaunchContact(deps: LauncherDeps, opId: string, ticket: 
     title: `${ticket} ${operation.name}`,
     argv,
     env,
-    sessionMode: saved && saved.phase !== "plan" ? "default" : "plan",
     worktreeId: lane.worktreeId,
   });
   // A pane may not come up even without a thrown error; only swap the recorded terminal for a real one.

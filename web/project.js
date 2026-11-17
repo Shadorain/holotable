@@ -63,8 +63,6 @@ export function renderProject(root, cfg, operations, ctx) {
   textRow(grid, "Base branch", "base", f.base, ctx.save, { mono: true });
   textRow(grid, "Repository", "repo", f.repo, ctx.save, { mono: true, note: "The checkout missions branch from." });
   textRow(grid, "Integration checkout", "integration", f.integration, ctx.save, { mono: true, note: "Where Land merges; must be on the base branch, with no uncommitted changes in the merge's paths." });
-  textRow(grid, "Execution host", "host", f.host || "local", ctx.save, { mono: true, note: "local, ssh:<target-id> or runtime:<environment-id>. Remote placement requires Orca + omp-mission; never falls back locally." });
-  textRow(grid, "Orca project-host setup", "hostSetup", f.hostSetup ?? "", ctx.save, { mono: true, note: "A ready setup on the execution host. Find its ID with orca project setups --host <host> --json." });
   setup.append(grid);
   const ports = el("div", "set-grid ports-grid");
   for (const kind of ["tracker", "fleet", "frontend", "delivery"]) enumRow(ports, titleCase(kind), kind, cfg.options[kind], f[kind], ctx.save);

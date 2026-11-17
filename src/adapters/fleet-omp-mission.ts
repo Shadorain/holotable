@@ -227,10 +227,7 @@ export function ompMissionFleet(options: MissionFleetOptions): FleetPort {
 }
 
 
-/**
- * The mission argv/env a launch needs, identical for local and remote placement: the `overlay` is
- * whatever path the caller staged (local file or remote relay artifact).
- */
+/** The mission argv/env a launch needs; the caller resolves `overlay` (the plan/resume config file). */
 export function missionLaunch(i: Parameters<FleetPort["launch"]>[0]): { argv: string[]; env: Record<string, string> } {
   const { operation, contact } = i;
   // Flags go before `--`: omp-mission treats everything after it as the freeform description.

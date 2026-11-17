@@ -18,7 +18,7 @@ Install only what your projects use. The board can display and organize work wit
 
 |Integration|Setup|
 |---|---|
-|Orca terminals and worktrees|Install Orca and its `orca` CLI. Set the repo's worktree folder in Orca's project settings.|
+|Orca terminals and worktrees|Install Orca and its `orca` CLI, plus the `orca-cli-patch` extension that adds `orca worktree create --command`. Set the repo's worktree folder in Orca's project settings.|
 |Herdr terminals|Install and configure Herdr and its `herdr` CLI.|
 |Custom terminals|Set the command templates in Settings → Custom frontend.|
 |GitHub tickets or PR delivery|Install `gh` and run `gh auth login`.|
@@ -46,10 +46,7 @@ accounts concurrently. Setup checks identify each workspace and its authenticate
 A selected account that fails is never retried against the default account.
 
 Without a pin, the CLI's current default still applies. Remove a pin with
-`git config --local --unset mission.linearWorkspace`. For remote projects, set it in
-the repository on the execution host; the board's tracker reads use its own authenticated
-`lin` installation, while draft and mission panes need that workspace authenticated on
-their execution host too. Restart or resume mission sessions after changing the pin.
+`git config --local --unset mission.linearWorkspace`. The board reads it in the ticket's repository for tracker commands; draft and mission panes need that workspace authenticated on their own `lin` installation. Restart or resume mission sessions after changing the pin.
 
 ### Open the board from another machine
 
@@ -139,7 +136,7 @@ Keys (`?` or Settings → Help shows them): WASD/HJKL/arrows move, Enter moves f
 
 The card has three tabs (`[` and `]` switch): **Overview** (actions first, directly under the tabs, then progress, what happens next, the mission or closer report, what it waits for and unblocks, conflict links), **Details** (origin, kind, tracker, delivery, workers, branch, worktree, terminal) and **History** (every event for this contact, with who caused it). Land, Approve and the rest never sink below a long report.
 
-Details also offers **Check session lease**, a read-only, on-demand OMP writer-lease diagnostic for the mission's execution host. It shows the checked session, host and time. Unknown is not free, and no observed lease does not prove the session exists or authorize takeover; this probe never changes ownership or the board's launch decision.
+Details also offers **Check session lease**, a read-only, on-demand OMP writer-lease diagnostic for the host the mission runs on. It shows the checked session, host and time. Unknown is not free, and no observed lease does not prove the session exists or authorize takeover; this probe never changes ownership or the board's launch decision.
 
 ### Mission reports
 

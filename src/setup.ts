@@ -8,9 +8,6 @@ import { listProjects } from "./store/projects.ts";
 import { DEFAULT_SETTINGS } from "./settings.ts";
 import { readSettings } from "./store/settings.ts";
 import { checkOrcaStartupCommand } from "./adapters/orca-capabilities.ts";
-import { requireOrcaChat } from "./adapters/frontend-orca-chat.ts";
-import { decode } from "./adapters/orca-envelope.ts";
-import { orcaExec } from "./adapters/orca-exec.ts";
 import { readLinearWorkspace } from "./adapters/linear-account.ts";
 import { withTimeout } from "./timeout.ts";
 import { loadProjection } from "./snapshot.ts";
@@ -82,14 +79,12 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
   const trackersInUse = new Set<string>();
   const frontendsInUse = new Set<string>();
   const deliveriesInUse = new Set<string>();
-  const nativeHosts = new Set<string>();
-  const linearRepositories: { repo: string; host?: string }[] = [];
+  const linearRepositories: string[] = [];
   const settings = await readSettings(home).catch(() => null);
   if (settings) {
     trackersInUse.add(settings.defaults.tracker);
     frontendsInUse.add(settings.defaults.frontend);
     deliveriesInUse.add(settings.defaults.delivery);
-    if (settings.defaults.frontend === "orca-chat") nativeHosts.add("local");
   }
 
   // listProjects already returns validated projects.
@@ -97,8 +92,7 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
     trackersInUse.add(proj.tracker);
     frontendsInUse.add(proj.frontend);
     deliveriesInUse.add(proj.delivery);
-    if (proj.tracker === "linear") linearRepositories.push({ repo: proj.repo, host: proj.host });
-    if (proj.frontend === "orca-chat") nativeHosts.add(proj.host ?? "local");
+    if (proj.tracker === "linear") linearRepositories.push(proj.repo);
   }
 
   // loadProjection reads the operation document internally; the resolved
@@ -111,8 +105,7 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
       frontendsInUse.add(p.operation.frontend);
       deliveriesInUse.add(p.operation.delivery);
       if (p.operation.tracker === "linear")
-        linearRepositories.push({ repo: (await readOperation(home, row.id)).repo, host: p.operation.host });
-      if (p.operation.frontend === "orca-chat") nativeHosts.add(p.operation.host ?? "local");
+        linearRepositories.push((await readOperation(home, row.id)).repo);
       contacts += p.contacts.length;
       launched += p.contacts.filter((c) => c.lane !== null).length;
     } catch (error) {
@@ -213,22 +206,9 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
       && settings?.defaults.tracker === "linear";
     if (linearRepositories.length > 0 || useDefaultLinear) {
       const routes = new Map<string, { workspace?: string; repo?: string }>();
-      const repositories = [...new Map(linearRepositories.map((entry) =>
-        [JSON.stringify([entry.host ?? "local", entry.repo]), entry],
-      )).values()];
-      const workspaceResults = await Promise.allSettled(repositories.map(async ({ repo, host }) => {
-        const repositoryRun: Run = host && host !== "local"
-          ? async (command, args) => {
-              const result = await orcaExec(run, process.cwd(), {
-                host,
-                worktree: repo,
-                argv: [command, ...args],
-                timeoutMs: RUN_TIMEOUT,
-              });
-              return { code: result.exitCode, stdout: result.stdout, stderr: result.stderr };
-            }
-          : run;
-        const timedRun: Run = (command, args, cwd) => runWithTimeout(repositoryRun, command, args, cwd);
+      const repositories = [...new Set(linearRepositories)];
+      const workspaceResults = await Promise.allSettled(repositories.map(async (repo) => {
+        const timedRun: Run = (command, args, cwd) => runWithTimeout(run, command, args, cwd);
         const workspace = await readLinearWorkspace(repo, timedRun);
         return { workspace, repo };
       }));
@@ -291,18 +271,6 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
               detail: `Installed (${version.stdout.trim()}), but ${capability.detail}`,
               fix: "Restore the host CLI extension exposing `orca worktree create --command`; upgrades may replace it",
             };
-      })());
-    }
-    for (const host of nativeHosts) {
-      addCheck(host === "local" ? "orca-chat" : `orca-chat:${host}`, `Orca native Chat (${host})`, (async () => {
-        try {
-          await requireOrcaChat(run, process.cwd(), host);
-          const inventory = decode(await runWithTimeout(run, "orca", ["session", "list", "--host", host, "--json"]));
-          if (!Array.isArray(inventory.sessions)) throw new Error("Orca omitted its native session inventory");
-          return { ok: true, detail: "CLI and runtime mission lifecycle APIs available; the OMP provider is checked at launch" };
-        } catch (error) {
-          return { ok: false, detail: error instanceof Error ? error.message : String(error), fix: "Install Orca with native mission lifecycle APIs; terminal fallback is disabled" };
-        }
       })());
     }
 

@@ -81,8 +81,6 @@ export function renderOps(root, projection, ctx) {
     ["tracker", op.tracker, "Where tickets live (Linear, GitHub)"],
     ["fleet", op.fleet, "What runs the work (omp-mission)"],
     ["frontend", op.frontend, "Where worktrees and mission panes come from"],
-    ["host", op.host, "Exact execution host for this operation; never inferred from the repo path"],
-    ...(op.hostSetup ? [["setup", op.hostSetup, "Pinned Orca project-host setup"]] : []),
     ["delivery", op.delivery, "How finished work lands"],
     ["pause gates", op.pause ? "on" : "off", "Missions stop at Pause gates for your approval"],
   ]) {

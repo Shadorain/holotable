@@ -37,17 +37,6 @@ export function validateProject(value: unknown, path = "project.json"): Project 
     if (problem) return fail(`worktreeRoot ${problem}`);
   }
   if (value.ignoreChecks !== undefined && typeof value.ignoreChecks !== "boolean") return fail("ignoreChecks must be a boolean");
-  if (value.host !== undefined) {
-    const hostOk =
-      typeof value.host === "string" &&
-      value.host.length > 4 &&
-      (value.host.startsWith("ssh:") || value.host.startsWith("runtime:"));
-    if (!hostOk) return fail('host must be "ssh:<target-id>" or "runtime:<environment-id>" (absent = board host)');
-  }
-  if (value.hostSetup !== undefined && (typeof value.hostSetup !== "string" || value.hostSetup.trim().length === 0))
-    return fail("hostSetup must be a non-empty string (Orca project-host-setup id)");
-  if (value.hostSetup !== undefined && value.host === undefined)
-    return fail("hostSetup requires host: it names a setup on the placement host");
   const project: Project = {
     v: 1,
     id: value.id,
@@ -64,8 +53,6 @@ export function validateProject(value: unknown, path = "project.json"): Project 
     ignoreChecks: value.ignoreChecks === true,
     createdAt: value.createdAt,
     ...(typeof value.worktreeRoot === "string" ? { worktreeRoot: value.worktreeRoot } : {}),
-    ...(typeof value.host === "string" ? { host: value.host } : {}),
-    ...(typeof value.hostSetup === "string" ? { hostSetup: value.hostSetup } : {}),
   };
   return project;
 }

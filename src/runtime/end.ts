@@ -6,7 +6,6 @@ import { operationDir } from "../paths.ts";
 import { writeReport } from "../store/archive.ts";
 import { appendEvent, readEvents, readFolded } from "../store/events.ts";
 import { archiveOperation, mutateOperation, readOperation } from "../store/operations.ts";
-import { pullCloser } from "../adapters/remote-artifacts.ts";
 import { ActionError } from "./errors.ts";
 import { windDown, type WinddownDeps } from "./winddown.ts";
 import { describeStatus, worktreeStatus } from "./worktree-status.ts";
@@ -41,7 +40,6 @@ export async function abortPreview(deps: WinddownDeps, opId: string): Promise<Ab
     if (!lane) continue;
     if (lane.terminal && !d?.reaped) terminals.push(contact.ticket);
     if (lane.frontend === "external" || d?.removed) continue;
-    // Host-routed: a remote lane does not exist on the board host, so local stat would drop it.
     const ports = deps.portsFor(operation, await deps.settings());
     const status = await worktreeStatus(ports.run, lane.worktree);
     if (status.state === "gone") continue;
@@ -110,10 +108,6 @@ export async function endOperation(deps: WinddownDeps, opId: string, outcome: Cl
   }
 
   const final = await readOperation(deps.home, opId);
-  if (final.host && final.host !== "local") {
-    if (!deps.localRun) throw new ActionError(503, "host-unprepared", "Remote closer retrieval needs the board run");
-    await pullCloser(deps.localRun, deps.home, final);
-  }
   const report = buildReport(final, await readEvents(deps.home, opId), deps.now(), await readOpFile(deps.home, opId, "brief.md"), await readOpFile(deps.home, opId, "notes.md"));
   await writeReport(deps.home, opId, report);
   return archiveOperation(deps.home, opId, deps.now());
