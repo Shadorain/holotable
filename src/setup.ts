@@ -1,12 +1,13 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
+import type { Run } from "./ports.ts";
 import { messageOf } from "./core/errors.ts";
 import { agentDir } from "./paths.ts";
 import { listOperations } from "./store/operations.ts";
 import { listProjects } from "./store/projects.ts";
 import { DEFAULT_SETTINGS } from "./settings.ts";
 import { readSettings } from "./store/settings.ts";
-import type { Run } from "./ports.ts";
+import { checkOrcaStartupCommand } from "./adapters/orca-capabilities.ts";
 import { withTimeout } from "./timeout.ts";
 import { loadProjection } from "./snapshot.ts";
 export interface SetupCheck {
@@ -191,10 +192,19 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
     }
 
     if (frontendsInUse.has("orca")) {
-      addCheck("orca", "Orca Frontend", runWithTimeout(run, "orca", ["--version"]).then((res) => {
-        if (res.code === 0) return { ok: true, detail: res.stdout.trim() };
-        return { ok: false, detail: "Not installed or failed", fix: "Ensure orca is in PATH" };
-      }));
+      addCheck("orca", "Orca Frontend", (async () => {
+        const version = await runWithTimeout(run, "orca", ["--version"]);
+        if (version.code !== 0)
+          return { ok: false, detail: "Not installed or failed", fix: "Ensure orca is in PATH" };
+        const capability = await checkOrcaStartupCommand(run, process.cwd());
+        return capability.supported
+          ? { ok: true, detail: `${version.stdout.trim()}; supports startup commands` }
+          : {
+              ok: false,
+              detail: `Installed (${version.stdout.trim()}), but ${capability.detail}`,
+              fix: "Restore the host CLI extension exposing `orca worktree create --command`; upgrades may replace it",
+            };
+      })());
     }
 
     if (frontendsInUse.has("herdr")) {

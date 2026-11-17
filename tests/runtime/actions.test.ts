@@ -122,20 +122,31 @@ test("focus forwards the purpose to the frontend", async () => {
   expect(t.fake.calls.at(-1)?.args).toMatchObject({ purpose: "plan-approval" });
 });
 
-test("answer goes to the owner's socket only while that same question is open and answerable", async () => {
+test("answer goes to the owner's socket only while that same form is open and answerable", async () => {
   const t = await setup();
-  const ask = { id: "call-7", questions: [{ question: "How far?", options: ["Status only", "Status + send"], recommended: 0, multi: false }] };
+  const field = {
+    kind: "choice", name: "how", multi: false, select: false, other: true, required: true, label: [],
+    options: [
+      { value: "status", label: [{ text: "Status only" }], checked: true, disabled: false },
+      { value: "send", label: [{ text: "Status + send" }], checked: false, disabled: false },
+    ],
+  };
+  const ask = { id: "call-7", form: { sections: [{ title: [], fieldset: false, blocks: [{ kind: "text", spans: [{ text: "How far?" }], heading: false }, { kind: "field", field }] }], fields: [field], hidden: [] } };
   const open = JSON.parse(readFileSync(t.file, "utf8"));
   writeFileSync(t.file, JSON.stringify({ ...open, hold: "question", gate: null, actions: ["answer"], ask }));
-  await t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", answers: [{ option: 1 }] } });
-  expect(t.requests).toEqual([{ v: 1, op: "answer", args: { id: "call-7", answers: [{ option: 1 }] }, operator: true }]);
-  // The pane moved on to another question, or the answer does not fit: nothing is sent.
-  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-6", answers: [{ option: 0 }] } }))).toMatchObject({ status: 409, code: "stale" });
-  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", answers: [{ option: 5 }] } }))).toMatchObject({ status: 400 });
-  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", answers: [{ option: 0 }] }, by: "auto" }))).toMatchObject({ status: 403 });
+  await t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", data: { how: "send" } } });
+  expect(t.requests).toEqual([{ v: 1, op: "answer", args: { id: "call-7", data: { how: "send" } }, operator: true }]);
+  // The pane moved on to another question, or the answer does not fit the form: nothing is sent.
+  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-6", data: { how: "send" } } }))).toMatchObject({ status: 409, code: "stale" });
+  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", data: { how: "elsewhere", bogus: 1 } } }))).toMatchObject({ status: 400 });
+  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", answers: [{ option: 0 }] } }))).toMatchObject({ status: 400 });
+  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", data: { how: "send" } }, by: "auto" }))).toMatchObject({ status: 403 });
   // A pane that cannot take board answers (older extension) is never sent one.
   writeFileSync(t.file, JSON.stringify({ ...open, hold: "question", gate: null, actions: [], ask }));
-  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", answers: [{ option: 0 }] } }))).toMatchObject({ code: "stale" });
+  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", data: { how: "send" } } }))).toMatchObject({ code: "stale" });
+  // And a status whose ask is malformed keeps the hold but no board answer goes out.
+  writeFileSync(t.file, JSON.stringify({ ...open, hold: "question", gate: null, actions: ["answer"], ask: { id: "call-7", questions: [] } }));
+  expect(await t.refused(t.act({ op: "lab", contact: "a", action: "answer", args: { id: "call-7", data: { how: "send" } } }))).toMatchObject({ code: "stale" });
   expect(t.requests).toHaveLength(1);
 });
 

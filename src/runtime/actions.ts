@@ -245,9 +245,9 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     if (status?.hold !== "question" || !status.ask || !status.actions.includes("answer"))
       throw new ActionError(409, "stale", `${ticket} is no longer asking a question it can take from the board`);
     if (status.ask.id !== id) throw new ActionError(409, "stale", `${ticket} is asking a different question now; read it again`);
-    const answers = askAnswers(status.ask, raw);
-    if (typeof answers === "string") throw new ActionError(400, "bad-request", answers);
-    await fleet.control(status, "answer", { id, answers });
+    const data = askAnswers(status.ask, raw);
+    if (typeof data === "string") throw new ActionError(400, "bad-request", data);
+    await fleet.control(status, "answer", { id, data });
   }
 
   /** Answer the pane's open tool-approval prompt through its socket with one of the prompt's own option labels. */
@@ -277,10 +277,10 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
       case "answer": {
         // Answering is the operator's call; automation never answers a mission's question.
         if (req.by !== undefined) throw new ActionError(403, "refused", "Only the operator answers a mission's question");
-        if (typeof req.args.id !== "string" || !req.args.id)
-          throw new ActionError(400, "bad-request", "answer needs {id: string, answers: [{option} | {options} | {text}]}");
+        if (typeof req.args.id !== "string" || !req.args.id || typeof req.args.data !== "object" || req.args.data === null || Array.isArray(req.args.data))
+          throw new ActionError(400, "bad-request", "answer needs {id: string, data: {<field name>: string | number | string[]}}");
         const id = req.args.id;
-        run = () => answer(req.op, req.contact, id, req.args.answers);
+        run = () => answer(req.op, req.contact, id, req.args.data);
         break;
       }
       case "permit": {

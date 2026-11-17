@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { TerminalRef } from "../core/types.ts";
 import { isRecord } from "../core/validate.ts";
 import { PortError, type FrontendPort, type Run, type TerminalCommand, type WorkspaceInput } from "../ports.ts";
+import { checkOrcaStartupCommand } from "./orca-capabilities.ts";
 import { decode, shellQuote } from "./orca-envelope.ts";
 
 interface OrcaTerminalRow {
@@ -79,7 +80,16 @@ export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
     }
     throw new PortError("terminal-missing", `Terminal ${t.handle} is gone`);
   }
+  async function requireStartupCommand(): Promise<void> {
+    const capability = await checkOrcaStartupCommand(run, cwd);
+    if (!capability.supported)
+      throw new PortError(
+        "orca",
+        `Orca startup is unavailable (${capability.detail}). Restore the host CLI extension exposing \`orca worktree create --command\`; an Orca upgrade may have replaced it. The public --agent option is not an equivalent launch contract.`,
+      );
+  }
   async function createWorkspace(i: WorkspaceInput, startup?: TerminalCommand) {
+    if (startup) await requireStartupCommand();
     const args = [
       "worktree", "create",
       "--repo", `path:${i.repo}`,
@@ -106,11 +116,11 @@ export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
       startup: payload.startupTerminal,
     };
   }
-
   return {
     id: "orca",
 
     async ensureRepo(repo) {
+      await requireStartupCommand();
       const wanted = await realpath(repo).catch(() => repo);
       const listed = decode(await run("orca", ["repo", "list", "--json"], cwd));
       const repos = Array.isArray(listed.repos) ? listed.repos : [];
@@ -124,11 +134,13 @@ export function orcaFrontend(run: Run, cwd = process.cwd()): FrontendPort {
     },
 
     async createWorkspace(i) {
+      await requireStartupCommand();
       const { worktree, branch } = await createWorkspace(i);
       return { worktree, branch };
     },
 
     async createWorkspaceWithTerminal(i) {
+      await requireStartupCommand();
       const { worktree, branch, startup } = await createWorkspace(i, i.startup);
       if (!isRecord(startup) || typeof startup.handle !== "string")
         throw new PortError("orca", "Orca worktree create omitted result.startupTerminal.handle; CLI needs worktree create --command support");

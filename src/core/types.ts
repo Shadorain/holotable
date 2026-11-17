@@ -439,7 +439,7 @@ export interface ContactStatus {
     owned: boolean;
   };
   ctl: { socket: string; generation: number } | null;
-  /** The pane's open `ask` while hold is "question": the tool call id and each question's choices. */
+  /** The pane's open `ask` while hold is "question": the tool call id and the native form the pane is drawing. */
   ask?: MissionAsk | null;
   /** The pane's coordinator agent: in a turn (or continuing on its own) or idle since `since`; null/absent when unknown or from an older producer. */
   coordinator?: { state: "working" | "idle"; since: string } | null;
@@ -450,11 +450,54 @@ export interface ContactStatus {
   updatedAt: string;
 }
 
-/** One question of a mission's open `ask`; the pane lists `options`, then "Other". */
-export interface AskQuestion { question: string; options: string[]; recommended: number | null; multi: boolean }
-export interface MissionAsk { id: string; questions: AskQuestion[] }
-/** The operator's answer to one question: an option's index, or free text typed into "Other". */
-export type AskAnswer = { option: number } | { options: number[] } | { text: string };
+// --- Ask form (mirrors the serializable `HtmlForm` of @oh-my-pi/pi-tui/html-form; the board cannot import it) ---
+
+/** Inline emphasis a span keeps from `<code>`, `<strong>`/`<b>` and `<em>`/`<i>`. */
+export type FormSpanStyle = "code" | "strong" | "em";
+/** A run of inline text; `"\n"` inside `text` is a hard line break (`<br>`). */
+export interface FormSpan { text: string; style?: FormSpanStyle }
+/** One answer of a {@link ChoiceFormField}. */
+export interface ChoiceOption { value: string; label: FormSpan[]; checked: boolean; disabled: boolean }
+/** A radio group (`multi: false`), checkbox group (`multi: true`) or `<select>` (`select: true`). */
+export interface ChoiceFormField {
+  kind: "choice"; name: string; multi: boolean; select: boolean;
+  /** The UI adds a free-text "Other" answer to radio and checkbox groups without one of their own. */
+  other: boolean;
+  label: FormSpan[]; options: ChoiceOption[]; required: boolean;
+}
+/** A single-line `<input>` (`multiline: false`) or a `<textarea>`; `type` is the input type, "textarea" for textareas. */
+export interface TextFormField {
+  kind: "text"; name: string; type: string; multiline: boolean;
+  label: FormSpan[]; value: string; placeholder: string; required: boolean;
+  min?: number; max?: number; pattern?: string; minLength?: number; maxLength?: number;
+  /** Visible rows a textarea asked for (`rows`), 1 for inputs. */
+  rows: number;
+}
+/** Any control the operator answers. */
+export type FormField = ChoiceFormField | TextFormField;
+/** A renderable unit of a section, in document order. */
+export type FormBlock =
+  | { kind: "text"; spans: FormSpan[]; heading: boolean }
+  | { kind: "list"; items: FormSpan[][]; ordered: boolean }
+  | { kind: "pre"; text: string }
+  | { kind: "table"; rows: FormSpan[][][]; headerRows: number }
+  | { kind: "image"; src: string; alt: string }
+  | { kind: "svg"; markup: string; alt: string }
+  /** A field block embeds the full field; `optionsEnd` marks split choice groups (see the native parser). */
+  | { kind: "field"; field: FormField; optionsEnd?: number };
+/** A `<fieldset>` (titled by its `<legend>`) or loose content between fieldsets (`fieldset: false`). */
+export interface FormSection { title: FormSpan[]; blocks: FormBlock[]; fieldset: boolean }
+/**
+ * The form a mission pane draws while it asks: sections to render, the fields in document order
+ * (the same objects the sections' field blocks embed), and `<input type="hidden">` pairs.
+ */
+export interface AskForm { sections: FormSection[]; fields: FormField[]; hidden: [name: string, value: string][] }
+/** The pane's open `ask`: the tool call id and the native-parsed form the pane is drawing. */
+export interface MissionAsk { id: string; form: AskForm }
+/** One control's submitted value: text, a number for `number`/`range` inputs, or a group's checked values. */
+export type AskValue = string | number | string[];
+/** Submitted form data by control `name` — the `data` of an answer action. */
+export type AskData = Record<string, AskValue>;
 /**
  * A tool-approval prompt open in the mission pane: `tool` when the prompt names one, `summary` in one row,
  * the whole `prompt`, and the pane's choices in order with Deny last. Answered by option label.
@@ -659,7 +702,7 @@ export interface ContactView {
   model?: string | null;
   /** Latest PR check the producer reported; null until the first /mission check. */
   check?: MissionCheck | null;
-  /** The mission's open question with its choices, while it waits on hold "question"; null otherwise. */
+  /** The mission's open question form, while it waits on hold "question"; null otherwise. */
   ask: MissionAsk | null;
   /** The mission's open tool-approval prompt, while it waits on hold "question"; null otherwise. */
   approval: MissionApproval | null;

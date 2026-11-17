@@ -1,5 +1,6 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { runSetupChecks } from "../src/setup.ts";
+import { DEFAULT_SETTINGS } from "../src/settings.ts";
 import { tempDir, removeAll } from "./helpers.ts";
 import { writeSettings } from "../src/store/settings.ts";
 import { createProject } from "../src/store/projects.ts";
@@ -53,6 +54,26 @@ test("setup checks: route shape, failures become ok:false with fix, only in-use 
     // frontend-none should be gone since "herdr" is also in use
     expect(checks.checks.some(c => c.id === "frontend-none")).toBe(false);
 
+  } finally {
+    removeAll(bucket);
+  }
+});
+
+test("Orca setup check requires startup command support, not just a version", async () => {
+  const bucket: string[] = [];
+  const home = tempDir("setup-orca", bucket);
+  try {
+    await writeSettings(home, { ...DEFAULT_SETTINGS, defaults: { ...DEFAULT_SETTINGS.defaults, frontend: "orca" } });
+    const report = await runSetupChecks(home, async (command, args) =>
+      command === "orca" && args[0] === "--version"
+        ? { code: 0, stdout: "Orca 1.0", stderr: "" }
+        : command === "orca" && args[0] === "worktree"
+          ? { code: 0, stdout: "Usage: orca worktree create", stderr: "" }
+          : { code: 0, stdout: "{}", stderr: "" },
+    );
+    const check = report.checks.find((row) => row.id === "orca");
+    expect(check?.ok).toBe(false);
+    expect(check?.fix).toContain("worktree create --command");
   } finally {
     removeAll(bucket);
   }

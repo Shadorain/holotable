@@ -6,7 +6,7 @@
 
 **Mission control for OMP.**
 
-[![OMP](https://img.shields.io/badge/OMP-18.4.4%2B-37d4a7?style=for-the-badge)](https://github.com/can1357/oh-my-pi)
+[![OMP](https://img.shields.io/badge/OMP-18.22.0%2B-37d4a7?style=for-the-badge)](https://github.com/can1357/oh-my-pi)
 [![Bun](https://img.shields.io/badge/runtime-Bun-ff4971?style=for-the-badge&logo=bun&logoColor=white)](https://bun.sh)
 [![License](https://img.shields.io/badge/license-MIT-blueviolet?style=for-the-badge)](LICENSE)
 
@@ -46,10 +46,10 @@ flowchart LR
 
 ## Requirements
 
-- **OMP 18.4.4 or later.** Approving a native plan from the board needs OMP 18.10.4 or later; answering tool approvals from the board needs 18.11.3 or later. Older versions show **Approve in pane** or **Answer in mission** instead.
+- **OMP 18.22.0 or later.** Mission panes and the board use the same current SDK, including native HTML-form questions and plan review.
 - **[omp-mission](https://github.com/Shadorain/omp-mission)** installed as an OMP extension. Launched panes must load it.
 - **[Bun](https://bun.sh/docs/installation)** on `PATH`, and a browser.
-- **A terminal frontend to launch missions:** Orca (`orca` CLI), Herdr (`herdr` CLI), or your own shell templates. Without one, the board can still organize work.
+- **A terminal frontend to launch missions:** Orca (`orca` CLI with the host `worktree create --command` extension), Herdr (`herdr` CLI), or your own shell templates. Setup checks Orca's launch capability before workspace creation. Without a frontend, the board can still organize work.
 - Optional, per project: `lin` for Linear tickets, `gh` for GitHub tickets and PR delivery, Git for local-merge delivery. See [Integrations](docs/guide.md#integrations).
 
 ## Install

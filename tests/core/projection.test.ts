@@ -52,7 +52,8 @@ test("a pending question needs attention and focuses its owner instead of approv
 });
 
 test("an open ask is answered from the board only while the pane advertises answer, on any frontend", () => {
-  const ask = { id: "call-1", questions: [{ question: "Where?", options: ["Here", "There"], recommended: 1, multi: false }] };
+  const field = { kind: "choice" as const, name: "where", multi: false, select: false, other: true, required: true, label: [], options: [{ value: "here", label: [{ text: "Here" }], checked: true, disabled: false }, { value: "there", label: [{ text: "There" }], checked: false, disabled: false }] };
+  const ask = { id: "call-1", form: { sections: [{ title: [], fieldset: false, blocks: [{ kind: "text" as const, spans: [{ text: "Where?" }], heading: false }, { kind: "field" as const, field }] }], fields: [field], hidden: [] } };
   const op = makeOp([makeContact("a", { lane: makeLane({ frontend: "herdr", terminal: { handle: "h", incarnationId: "i" } }) })], { fleet: "omp-mission", frontend: "herdr" });
   const answerable = viewOf(op, "a", { statuses: { a: makeStatus({ hold: "question", next: "Answer in mission: Where?", ask, actions: ["answer"] }) }, owners: { a: "live" } });
   expect(answerable.ask).toEqual(ask);

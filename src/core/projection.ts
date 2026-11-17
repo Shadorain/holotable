@@ -1,3 +1,4 @@
+import { askSummary } from "./ask.ts";
 import { foldEvents, contactDerived, holdsSlot } from "./fold.ts";
 import { countTasks } from "./notes.ts";
 import { actionsFor, ciQueuedSince, contactState, FLEET_OP_LABELS, handsOff, idleSince, launchRefusal, setupRefusal } from "./policy.ts";
@@ -354,7 +355,7 @@ function contactView(
   // The producer's step says "Answer in mission"; when the card itself can answer, point there instead.
   if (status?.hold === "question") {
     if (status.approval && status.actions.includes("permit")) detail = `Approve or deny below: ${status.approval.summary}`;
-    else if (status.ask && status.actions.includes("answer")) detail = `Answer below: ${status.ask.questions[0]?.question ?? "the mission's question"}`;
+    else if (status.ask && status.actions.includes("answer")) detail = `Answer below: ${askSummary(status.ask)}`;
   }
   if (state === "complete") {
     const next = actions.find(action => action.primary);

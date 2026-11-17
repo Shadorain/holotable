@@ -29,6 +29,8 @@ interface Call {
 function fakeRun(handler: (call: Call) => CommandResult): { run: Run; calls: Call[] } {
   const calls: Call[] = [];
   const run: Run = async (command, args, cwd) => {
+    if (command === "orca" && args.join(" ") === "worktree create --help")
+      return { stdout: "Usage: orca worktree create [options]\n  --command <command>", stderr: "", code: 0 };
     const call = { command, args, cwd };
     calls.push(call);
     return handler(call);
@@ -212,6 +214,22 @@ describe("orca frontend", () => {
     const nonZero = fakeRun(() => ({ stdout: "", stderr: "died", code: 2 }));
     await expect(orcaFrontend(nonZero.run).listTerminals()).rejects.toMatchObject({ code: "orca" });
   });
+});
+test("Orca startup capability failure precedes repo and workspace mutations", async () => {
+  const calls: Call[] = [];
+  const run: Run = async (command, args, cwd) => {
+    calls.push({ command, args, cwd });
+    return args.join(" ") === "worktree create --help"
+      ? { stdout: "Usage: orca worktree create", stderr: "", code: 0 }
+      : jsonReply({ ok: true, result: {} });
+  };
+  const frontend = orcaFrontend(run);
+  await expect(frontend.ensureRepo("/repo")).rejects.toMatchObject({ code: "orca" });
+  expect(calls.map((call) => call.args)).toEqual([["worktree", "create", "--help"]]);
+  await expect(frontend.createWorkspaceWithTerminal!({
+    repo: "/repo", name: "new", base: "main", ticket: null, startup: { argv: ["omp"], env: {} },
+  })).rejects.toMatchObject({ code: "orca" });
+  expect(calls.filter((call) => call.args[0] === "worktree" && call.args[1] === "create")).toHaveLength(1);
 });
 
 describe("herdr frontend", () => {

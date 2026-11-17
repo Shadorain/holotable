@@ -7,7 +7,9 @@ import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Access, CloserReview, ContactStatus, MissionApproval, MissionCheck, MissionReport, Operation, Settings, TerminalRef, Tracker } from "../src/core/types.ts";
+import type { Access, AskForm, CloserReview, ContactStatus, MissionApproval, MissionAsk, MissionCheck, MissionReport, Operation, Settings, TerminalRef, Tracker } from "../src/core/types.ts";
+import { askSummary } from "../src/core/ask.ts";
+import { parseHtmlForm } from "@oh-my-pi/pi-tui/html-form/parse";
 import { PortError, type Ports, type Run, type TrackerHit, type TrackerPort } from "../src/ports.ts";
 import { DEFAULT_SETTINGS, settingsFile } from "../src/settings.ts";
 import { readSettings } from "../src/store/settings.ts";
@@ -37,6 +39,30 @@ const RED_CI = new Set(["CHR-156"]);
 const COORDINATOR_IDLE = new Set(["review"]);
 // Seeded lanes whose pane waits on a tool approval (OMP's Approve/Deny prompt) until it is answered.
 const ASKS_APPROVAL = new Set(["socket"]);
+// The lane whose pane waits on a question form until Answer submits it; the card renders the fields.
+const ASKS_QUESTION = new Set(["questions"]);
+/**
+ * The form `questions` asks, parsed with the same native parser the mission producer runs: a radio group
+ * with Other, a number input (default 0), a checkbox group, a select, a textarea and a hidden revision.
+ */
+const QUESTION_FORM: AskForm = parseHtmlForm(`<form>
+<fieldset><legend>Listener rollout</legend>
+<p>The relay can start listening once the coordinator knows where.</p>
+<p>Where should the listener bind?</p>
+<label><input type="radio" name="listen" value="loopback" checked> Loopback only</label>
+<label><input type="radio" name="listen" value="lan"> LAN (this host)</label>
+<p>How many workers should it spawn?</p>
+<input type="number" name="workers" min="0" max="8" value="0" required>
+<p>Which channels get the announcement?</p>
+<label><input type="checkbox" name="channels" value="ops"> Ops</label>
+<label><input type="checkbox" name="channels" value="dev" checked> Dev</label>
+<p>Which region serves first?</p>
+<select name="region"><option value="us">US</option><option value="eu" selected>EU</option></select>
+<p>Notes for the operator</p>
+<textarea name="notes" rows="3" maxlength="200" placeholder="Optional"></textarea>
+</fieldset>
+<input type="hidden" name="revision" value="rev-3">
+</form>`);
 // Fixed PR-check verdicts per ticket so the demo exercises more than "clean".
 const CHECK_VERDICTS: Record<string, { state: MissionCheck["state"]; detail: string; conflicts: string[]; threads: { open: number; total: number } }> = {
   "CHR-157": { state: "conflict", detail: "Base moved under the PR; two files conflict.", conflicts: ["src/roster.ts", "docs/deploy.md"], threads: { open: 0, total: 0 } },
@@ -244,6 +270,8 @@ interface SimMission {
   check: MissionCheck | null;
   /** The tool-approval prompt the pane is waiting on, until the `permit` op answers it. */
   approval: MissionApproval | null;
+  /** The question form the pane is waiting on, until the `answer` op submits it. */
+  ask: MissionAsk | null;
 }
 
 const hash = (text: string) => [...text].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
@@ -329,12 +357,15 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
             options: ["Approve", "Approve bash for this session", "Deny"],
           }
         : null,
+      ask: ASKS_QUESTION.has(name) && (initial.get(worktree) ?? "plan") === "execute"
+        ? { id: randomBytes(6).toString("hex"), form: QUESTION_FORM }
+        : null,
     };
     missions.set(worktree, m);
     return m;
   };
   const advance = (m: SimMission) => {
-    if (m.closed || m.resumeHold || m.quota || m.approval || COORDINATOR_IDLE.has(m.ticket)) return;
+    if (m.closed || m.resumeHold || m.quota || m.approval || m.ask || COORDINATOR_IDLE.has(m.ticket)) return;
     const age = (now() - m.stageStart) / 1000;
     const go = (stage: SimMission["stage"]) => {
       m.stage = stage;
@@ -355,10 +386,12 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
   const statusOf = (m: SimMission): ContactStatus => {
     advance(m);
     const step = { plan: 1, execute: 3, gate: 5, review: 6, complete: 7 }[m.stage];
-    const hold = m.approval ? "question" : m.quota ? "quota" : m.resumeHold ? "resume" : m.stage === "plan" ? "plan-approval" : m.stage === "gate" ? "gate" : "none";
+    const hold = m.approval || m.ask ? "question" : m.quota ? "quota" : m.resumeHold ? "resume" : m.stage === "plan" ? "plan-approval" : m.stage === "gate" ? "gate" : "none";
     const phase = { plan: "plan", execute: "execute", gate: "verify", review: "review", complete: "complete" }[m.stage];
     const next = m.approval
       ? `Answer in mission: ${m.approval.summary.replace(/\s+/g, " ")}`
+      : m.ask
+      ? `Answer in mission: ${askSummary(m.ask)}`
       : m.quota
       ? "Provider quota exhausted. Restore quota or change the model, then /mission continue"
       : m.resumeHold
@@ -385,7 +418,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       hold,
       gate: m.stage === "gate" && !m.resumeHold ? { kind: "pause", id: m.gate } : null,
       next,
-      actions: m.approval ? ["permit"] : m.quota && m.stage !== "plan" ? ["continue", "retry-model"] : m.resumeHold ? ["continue"] : m.stage === "plan" ? ["plan-approve"] : m.stage === "gate" ? ["approve", "continue"] : m.stage === "execute" ? ["dispatch"] : m.stage === "complete" ? ["check"] : [],
+      actions: m.approval ? ["permit"] : m.ask ? ["answer"] : m.quota && m.stage !== "plan" ? ["continue", "retry-model"] : m.resumeHold ? ["continue"] : m.stage === "plan" ? ["plan-approve"] : m.stage === "gate" ? ["approve", "continue"] : m.stage === "execute" ? ["dispatch"] : m.stage === "complete" ? ["check"] : [],
       workers: m.resumeHold ? { live: 0, total: 3 } : m.stage === "execute" ? { live: 2, total: 3 } : m.stage === "plan" ? null : { live: 0, total: 3 },
       delivery: prUrl ? { url: prUrl, branch: m.branch } : null,
       // Built from the newest evidence (like omp-mission's `at`): an unchanged mission republishes the same report.
@@ -396,6 +429,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
       plan: m.stage === "plan" && !m.resumeHold ? { path: `${m.worktree}/.plan.md`, revision: `rev-${m.planRev}` } : null,
       ctl: { socket: `sim:${m.id}`, generation: m.gen },
       approval: m.approval,
+      ask: m.ask,
       mode: m.mode as ContactStatus["mode"],
       usage: {
         tokens: { input: 4000 + ageS * 137, output: 900 + ageS * 41, cacheRead: 1500 + ageS * 53, cacheWrite: 300 + ageS * 7 },
@@ -489,11 +523,17 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
         if (!m || m.closed) throw new PortError("owner-offline", "mission session is gone");
         if (m.resumeHold && op !== "continue" && op !== "mode") throw new PortError("rejected", "Resume hold: continue first");
         if (m.approval && op !== "permit") throw new PortError("question-waiting", "Answer the pending question in the mission pane before controlling the mission");
+        if (m.ask && op !== "answer") throw new PortError("question-waiting", "Answer the pending question in the mission pane before controlling the mission");
         advance(m);
         if (op === "permit") {
           if (!m.approval || args.id !== m.approval.id) throw new PortError("stale", "That approval is no longer open in the pane");
           if (!m.approval.options.includes(String(args.answer))) throw new PortError("rejected", `No such option: ${String(args.answer)}`);
           m.approval = null;
+          m.stageStart = now();
+        } else if (op === "answer") {
+          // The pane's dialog settles as if answered there: the hold clears and the mission runs on.
+          if (!m.ask || args.id !== m.ask.id) throw new PortError("stale", "That question is no longer open in the pane");
+          m.ask = null;
           m.stageStart = now();
         } else if (op === "plan-edit") {
           if (m.stage !== "plan") throw new PortError("rejected", "No pending plan to edit");
@@ -767,6 +807,20 @@ async function main(): Promise<void> {
   await addContact(home, seededAt, "charidel", { ticket: "CHR-182", zone: "cut", kind: "audit", title: "Cutover dry-run audit", source: "model" });
   // `mission` ends with a closer: it turns ready once socket, status, review and herdr have all landed.
   await addContact(home, seededAt, "mission", { ticket: "CLOSER", kind: "closer" });
+  // `questions` parks mid-execute on a form the card renders: Answer submits it through the socket and the
+  // hold releases. Its events put it in the execute phase so the sim opens the ask on it.
+  const questionWorktree = join(home, "lanes", "mission", "questions");
+  const questionTerminal = { handle: "t-questions", incarnationId: "i-questions" };
+  await addContact(home, seededAt, "mission", { ticket: "questions", zone: "ctl", title: "Operator question forms" });
+  await mutateOperation(home, "mission", (op: Operation) => ({
+    ...op,
+    contacts: op.contacts.map((c) =>
+      c.ticket === "questions" ? { ...c, lane: { worktree: questionWorktree, branch: "holotable/questions", frontend: "custom" as const, terminal: questionTerminal } } : c,
+    ),
+  }));
+  await appendEvent(home, "mission", { v: 1, at: seededAt.toISOString(), kind: "launched", contact: "questions", worktree: questionWorktree, frontend: "custom", terminal: questionTerminal });
+  await appendEvent(home, "mission", { v: 1, at: seededAt.toISOString(), kind: "socket-up", contact: "questions", generation: 1 });
+  await appendEvent(home, "mission", { v: 1, at: seededAt.toISOString(), kind: "phase", contact: "questions", from: null, to: "execute" });
   // Landed before the board started: their status files are long gone, so only the saved report remains.
   await saveContactReport(home, "charidel", "CHR-153", simReport("CHR-153", ago(70), true, "https://github.com/charidel/app/pull/438"));
   await saveContactReport(home, "lab", "notes", simReport("notes", ago(90), true, null));

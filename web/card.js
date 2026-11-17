@@ -1,4 +1,5 @@
 // The contact card: what this contact is, what happens next, what the operator can do.
+import { askBox } from "./ask.js";
 import { closerBody } from "./closer.js";
 import { icon } from "./icons.js";
 import { renderMarkdown } from "./markdown.js";
@@ -834,101 +835,6 @@ function decisionBox(contact, opId) {
   return box;
 }
 
-// The operator's picks for a mission's open question survive re-renders until it is answered or replaced.
-const askPicks = new Map();
-
-/** The mission's in-pane question with its choices; sending settles the pane's dialog over its socket. */
-function askBox(contact, ctx, opId) {
-  const ask = contact.ask;
-  if (!ask) return null;
-  const action = contact.actions.find((a) => a.id === "answer");
-  const key = `${opId}/${contact.ticket}/${ask.id}`;
-  let picks = askPicks.get(key);
-  if (!picks) {
-    picks = ask.questions.map((q) => (q.recommended === null ? null : q.multi ? { options: [q.recommended] } : { option: q.recommended }));
-    askPicks.set(key, picks);
-  }
-  const box = el("div", "decision-box ask-box");
-  const send = el("button", "btn primary");
-  send.type = "button";
-  send.append(icon("send", { size: 13 }), document.createTextNode("Send answer"));
-  const ready = () => picks.every((p) => p !== null && ("option" in p || ("options" in p && p.options.length > 0) || ("text" in p && p.text.trim() !== "")));
-  const refresh = () => {
-    send.disabled = !action?.enabled || ctx.busy.has(`${contact.ticket}/*`) || !ready();
-  };
-  const many = ask.questions.length > 1;
-  ask.questions.forEach((q, qi) => {
-    box.append(el("div", "kicker", many ? `The mission asks · ${qi + 1} of ${ask.questions.length}` : "The mission asks"));
-    box.append(renderMarkdown(q.question));
-    const list = el("fieldset", "decide-opts");
-    list.setAttribute("role", q.multi ? "group" : "radiogroup");
-    list.setAttribute("aria-label", `Answer ${qi + 1}`);
-    const name = `ask-${contact.ticket}-${qi}`;
-    const other = el("input", "ask-other");
-    other.type = "text";
-    other.placeholder = "Your own answer";
-    other.maxLength = 4000;
-    other.value = picks[qi] && "text" in picks[qi] ? picks[qi].text : "";
-    const isOther = () => Boolean(picks[qi] && "text" in picks[qi]);
-    const chosen = (value) => q.multi ? Boolean(picks[qi]?.options?.includes(value)) : picks[qi]?.option === value;
-    const row = (label, value, recommended) => {
-      const optId = `${name}-${value}-${Math.random().toString(36).slice(2, 6)}`;
-      const r = el("label", "decide-opt");
-      r.htmlFor = optId;
-      const input = el("input", "decide-radio");
-      // Multi-select options are checkboxes; "Other" replaces any picks, as in the pane.
-      input.type = q.multi && value !== "other" ? "checkbox" : "radio";
-      input.id = optId;
-      input.name = name;
-      input.checked = value === "other" ? isOther() : chosen(value);
-      input.addEventListener("change", () => {
-        if (value === "other") {
-          if (!input.checked) return;
-          picks[qi] = { text: other.value };
-          for (const box of list.querySelectorAll("input[type=checkbox]")) box.checked = false;
-        } else if (q.multi) {
-          const current = new Set(isOther() ? [] : picks[qi]?.options ?? []);
-          if (input.checked) current.add(value); else current.delete(value);
-          picks[qi] = { options: [...current].sort((a, b) => a - b) };
-          const otherRadio = list.querySelector("input[type=radio]");
-          if (otherRadio) otherRadio.checked = false;
-        } else {
-          if (!input.checked) return;
-          picks[qi] = { option: value };
-        }
-        other.hidden = !isOther();
-        if (isOther()) other.focus();
-        refresh();
-      });
-      const dot = el("span", "decide-dot");
-      dot.setAttribute("aria-hidden", "true");
-      r.append(input, dot, el("span", "decide-label", label));
-      if (recommended) r.append(el("span", "tag tag-recommended", "recommended"));
-      return r;
-    };
-    q.options.forEach((option, oi) => list.append(row(option, oi, oi === q.recommended)));
-    list.append(row("Other…", "other", false));
-    other.hidden = !(picks[qi] && "text" in picks[qi]);
-    other.addEventListener("input", () => {
-      picks[qi] = { text: other.value };
-      refresh();
-    });
-    list.append(other);
-    box.append(list);
-  });
-  send.addEventListener("click", async () => {
-    if (send.disabled) return;
-    send.disabled = true;
-    const res = await ctx.run(contact.ticket, "answer", { id: ask.id, answers: picks });
-    if (res?.ok) askPicks.delete(key);
-    else refresh();
-  });
-  refresh();
-  const foot = el("div", "ask-foot");
-  foot.append(send, el("span", "set-note", action?.enabled ? "Answers the question in the mission pane, as if you answered there." : `This pane cannot take answers from the board${action?.reason ? ` (${action.reason})` : ""}. Use Answer in mission.`));
-  box.append(foot);
-  return box;
-}
 
 /** The pane's open tool-approval prompt; each choice answers it over the socket as if picked in the pane. */
 function approvalBox(contact, ctx) {
