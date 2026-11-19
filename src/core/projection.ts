@@ -1,3 +1,4 @@
+import { unmetBlockers } from "./graph.ts";
 import { askSummary } from "./ask.ts";
 import { foldEvents, contactDerived, holdsSlot } from "./fold.ts";
 import { countTasks } from "./notes.ts";
@@ -17,6 +18,7 @@ import type {
   PolicyInput,
   Projection,
   ProjectionInput,
+  AgentWorkView,
   Source,
 } from "./types.ts";
 
@@ -126,6 +128,9 @@ function actorOf(e: Event): Actor {
     case "socket-down":
     case "sample":
       return "mission";
+    case "agent-claim":
+    case "agent-release":
+    case "agent-report":
     case "blocked":
     case "unblocked":
     case "removed":
@@ -207,8 +212,13 @@ function historyLine(e: Event): HistoryEntry | null {
     case "pane-usage":
     case "capacity-wait":
     case "recovery-wait":
-      // Bookkeeping: spend and stall time are visible on Intel, waits live on the board; not human-meaningful history lines.
       return null;
+    case "agent-claim":
+      return line(`coordinator ${e.coordinator} claimed agent operation`, "ok");
+    case "agent-release":
+      return line(`coordinator ${e.coordinator} released agent operation; workers may still be running`, "err");
+    case "agent-report":
+      return line(`${ticket} ${e.state} (${e.worker}): ${e.summary}`, e.state === "integrated" ? "ok" : e.state === "blocked" ? "err" : "");
     case "decided":
       return line(`${ticket} decided: ${e.choice}${e.by !== "operator" ? ` (by ${e.by})` : ""}`);
   }
@@ -435,6 +445,44 @@ export function project(input: ProjectionInput): Projection {
       op.contacts.filter((r) => r.conflictOf === c.ticket && states.get(r.ticket) === "complete").at(-1)?.ticket ?? null,
     ),
   );
+  let coordinator: string | null = null;
+  const agentByTicket = new Map<string, AgentWorkView>();
+  for (const event of input.events) {
+    if (event.kind === "agent-claim") coordinator = event.coordinator;
+    else if (event.kind === "agent-release") coordinator = null;
+    else if (event.kind === "agent-report") {
+      agentByTicket.set(event.contact, {
+        coordinator: event.coordinator, worker: event.worker, state: event.state,
+        summary: event.summary, ...(event.verification ? { verification: event.verification } : {}),
+        ...(event.commit ? { commit: event.commit } : {}), at: event.at,
+      });
+    }
+  }
+
+  if (op.execution === "agent") {
+    for (const view of contacts) {
+      const work = agentByTicket.get(view.ticket) ?? null;
+      const contact = op.contacts.find((item) => item.ticket === view.ticket);
+      const blockers = work ? [] : unmetBlockers(op, derived, view.ticket);
+      const landed = work?.state === "integrated" || derived.contacts[view.ticket]?.landed === true;
+      view.agent = work;
+      view.state = landed ? "landed" : !work ? blockers.length ? "blocked" : (contact?.kind === "decision" ? "decision" : "ready")
+        : work.state === "assigned" ? "planning"
+        : work.state === "running" ? "running"
+        : work.state === "blocked" ? "hold"
+        : work.state === "verifying" ? "verify"
+        : work.state === "complete" ? "complete" : "ready";
+      view.detail = work?.summary ?? (blockers.length ? `Waiting on ${blockers.join(", ")} to land` : contact?.kind === "decision" ? (view.decision?.rationale ?? "Decision required from coordinator") : "Ready for coordinator assignment");
+      view.hold = work?.state === "blocked" ? "blocked" : null;
+      view.group = work || landed ? "live" : "queue";
+      view.owner = "none";
+      view.attention = !landed && (work?.state === "blocked" || work?.state === "complete");
+      view.handsOff = null;
+      view.actions = contact?.kind === "decision"
+        ? view.actions.filter((action) => action.id === "done" || action.id === "redecide")
+        : [];
+    }
+  }
   // A conflict mission stuck on the operator (quota, a gate, a question) is resolving nothing on its own:
   // its target says so instead of telling the operator to keep their hands off.
   for (const c of contacts) {
@@ -472,6 +520,8 @@ export function project(input: ProjectionInput): Projection {
       pause: op.pause,
       auto: op.auto ? { ...op.auto, capacityWait } : null,
       recover: op.recover,
+      execution: op.execution ?? "missions",
+      coordinator,
       project: input.project,
       zones: op.zones.map((z, i) => ({
         ...z,

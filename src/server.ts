@@ -7,6 +7,7 @@ import { isAbsolute } from "node:path";
 import { isAllowedRemoteAddress, isTailscaleAddress, resolveBoardUrls } from "./access.ts";
 import { HttpError, type BoardService, type ProjectSpec } from "./board.ts";
 import { CLOSE_OUTCOMES, type NewOperationSpec } from "./commands.ts";
+import type { AgentWorkInput } from "./agent-work.ts";
 import type { Access, ClosedOutcome, Delivery, Fleet, Frontend, Kind, Settings, Tracker } from "./core/types.ts";
 import { CLOSER_TICKET } from "./core/closer.ts";
 import { ConflictError, InputError, messageOf } from "./core/errors.ts";
@@ -315,7 +316,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       const integration = body.integration;
       if (integration !== undefined && (typeof integration !== "string" || !isAbsolute(integration)))
         throw new HttpError(400, "integration must be an absolute path");
-      for (const key of ["tracker", "fleet", "frontend", "delivery"])
+      for (const key of ["tracker", "fleet", "frontend", "delivery", "execution"])
         if (body[key] !== undefined && typeof body[key] !== "string") throw new HttpError(400, `${key} must be a string`);
       const spec: NewOperationSpec = {
         id: requireString(body, "id"),
@@ -329,6 +330,7 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
         ...(typeof body.fleet === "string" ? { fleet: body.fleet as Fleet } : {}),
         ...(typeof body.frontend === "string" ? { frontend: body.frontend as Frontend } : {}),
         ...(typeof body.delivery === "string" ? { delivery: body.delivery as Delivery } : {}),
+        ...(typeof body.execution === "string" ? { execution: body.execution as "missions" | "agent" } : {}),
         ...(typeof body.brief === "string" ? { brief: body.brief } : {}),
         ...(typeof body.seed === "string" ? { seed: body.seed } : {}),
         ...(typeof body.recover === "boolean" ? { recover: body.recover } : {}),
@@ -336,6 +338,24 @@ export async function startServer(input: StartServerInput): Promise<BoardServer>
       };
       const created = await service.createOperation(spec);
       return { id: created.id };
+    },
+    "POST /api/agent-work": async ({ req }) => {
+      if (!service.agentWork) throw new HttpError(404, "Agent-managed work is unavailable");
+      const body = await readBody(req);
+      const action = requireString(body, "action");
+      if (action !== "claim" && action !== "release" && action !== "report" && action !== "decide")
+        throw new HttpError(400, "action must be claim, release, report or decide");
+      const update: AgentWorkInput = { action, coordinator: requireString(body, "coordinator") };
+      for (const key of ["ticket", "worker", "summary", "verification", "commit", "choice"] as const) {
+        if (body[key] !== undefined) update[key] = requireString(body, key);
+      }
+      if (body.state !== undefined) {
+        const state = requireString(body, "state");
+        if (!["assigned", "running", "blocked", "verifying", "complete", "integrated"].includes(state))
+          throw new HttpError(400, "invalid worker state");
+        update.state = state as AgentWorkInput["state"];
+      }
+      return { message: await service.agentWork(requireString(body, "op"), update) };
     },
     "GET /api/repos": () => service.repos(),
     "POST /api/projects/detect": async ({ req }) => {

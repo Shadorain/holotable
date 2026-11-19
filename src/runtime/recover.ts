@@ -198,9 +198,11 @@ export function createRecover(deps: RecoverDeps): { pass(): Promise<void>; defer
 
   /** One operation: continue resume holds, then relaunch dead panes. */
   async function runOp(opId: string): Promise<void> {
+    const operation = await readOperation(deps.home, opId);
+    if ((operation.execution ?? "missions") === "agent") return;
     deferred.set(opId, {});
     const now = deps.now();
-    if ((await readOperation(deps.home, opId)).recover !== true) return;
+    if (operation.recover !== true) return;
     const projection = await loadProjection(deps.home, opId, await deps.settings(), now.getTime(), deps.extras(opId));
     const extras = deps.extras(opId);
     const { events, derived: folded } = await readFolded(deps.home, opId);

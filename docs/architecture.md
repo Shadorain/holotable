@@ -49,6 +49,29 @@ The OMP adapter initially registers only `/holotable`. Its first explicit invoca
 
 Each live-status refresh uses one operations request and no CLI subprocess, distinguishing an unreachable service from a running empty board. Counts belong to the selected operation (or the sole operation), otherwise they are board totals. OMP renders them with its current theme's symbols and colors, omits zero counts and hides the empty-board row.
 
+## Execution modes
+
+`operation.execution` selects `missions` (the default) or `agent`, and the projection always resolves
+`operation.execution` to one of those values. Existing operations are not migrated. Missions uses
+the fleet/frontend lifecycle described below; Agent-managed operations are passive and have no board
+launch, mission-control, auto-launch or recovery path. Their progress exists only when the
+coordinator reports it.
+
+The OMP `holotable_work` adapter injects its stable current session id as coordinator; generic
+hosts supply their own stable coordinator identity. The operation projection exposes
+`coordinator?: string | null`, with explicit claim/release ownership rather than silent takeover.
+The tool's claim, report, decision and release operations write append-only agent updates; queued
+contacts and dependencies remain governed by the ordinary operation store and policy. A decision
+contact is resolved with an offered option and summary, not a task job.
+
+Each agent-managed contact projection may expose `agent` with coordinator, actual native task-job
+identity (`worker`), reported state, summary, optional verification and commit, and update timestamp.
+The states are `assigned`, `running`, `blocked`, `verifying`, `complete` and `integrated`.
+`complete` is not landed and cannot satisfy dependencies: only coordinator-verified integration
+records the integrated result. The board does not observe native task lifecycle or infer success
+from a task-tool result. Release ownership retains assignments and cannot stop workers; closing or
+aborting the operation likewise does not terminate them.
+
 ## Service lifecycle
 
 One authenticated board is shared per home. Default-home Linux starts use the installed systemd user unit when available; custom homes and other platforms use a detached Bun process. `stop` reads the live identity from `GET /api/service`, then posts its PID and ephemeral instance nonce to `POST /api/service/stop`, under the existing token, Host and Origin checks. A stale identity is rejected; the CLI never kills a PID from `board.json`.

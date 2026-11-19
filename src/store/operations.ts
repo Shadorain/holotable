@@ -43,6 +43,7 @@ export function storedFromResolved(resolved: Operation, project: Project | null)
     zones: resolved.zones,
     contacts: resolved.contacts,
     createdAt: resolved.createdAt,
+    ...(resolved.execution !== undefined ? { execution: resolved.execution } : {}),
     ...(resolved.auto !== undefined ? { auto: resolved.auto } : {}),
     ...(resolved.recover === true ? { recover: true } : {}),
   };
@@ -237,6 +238,28 @@ export async function mutateOperation(
     const project = await readProjectOrNull(home, projectIdOf(stored));
     const resolved = validateOperationDoc(stored, file, project).operation;
     const next = asInput(() => fn(resolved));
+    const executionChanged = (next.execution ?? "missions") !== (resolved.execution ?? "missions");
+    const contactsChanged = next.contacts !== resolved.contacts;
+    if (executionChanged || (contactsChanged && (resolved.execution ?? "missions") === "agent")) {
+      const events = await readEvents(home, id);
+      const reports = new Map<string, Extract<import("../core/types.ts").Event, { kind: "agent-report" }>>();
+      let coordinator: string | null = null;
+      for (const event of events) {
+        if (event.kind === "agent-report") reports.set(event.contact, event);
+        else if (event.kind === "agent-claim") coordinator = event.coordinator;
+        else if (event.kind === "agent-release") coordinator = null;
+      }
+      if (executionChanged && resolved.contacts.some((contact) => contact.lane !== null))
+        throw new ConflictError(`${id} has active lanes; execution cannot be changed`);
+      if (executionChanged && (coordinator !== null || [...reports.values()].some((event) => event.state !== "integrated")))
+        throw new ConflictError(`${id} has active agent work; execution cannot be changed`);
+      if (contactsChanged && reports.size > 0) {
+        const nextContacts = new Map(next.contacts.map((contact) => [contact.ticket, contact]));
+        if (resolved.contacts.some((contact) => reports.has(contact.ticket) &&
+          JSON.stringify(contact) !== JSON.stringify(nextContacts.get(contact.ticket))))
+          throw new ConflictError(`${id} has outstanding agent work; assigned contacts cannot be edited`);
+      }
+    }
     const nextProject =
       next.project === resolved.project
         ? project

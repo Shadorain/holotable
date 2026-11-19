@@ -26,6 +26,7 @@ export interface WinddownDeps {
  */
 export async function windDown(deps: WinddownDeps, opId: string, op: "abort" | "close"): Promise<void> {
   const operation = await readOperation(deps.home, opId);
+  if ((operation.execution ?? "missions") === "agent") return;
   const { derived } = await readFolded(deps.home, opId);
   const at = () => deps.now().toISOString();
   const fail = async (ticket: string, error: unknown) =>

@@ -31,6 +31,7 @@ export function abortOperation(op, ctx) {
   function renderPreview(preview) {
     const { list, item } = iconList();
     item("circle-x", `Close ${plural(preview.terminals.length, "mission pane")}: running missions stop where they are.`);
+    if (op.execution === "agent") item("triangle-alert", "Native task subagents are not stopped by abort. Check their task-job status and stop or coordinate every worker separately before aborting.");
     const removable = preview.worktrees.filter((w) => w.state === "clean" || w.state === "dirty");
     item("git-branch", `Delete ${plural(removable.length, "inspectable worktree")}.`);
     const dirty = preview.worktrees.filter((w) => w.state === "dirty");
@@ -113,6 +114,7 @@ export function closeOperation(projection, ctx) {
     if (panes.length) {
       does.item("circle-x", `Closes ${plural(panes.length, "mission pane")}:`).append(el("div", "modal-tickets mono", panes.join(", ")));
     } else does.item("circle-x", "No mission panes are open.");
+    if (op.execution === "agent") does.item("triangle-alert", "Closing does not stop native task subagents. Check their task-job status and stop or coordinate every worker before archiving; assignments remain recorded.");
     const clean = preview.worktrees.filter((w) => w.state === "clean");
     const kept = preview.worktrees.filter((w) => w.state !== "clean");
     does.item("git-branch", clean.length ? `Removes ${plural(clean.length, "clean worktree")}.` : "No clean worktrees to remove.");
@@ -122,7 +124,7 @@ export function closeOperation(projection, ctx) {
       for (const w of kept) paths.append(el("li", "", `${w.ticket}  ${w.path} — ${w.detail}`));
       keep.append(paths);
     }
-    does.item("bot", "Turns auto mode and Recovery off.");
+    if (op.execution !== "agent") does.item("bot", "Turns auto mode and Recovery off.");
     const closer = projection.contacts.some((c) => c.kind === "closer");
     does.item("archive", `Moves the operation to the archive with its report${closer ? " and closer review" : ""}. It leaves the picker; there is no reopen.`);
 
@@ -169,13 +171,17 @@ export function endSection(projection, ctx) {
   const abort = el("button", "btn danger");
   abort.type = "button";
   abort.append(icon("octagon-x", { size: 13 }), document.createTextNode("Abort operation"));
-  abort.title = "Stop every mission, delete the worktrees and archive the operation (asks twice)";
+  abort.title = op.execution === "agent"
+    ? "Archive the operation without stopping native task workers (asks twice)"
+    : "Stop every mission, delete the worktrees and archive the operation (asks twice)";
   abort.addEventListener("click", () => abortOperation(op, ctx));
 
   row.append(close, abort);
   // Touch screens never see a disabled button's tooltip, so the reason is written out too.
   const why = all ? "" : "Close is available once every contact has landed. ";
-  box.append(row, el("div", "set-note", `${why}Both archive the operation. Abort also closes running mission panes and deletes their worktrees.`));
+  box.append(row, el("div", "set-note", `${why}Both archive the operation. ${op.execution === "agent"
+    ? "Neither stops native task subagents; coordinate or stop them in the main session first."
+    : "Abort also closes running mission panes and deletes their worktrees."}`));
   return box;
 }
 

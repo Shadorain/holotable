@@ -33,7 +33,7 @@ Once activated, the row shows the selected operation and nonzero live, queued an
 
 `holotable:operation/<id>` selects an existing, unarchived operation and shows its status. It does not start an offline board, launch a mission or change campaign data. Unsupported routes and missing operations are refused.
 
-The optional status row follows OMP's theme and omits zero counts. `holotable_state` reads the board; `holotable_queue` proposes or edits queued contacts. Neither tool launches, lands or approves work. Holotable can request a model for a new agent pane; model execution, provider routing, verification and review remain in OMP and the mission.
+The optional status row follows OMP's theme and omits zero counts. `holotable_state` reads the board, `holotable_queue` proposes or edits queued contacts, and `holotable_work` records explicit Agent-managed lifecycle or decision updates. None launches, monitors, recovers or terminates native task subagents. Holotable can request a model for a mission pane; model execution, provider routing, verification and review remain in OMP and the mission/coordinator.
 
 After updating the checkout, run `holotable restart` and start fresh OMP sessions before using
 queue tools. Existing sessions can retain the old contact schema; refreshing the browser alone
@@ -47,15 +47,15 @@ The CLI is the cross-platform management interface. On Linux, the default home u
 |---|---|
 |(none)|start the board if needed and print its URLs; also records the session's repo for the project picker|
 |`start` / `stop` / `restart` / `status` / `url`|manage or inspect the same home-selected board through the CLI|
-|`new <id> (--project <id> \| --repo <path> --base <branch>) [--name] [--integration <path>] [--tracker] [--fleet] [--frontend] [--delivery] [--auto] [--pause \| --no-pause] [--closer \| --no-closer] [--recover] [--from file.json] [--brief file.md]`|create and select an operation; unset fields follow the project, then global defaults; `--auto` enables board launch/land, independently of mission Pause gates; `--closer`/`--no-closer` override `defaults.closer` (see [Closer review](guide.md#closer-review))|
-|`project new <id> --repo <path> --base <branch> [--name] [--integration] [--tracker] [--fleet] [--frontend] [--delivery] [--pause \| --no-pause] [--worktree-root]`|create a project; mission mode follows the global default unless explicitly overridden|
+|`new <id> (--project <id> \| --repo <path> --base <branch>) [--name] [--execution missions\|agent] [--integration <path>] [--tracker] [--fleet] [--frontend] [--delivery] [--auto] [--pause \| --no-pause] [--closer \| --no-closer] [--recover] [--from file.json] [--brief file.md]`|create and select an operation; execution defaults to `missions`; unset fields follow the project, then global defaults; `--execution agent` selects passive board tracking for main-session native subagents; `--auto` enables board launch/land only for Missions operations; `--closer`/`--no-closer` override `defaults.closer` (see [Closer review](guide.md#closer-review))|
+|`project new <id> --repo <path> --base <branch> [--name] [--integration] [--tracker] [--fleet] [--frontend] [--delivery] [--pause \| --no-pause] [--worktree-root]`|create a project; operations created in it default to Missions unless explicitly set to Agent-managed|
 |`project list`|projects and their operations|
 |`project set [<id>:]<field> <value>`|change a project field (default: the selected operation's project); every operation that has not overridden it follows|
 |`project attach <id> [op]` / `project detach [op]` / `project delete <id>`|attach (the operation takes every project value), detach (the values are copied in), delete (refused while an open operation uses it)|
 |`list [--all]`|open operations (`--all` adds archived)|
 |`use <id>`|select an operation|
 |`zone <label>`|add a zone (its id is derived from the label)|
-|`set <field> <value>`|change `name`, `base`, `integration`, `pause`, `ignoreChecks` (`true`/`false`, see [Landing](landing.md)), `tracker`, `fleet`, `frontend`, `delivery`, `worktreeRoot` (`default` clears it), `recover` (`on`/`off`, see [Recovery](automation.md#recovery)) or the auto-mode fields `auto` (`on`/`off`), `auto.launch`, `auto.land`, `auto.maxLive`, `auto.plans`, `auto.decide`, `auto.repairs`, `auto.reviews`. In a project's operation, `set <field> inherit` drops the override and follows the project again, like **use project value** on the Operation page. `name`, `auto*` and `recover` belong to the operation and cannot be inherited|
+|`set <field> <value>`|change `execution` (`missions`/`agent`), `name`, `base`, `integration`, `pause`, `ignoreChecks` (`true`/`false`, see [Landing](landing.md)), `tracker`, `fleet`, `frontend`, `delivery`, `worktreeRoot` (`default` clears it), `recover` (`on`/`off`, see [Recovery](automation.md#recovery)) or the auto-mode fields `auto` (`on`/`off`), `auto.launch`, `auto.land`, `auto.maxLive`, `auto.plans`, `auto.decide`, `auto.repairs`, `auto.reviews`. Agent-managed operations do not launch/recover workers; mission auto/recovery controls are unavailable there. In a project's operation, `set <field> inherit` drops the override and follows the project again, like **use project value** on the Operation page. `name`, `execution`, `auto*` and `recover` belong to the operation and cannot be inherited|
 |`add <ticket> --zone <id> [--kind] [--blocked-by A,B] [--title] [--description <text>] [--worktree <path>] [--option X…] [--recommended X]`|add a contact with a short title and separate full instructions; `--worktree` adopts an existing checkout; `--option`/`--recommended` build a decision contact (see [Decisions](guide.md#decisions)); kinds: `implement` (default), `audit`, `decision`, `closer`|
 |`add closer [ticket] [--zone <id>] [--title] [--description <text>]`|add the operation's closer (ticket `CLOSER`, the last zone, unless given): it waits for everything else, then reviews the integrated work (see [Closer review](guide.md#closer-review))|
 |`close <id> <landed\|abandoned\|decision\|failed>`|end the operation through the same path as the page: wind-down, `closed` event, report, archive|
@@ -110,10 +110,11 @@ Discovery is bound to its home: a copied `board.json`/`token` cannot let one hom
 
 ## Seed file
 
-`--from file.json` seeds an operation:
+`--from file.json` seeds an operation; its optional `execution` field is `missions` (the default) or `agent`:
 
 ```json
 {
+  "execution": "agent",
   "zones": [{ "id": "api", "label": "API" }],
   "contacts": [
     { "ticket": "CHR-1", "zone": "api", "title": "Build database schema", "description": "Implement the schema migration with tenant-scoped constraints and persistence tests." },
@@ -191,10 +192,15 @@ holotable config ai.draft ""   # inherit the global/OMP default again
 
 ## Model tools
 
-Enabled by an explicit `/holotable` command for the current session; a new, switched or branched session disables them again. They propose; the operator clicks.
+Enabled by an explicit `/holotable` command for the current session.
 
 - `holotable_state`: one line per contact (state, blockers), at most 4000 characters. Read-only.
 - `holotable_queue`: `add` a contact or `update` a queued one. A contact that already has a lane is refused with `contact-launched`. It cannot launch, land, approve or set a lane.
+- `holotable_work`: explicit lifecycle/decision reporting for Agent-managed operations. Actions are `claim`, `report`, `release` and `decide`. On OMP the adapter supplies the current stable session id as coordinator; do not invent it. A different coordinator cannot take over until the current owner is explicitly released.
+
+`holotable_work` reports an explicit `ticket`, `worker` task-job id, `state`, `summary`, and optional `verification` and `commit` as applicable. Worker states are `assigned`, `running`, `blocked`, `verifying`, `complete` and `integrated`. `complete` is not landed; only the coordinator reports `integrated` after real verification and integration, with commit and verification evidence. Tool/task completion is never inferred automatically. `blocked` is the honest status for failed or unknown workers; do not report success. For a decision contact, action `decide` takes the offered `choice` and a concise `summary` (no worker); choices and dependencies are validated by the board.
+
+Agent-managed operation settings and contact projections expose `execution: "agent"`, `coordinator`, and each contact's `agent` report: `{coordinator, worker, state, summary, verification?, commit?, at}`. `worker` is the native task-job identity; `at` is the report timestamp. The board shows worker completion distinctly from integration/landing. Release is operator-only via `POST /api/agent-work` with `{op, action:"release", coordinator}`. Release does not stop native tasks or clear assignments; coordinate workers separately before handing off. Closing/aborting also cannot stop them.
 
 ## Frontends
 

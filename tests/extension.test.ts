@@ -24,7 +24,7 @@ interface CommandStub {
 interface ToolStub {
   name: string;
   defaultInactive?: boolean;
-  execute?: (id: string, params: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>;
+  execute?: (id: string, params: Record<string, unknown>, signal?: AbortSignal, onUpdate?: undefined, ctx?: ExtensionContext) => Promise<{ content: Array<{ text: string }> }>;
 }
 
 function fixture(kind: "main" | "sub" = "main") {
@@ -68,6 +68,7 @@ function fixture(kind: "main" | "sub" = "main") {
   const ctx = {
     cwd: home,
     agent: { kind },
+    sessionManager: { getSessionId: () => "main-session" },
     setInterval: (fn: () => void, ms: number) => {
       const timer = setInterval(fn, ms);
       timers.add(timer);
@@ -98,6 +99,7 @@ function fixture(kind: "main" | "sub" = "main") {
   const command = commands.get("holotable") as CommandStub;
   return {
     home,
+    ctx,
     active: () => active,
     tools,
     commands,
@@ -280,4 +282,22 @@ test("Holotable links only navigate to a fresh, existing operation", async () =>
   expect(f.notices.at(-1)?.text).toContain("Selected Lab (lab)");
   expect(f.notices.at(-1)?.text).toContain("Read-only.");
   expect((await readOperation(f.home, "lab")).id).toBe("lab");
+});
+
+test("agent-managed work binds ownership to the calling main session and rejects another session or subagent", async () => {
+  const f = fixture();
+  await f.run(`new managed --repo ${f.home} --base main --execution agent --no-closer`);
+  const work = f.tools.get("holotable_work")!;
+  await work.execute!("claim", { action: "claim", coordinator: "spoofed" }, undefined, undefined, f.ctx);
+  const state = await f.tools.get("holotable_state")!.execute!("read", {});
+  expect(state.content[0]!.text).toContain("coordinator=main-session");
+  const other = {
+    ...f.ctx,
+    sessionManager: { getSessionId: () => "other-session" },
+  } as unknown as ExtensionContext;
+  await expect(work.execute!("other", { action: "claim" }, undefined, undefined, other)).rejects.toThrow();
+  const sub = { ...f.ctx, agent: { kind: "sub" } } as unknown as ExtensionContext;
+  await expect(work.execute!("sub", { action: "release" }, undefined, undefined, sub))
+    .rejects.toThrow("Only the main session");
+  await f.shutdown();
 });

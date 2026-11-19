@@ -198,6 +198,8 @@ export function validateOperationDoc(
   }
   if (value.recover !== undefined && typeof value.recover !== "boolean")
     return fail("recover must be a boolean");
+  if (value.execution !== undefined && value.execution !== "missions" && value.execution !== "agent")
+    return fail('execution must be "missions" or "agent"');
   const recover = value.recover === true;
 
   if (!Array.isArray(value.zones)) return fail("zones must be an array");
@@ -394,6 +396,7 @@ export function validateOperationDoc(
     ...(doc.delivery !== undefined ? { delivery: doc.delivery as StoredOperation["delivery"] } : {}),
     ...(doc.worktreeRoot !== undefined ? { worktreeRoot: doc.worktreeRoot as string } : {}),
     ...(doc.ignoreChecks !== undefined ? { ignoreChecks: doc.ignoreChecks as boolean } : {}),
+    ...(value.execution !== undefined ? { execution: value.execution as "missions" | "agent" } : {}),
     ...(auto ? { auto } : {}),
     ...(recover ? { recover } : {}),
   };
@@ -417,6 +420,7 @@ export function validateOperationDoc(
     zones,
     contacts,
     createdAt: stored.createdAt,
+    ...(stored.execution !== undefined ? { execution: stored.execution } : {}),
     ...(effective.worktreeRoot !== undefined ? { worktreeRoot: effective.worktreeRoot as string } : {}),
     ...(auto ? { auto } : {}),
     recover,

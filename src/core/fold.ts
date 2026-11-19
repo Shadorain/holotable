@@ -63,7 +63,9 @@ export function foldEvents(events: Event[]): Derived {
     if (s && s.to === null) s.to = t;
   };
   for (const [index, e] of events.entries()) {
-    foldEvaluation(derived.evaluation!, e, index);
+    foldEvaluation(derived.evaluation!, e.kind === "agent-report" && e.state === "integrated"
+      ? { v: e.v, at: e.at, kind: "landed", contact: e.contact, via: "manual" }
+      : e, index);
     // Legacy "workflow" ticks fold to nothing: notes.md replaced the checklist.
     if (e.kind === "closed") {
       derived.closed = true;
@@ -87,6 +89,8 @@ export function foldEvents(events: Event[]): Derived {
         d.reaped = false;
         d.launchFailed = null;
         break;
+      case "agent-report":
+        if (e.state !== "integrated") break;
       case "landed":
         d.landed = true;
         if (d.landedAt === null) d.landedAt = t;

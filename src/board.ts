@@ -19,6 +19,7 @@ import {
 } from "./commands.ts";
 import { addContact as addContactStore, type NewContact } from "./contacts.ts";
 import { history } from "./core/projection.ts";
+import { agentWork as runAgentWork, type AgentWorkInput } from "./agent-work.ts";
 import { closerOf } from "./core/closer.ts";
 import { archivedCloserView, closerView, type CloserReportView, type CloserView } from "./runtime/closer.ts";
 import { readContactReport } from "./store/reports.ts";
@@ -118,6 +119,7 @@ export interface OperationConfig {
     frontend: string;
     delivery: string;
     worktreeRoot: string;
+    execution: "missions" | "agent";
     auto: AutoMode | null;
     recover: boolean;
     /** The operation's project id, "" while standalone. */
@@ -125,7 +127,7 @@ export interface OperationConfig {
   };
   /** Field names taken from the project (empty when standalone). */
   inherited: string[];
-  options: { tracker: string[]; fleet: string[]; frontend: string[]; delivery: string[] };
+  options: { tracker: string[]; fleet: string[]; frontend: string[]; delivery: string[]; execution: string[] };
   workspace: WorkspaceInfo;
 }
 export interface ActionRequest {
@@ -168,6 +170,7 @@ export interface BoardService {
   operationConfig(opId: string): Promise<OperationConfig>;
   /** Same fields and validation as `/holotable set`, plus `project` and the `inherit` value; bad values are a 400. */
   setOperationField(opId: string, field: string, value: string): Promise<OperationConfig>;
+  agentWork?(opId: string, input: AgentWorkInput): Promise<string>;
   /** The pending plan text of a contact awaiting plan-approval; null when none. */
   plan?(opId: string, ticket: string): Promise<{ text: string; path: string; revision: string } | null>;
   /** Read-only writer-lease evidence; never grants mission ownership. */
@@ -402,6 +405,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         tracker: op.tracker,
         fleet: op.fleet,
         frontend: op.frontend,
+        execution: op.execution ?? "missions",
         delivery: op.delivery,
         worktreeRoot: op.worktreeRoot ?? "",
         auto: op.auto ?? null,
@@ -409,7 +413,7 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
         project: op.project ?? "",
       },
       inherited: [...doc.inherited],
-      options: { tracker: [...TRACKERS], fleet: [...FLEETS], frontend: [...FRONTENDS], delivery: [...DELIVERIES] },
+      options: { tracker: [...TRACKERS], fleet: [...FLEETS], frontend: [...FRONTENDS], delivery: [...DELIVERIES], execution: ["missions", "agent"] },
       workspace: await cachedWorkspaceInfo(op),
     };
   }
@@ -458,6 +462,10 @@ export function createBoardService(home: string, hooks: BoardHooks = {}): BoardS
       return settingsView();
     },
     operationConfig,
+    async agentWork(opId, input) {
+      await knownOperation(opId);
+      return asInput(() => runAgentWork(home, new Date(now()), opId, input, hooks.run ?? createRun()));
+    },
     async setOperationField(opId, field, value) {
       await knownOperation(opId);
       if (field === "project") {

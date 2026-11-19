@@ -143,20 +143,37 @@ export function renderNewOperation(root, ctx) {
   };
   name.input.addEventListener("input", syncId);
   const recover = switcher({ label: "Keep missions running", checked: true });
-  field(grid, "Keep missions running", recover.root, { note: "Reopen a pane that closes or crashes and take the mission back. Never past a gate, plan or failed verification." });
+  const recoverField = field(grid, "Keep missions running", recover.root, { note: "Reopen a pane that closes or crashes and take the mission back. Never past a gate, plan or failed verification." });
   const closer = switcher({ label: "Finish with a closer review", checked: ctx.defaults.closer !== false });
-  field(grid, "Finish with a closer review", closer.root, { note: "Adds a last contact: once everything else lands, a mission checks the integrated work, fixes small problems and reports the rest. Default in Settings." });
+  const closerField = field(grid, "Finish with a closer review", closer.root, { note: "Adds a last contact: once everything else lands, a mission checks the integrated work, fixes small problems and reports the rest. Default in Settings." });
+  const syncExecutionOptions = (value) => {
+    const agentManaged = value === "agent";
+    recoverField.row.hidden = agentManaged;
+    closerField.row.hidden = agentManaged;
+  };
+  const execution = dropdown({
+    label: "Execution mode",
+    options: [
+      { value: "missions", label: "Missions" },
+      { value: "agent", label: "Agent-managed" },
+    ],
+    value: "missions",
+    onChange: (value) => {
+      syncExecutionOptions(value);
+      void syncWhere();
+    },
+  });
+  field(grid, "Execution mode", execution.root, { note: "Missions launch and manage omp-mission panes. Agent-managed work is orchestrated by your main OMP session with native task subagents; the board records reported progress and never launches workers." });
+  syncExecutionOptions(execution.value);
   review.append(grid);
   const briefWrap = el("div", "brief-wrap");
   const brief = el("textarea", "plan-edit brief-edit");
   brief.placeholder = "# What this operation is about\nOptional context for you and the missions.";
   brief.setAttribute("aria-label", "Brief");
-
   const briefPreview = el("div", "brief-preview");
   let briefMode = "edit";
   let briefUserEdited = false;
   let syncFocusedBrief = null;
-
   const syncBriefUI = () => {
     brief.hidden = briefMode !== "edit";
     briefPreview.hidden = briefMode !== "preview";
@@ -271,12 +288,24 @@ export function renderNewOperation(root, ctx) {
     const decisions = contacts.filter((c) => c.kind === "decision").length;
     seedSummary.textContent = `${contacts.length} contact${contacts.length === 1 ? "" : "s"} in ${zones.length} zone${zones.length === 1 ? "" : "s"}${decisions ? `, ${decisions} decision${decisions === 1 ? "" : "s"}` : ""}${s.notes ? ", with notes" : ""}. Open the JSON to check or edit them.`;
   }
-  seed.addEventListener("input", summarize);
+  function syncSeedExecution() {
+    try {
+      const seededExecution = JSON.parse(seed.value).execution;
+      if (seededExecution === "missions" || seededExecution === "agent") {
+        execution.setValue(seededExecution);
+        syncExecutionOptions(seededExecution);
+      }
+    } catch {}
+  }
+  seed.addEventListener("input", () => {
+    summarize();
+    syncSeedExecution();
+  });
   fileInput.addEventListener("change", async () => {
     const f = fileInput.files?.[0];
     if (!f) return;
     seed.value = await f.text();
-    summarize();
+    seed.dispatchEvent(new Event("input"));
   });
 
   // ---- Create ----
@@ -305,14 +334,19 @@ export function renderNewOperation(root, ctx) {
       return null;
     }
   }
-  function warnFrontend(frontend) {
-    frontendHint.hidden = frontend !== "none";
-    frontendHint.textContent = "This project has no terminal frontend, so the agent cannot draft and missions cannot launch. Set Orca, herdr or custom on the project page.";
-  }
   async function syncWhere() {
     repoBox.hidden = !newRepo();
     if (newRepo()) warnFrontend(null);
     else warnFrontend(await frontendOf(projectPick.value));
+  }
+  function warnFrontend(frontend) {
+    const agentManaged = execution.value === "agent";
+    frontendHint.hidden = frontend !== "none" && !agentManaged;
+    frontendHint.textContent = agentManaged
+      ? frontend === "none"
+        ? "Agent-managed work needs no terminal frontend: your main session coordinates native task subagents. Drafting a plan still requires a configured frontend."
+        : "Agent-managed work needs no terminal frontend: your main session coordinates native task subagents. Drafting a plan still uses the configured frontend."
+      : "This project has no terminal frontend, so the agent cannot draft and missions cannot launch. Set Orca, herdr or custom on the project page.";
   }
   pf.box.addEventListener("detected", (e) => warnFrontend(e.detail.frontend));
   void syncWhere();
@@ -348,8 +382,13 @@ export function renderNewOperation(root, ctx) {
       syncBriefUI();
       syncFocusedBrief?.();
     }
+    if (s.execution === "missions" || s.execution === "agent") {
+      execution.setValue(s.execution);
+      syncExecutionOptions(s.execution);
+    }
     const body = { zones: s.zones ?? [], contacts: s.contacts ?? [] };
     if (s.notes) body.notes = s.notes;
+    if (s.execution === "missions" || s.execution === "agent") body.execution = s.execution;
     seed.value = JSON.stringify(body, null, 2);
     summarize();
   }
@@ -433,9 +472,12 @@ export function renderNewOperation(root, ctx) {
     const body = {
       id,
       name: name.input.value.trim(),
-      recover: recover.root.getAttribute("aria-checked") === "true",
-      closer: closer.root.getAttribute("aria-checked") === "true",
+      execution: execution.value,
     };
+    if (execution.value !== "agent") {
+      body.recover = recover.root.getAttribute("aria-checked") === "true";
+      body.closer = closer.root.getAttribute("aria-checked") === "true";
+    }
     if (brief.value.trim()) body.brief = brief.value;
     if (s) body.seed = seed.value.trim();
     create.disabled = true;

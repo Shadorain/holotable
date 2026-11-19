@@ -238,6 +238,8 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
 
   async function focus(opId: string, ticket: string, purpose?: string): Promise<void> {
     const operation = await readOperation(deps.home, opId);
+    if (operation.execution === "agent")
+      throw new ActionError(409, "refused", `${opId} is coordinator-managed; mission pane controls are disabled`);
     const { lane, terminal } = paneOf(operation, ticket);
     await deps.portsFor(operation, await deps.settings()).frontend.focus(terminal, lane.worktree, purpose);
   }
@@ -397,6 +399,12 @@ export function createActionRunner(deps: LanderDeps): (req: ActionRequest) => Pr
     if (inFlight.has(key)) throw new ActionError(409, "busy", `An action is already running for ${req.contact}`);
     inFlight.set(key, req.action);
     try {
+      const operation = await readOperation(deps.home, req.op);
+      if (operation.execution === "agent") {
+        const contact = operation.contacts.find((item) => item.ticket === req.contact);
+        if (req.by !== undefined || contact?.kind !== "decision" || (req.action !== "done" && req.action !== "redecide"))
+          throw new ActionError(409, "refused", `${req.op} is coordinator-managed; mission pane controls are disabled`);
+      }
       await run();
       await appendEvent(deps.home, req.op, { v: 1, at: deps.now().toISOString(), kind: "operator", contact: req.contact, op: req.action, ok: true, ...(req.by !== undefined ? { by: req.by } : {}), ...(Object.keys(args).length > 0 ? { args } : {}) });
     } catch (error) {

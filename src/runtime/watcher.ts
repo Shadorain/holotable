@@ -349,6 +349,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     getTerminals: (ports: Ports) => Promise<ListedTerminal[] | null>,
     folded: Derived,
   ): Promise<void> {
+    if ((op.execution ?? "missions") === "agent") return;
     const now = deps.now().getTime();
     const sampling = force || now - state.lastSampleAt >= settings.sampleMs;
     const ports = deps.portsFor(op, settings);
@@ -534,13 +535,16 @@ export function createWatcher(deps: WatcherDeps): Watcher {
       if (!read) continue;
       const state = ops.get(row.id) ?? newOpState();
       ops.set(row.id, state);
-      const listsPanes = state.decisionPanes.size > 0 || read.op.contacts.some((c) => c.kind === "decision");
+      const agentExecution = (read.op.execution ?? "missions") === "agent";
+      const listsPanes = !agentExecution && (state.decisionPanes.size > 0 || read.op.contacts.some((c) => c.kind === "decision"));
       state.decisionPanes = listsPanes
         ? new Set(await listDecisionPanes(deps.home, row.id).catch(() => [...state.decisionPanes]))
         : new Set<string>();
-      clearStaleVanished(read.op, read.folded, state);
-      for (const ticket of [...state.gone]) if (!contactOf(read.op, ticket)) state.gone.delete(ticket);
-      state.open = openCount(read.op, read.folded, state);
+      if (!agentExecution) {
+        clearStaleVanished(read.op, read.folded, state);
+        for (const ticket of [...state.gone]) if (!contactOf(read.op, ticket)) state.gone.delete(ticket);
+        state.open = openCount(read.op, read.folded, state);
+      } else state.open = 0;
       loaded.push({ ...read, state });
     }
     const omp = loaded.reduce((sum, item) => sum + item.state.open, 0);
@@ -579,7 +583,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     pass: (only = null, force = false) => enqueue(() => run(only, force)),
     capture(operation, contact, status) {
       return enqueue(async () => {
-        if (!contact.lane) return;
+        if ((operation.execution ?? "missions") === "agent" || !contact.lane) return;
         const { events, derived } = await readFolded(deps.home, operation.id);
         if (events.some((e) => e.kind === "closed")) return;
         const seen = seedAll(events, derived)(contact.ticket);

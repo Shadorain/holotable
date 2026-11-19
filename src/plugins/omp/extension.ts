@@ -11,7 +11,7 @@ import { listOperations } from "../../store/operations.ts";
 import type { Run } from "../../ports.ts";
 
 const STATUS_KEY = "holotable";
-const TOOL_NAMES = ["holotable_state", "holotable_queue"];
+const TOOL_NAMES = ["holotable_state", "holotable_queue", "holotable_work"];
 const STATUS_MS = 10_000;
 const LINK_SCHEME = "holotable";
 
@@ -87,7 +87,7 @@ export default function holotableExtension(pi: ExtensionAPI, overrides: { run?: 
 
   function registerTools(core: HolotableCore): void {
     if (registered) return;
-    const { state, queue } = core.tools;
+    const { state, queue, work } = core.tools;
     pi.registerTool({
       name: state.name,
       label: state.label,
@@ -114,9 +114,40 @@ export default function holotableExtension(pi: ExtensionAPI, overrides: { run?: 
         kind: z.enum(KINDS).optional(),
         blockedBy: z.array(z.string()).optional(),
         title: z.string().optional(),
+        description: z.string().nullable().optional(),
+        options: z.array(z.string()).optional(),
+        recommended: z.string().optional(),
       }),
       async execute(_id, params) {
         return { content: [{ type: "text" as const, text: await queue.execute(params as Record<string, unknown>) }], details: {} };
+      },
+    });
+    pi.registerTool({
+      name: work.name,
+      label: work.label,
+      description: `${work.description} Your coordinator identity is bound automatically to this OMP session. Use holotable_state to see assignments before resuming.`,
+      defaultInactive: true,
+      approval: "write",
+      parameters: z.object({
+        operation: z.string().optional(),
+        action: z.enum(["claim", "release", "report", "decide"]),
+        ticket: z.string().optional(),
+        choice: z.string().optional(),
+        worker: z.string().optional(),
+        state: z.enum(["assigned", "running", "blocked", "verifying", "complete", "integrated"]).optional(),
+        summary: z.string().optional(),
+        verification: z.string().optional(),
+        commit: z.string().optional(),
+      }),
+      async execute(_id, params, _signal, _onUpdate, ctx) {
+        if (ctx.agent.kind === "sub") throw new Error("Only the main session coordinates Holotable workers.");
+        return {
+          content: [{ type: "text" as const, text: await work.execute({
+            ...(params as Record<string, unknown>),
+            coordinator: ctx.sessionManager.getSessionId(),
+          }) }],
+          details: {},
+        };
       },
     });
     registered = true;

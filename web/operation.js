@@ -168,6 +168,7 @@ let setupOpen = false;
 function setupSection(p, doc, ctx) {
   const cfg = doc.cfg;
   const of = cfg.fields;
+  const agentManaged = p.operation.execution === "agent";
   const box = docSection("Setup");
   const projects = ctx.projects ?? [];
   let projField;
@@ -194,11 +195,30 @@ function setupSection(p, doc, ctx) {
   });
 
   textRow(box, "Name", "name", of.name, ctx.saveOp);
-
+  const execution = dropdown({
+    label: "Execution mode",
+    options: [
+      { value: "missions", label: "Missions" },
+      { value: "agent", label: "Agent-managed" },
+    ],
+    value: p.operation.execution ?? "missions",
+    onChange: (value) => ctx.saveOp("execution", value, (error) => {
+      if (error) ctx.toast(error.message, "error");
+      else ctx.rerender();
+    }),
+  });
+  field(box, "Execution mode", execution.root, {
+    key: "execution",
+    note: execution.value === "agent"
+      ? "Your main OMP session orchestrates native task subagents and reports their lifecycle here. The board does not launch, recover or infer worker progress."
+      : "The board launches and manages omp-mission panes for each contact.",
+  });
   // With a project, per-operation overrides are the exception: fold them behind a summary.
   const body = el("div", "setup-body");
   if (of.project) {
-    const overridden = OVERRIDE_KEYS.filter((k) => !cfg.inherited?.includes(k));
+    const overridden = OVERRIDE_KEYS.filter((k) =>
+      (!agentManaged || !["pause", "fleet", "frontend", "worktreeRoot", "ignoreChecks"].includes(k)) &&
+      !cfg.inherited?.includes(k));
     const toggle = el("button", "linkish setup-toggle");
     toggle.type = "button";
     toggle.dataset.key = "op/setup-overrides";
@@ -220,34 +240,38 @@ function setupSection(p, doc, ctx) {
   const grid = el("div", "set-grid");
   inheritance(textRow(grid, "Base branch", "base", of.base, ctx.saveOp, { mono: true }), "base", cfg, ctx);
   inheritance(
-    textRow(grid, "Integration checkout", "integration", of.integration, ctx.saveOp, { mono: true, note: "Where Land merges; must be on the base branch, with no uncommitted changes in the merge's paths." }),
+    textRow(grid, "Integration checkout", "integration", of.integration, ctx.saveOp, { mono: true, note: agentManaged ? "The main coordinator uses this checkout to verify and integrate reported worker changes." : "Where Land merges; must be on the base branch, with no uncommitted changes in the merge's paths." }),
     "integration",
     cfg,
     ctx,
   );
-  inheritance(switchRow(grid, "Pause gates", "pause", of.pause, ctx.saveOp, { note: "Missions stop at each Pause gate for your approval." }), "pause", cfg, ctx);
+  if (!agentManaged) inheritance(switchRow(grid, "Pause gates", "pause", of.pause, ctx.saveOp, { note: "Missions stop at each Pause gate for your approval." }), "pause", cfg, ctx);
   body.append(grid);
   const ports = el("div", "set-grid ports-grid");
-  for (const kind of ["tracker", "fleet", "frontend", "delivery"])
+  for (const kind of ["tracker", "fleet", "frontend", "delivery"]) {
+    if (agentManaged && ["fleet", "frontend"].includes(kind)) continue;
     inheritance(enumRow(ports, titleCase(kind), kind, cfg.options[kind], of[kind], ctx.saveOp), kind, cfg, ctx);
+  }
   body.append(ports);
-  inheritance(switchRow(body, "Land with failing checks", "ignoreChecks", of.ignoreChecks, ctx.saveOp, { note: "Land and auto mode merge PRs even when CI checks are red. Off: Land waits for green, and each card still offers Land anyway. GitHub branch protection still applies." }), "ignoreChecks", cfg, ctx);
-  inheritance(
-    textRow(body, "Worktree folder", "worktreeRoot", of.worktreeRoot, ctx.saveOp, {
-      mono: true,
-      placeholder: "use the board default",
-      note: "Only for lanes holotable creates itself (herdr, custom).",
-    }),
-    "worktreeRoot",
-    cfg,
-    ctx,
-  );
-  const w = cfg.workspace;
-  const ws = el("div", "set-workspace");
-  if (w.path) ws.append(el("span", "mono", `${w.path} · ${WORKSPACE_SOURCE[w.source] ?? w.source}`));
-  if (w.note) ws.append(el("div", "set-note", w.note));
-  if (!w.path && !w.note) ws.append(el("span", "set-note", "No lane folder applies."));
-  body.append(ws);
+  if (!agentManaged) {
+    inheritance(switchRow(body, "Land with failing checks", "ignoreChecks", of.ignoreChecks, ctx.saveOp, { note: "Land and auto mode merge PRs even when CI checks are red. Off: Land waits for green, and each card still offers Land anyway. GitHub branch protection still applies." }), "ignoreChecks", cfg, ctx);
+    inheritance(
+      textRow(body, "Worktree folder", "worktreeRoot", of.worktreeRoot, ctx.saveOp, {
+        mono: true,
+        placeholder: "use the board default",
+        note: "Only for lanes holotable creates itself (herdr, custom).",
+      }),
+      "worktreeRoot",
+      cfg,
+      ctx,
+    );
+    const w = cfg.workspace;
+    const ws = el("div", "set-workspace");
+    if (w.path) ws.append(el("span", "mono", `${w.path} · ${WORKSPACE_SOURCE[w.source] ?? w.source}`));
+    if (w.note) ws.append(el("div", "set-note", w.note));
+    if (!w.path && !w.note) ws.append(el("span", "set-note", "No lane folder applies."));
+    body.append(ws);
+  }
   return box;
 }
 
@@ -333,6 +357,37 @@ function recoverSection(p, ctx) {
     note: "When a mission pane closes or crashes, reopen it in the same worktree and take the mission back (/mission continue). Never after failed verification, never past a gate or plan, never after you Reap; gives up after 3 reopens in 30 minutes.",
   });
   box.append(card);
+  return box;
+}
+function agentSection(p, ctx) {
+  const box = docSection("Agent-managed work");
+  box.append(el("p", "set-note", "The main OMP session claims coordinator ownership, queues contacts, starts native task subagents and reports progress. Worker lifecycle is never inferred from task-tool results; complete awaits coordinator verification and integration, not landed. Releasing ownership does not stop workers or erase assignments—coordinate or stop every task job before handing off."));
+  const coordinator = p.operation.coordinator ?? null;
+  const coordinatorField = field(box, "Coordinator", coordinator ? el("span", "mono", coordinator) : el("span", "none", "unclaimed"), {
+    note: "Release only after coordinating/stopping every task job. Release does not stop workers or clear their assignments.",
+  });
+  if (coordinator && ctx.api) {
+    const release = el("button", "btn small danger");
+    release.type = "button";
+    release.textContent = "Release coordinator";
+    release.addEventListener("click", async () => {
+      if (!window.confirm(`Release ${coordinator} as coordinator? This does not stop any native task subagents or remove assignments. Verify every worker's state and coordinate or stop them before handoff.`)) return;
+      release.disabled = true;
+      try {
+        await fetchJson(await ctx.api("/api/agent-work", {
+          method: "POST",
+          body: JSON.stringify({ op: p.operation.id, action: "release", coordinator }),
+        }));
+        ctx.toast("Coordinator released", "ok");
+        await ctx.poll();
+      } catch (error) {
+        ctx.toast(errorText(error), "error");
+      } finally {
+        release.disabled = false;
+      }
+    });
+    coordinatorField.row.append(release);
+  }
   return box;
 }
 
@@ -540,9 +595,10 @@ function seedSection(doc, p) {
 export function renderOperation(root, projection, doc, ctx) {
   root.replaceChildren();
   const p = projection;
+  const agentManaged = p.operation.execution === "agent";
   const head = el("div", "opdoc-head");
   head.append(el("h1", "opdoc-title", p.operation.name), el("span", "mono opdoc-id", p.operation.id));
-  if (p.operation.auto?.enabled) {
+  if (!agentManaged && p.operation.auto?.enabled) {
     const badge = el("span", "auto-ind");
     badge.append(icon("bot", { size: 12 }), document.createTextNode("Auto mode on"));
     head.append(badge);
@@ -558,14 +614,20 @@ export function renderOperation(root, projection, doc, ctx) {
     return;
   }
   // ctx.closer is the landed closer's view (GET /api/closer); null until it lands.
-  const tickets = new Set(p.contacts.filter((c) => c.kind !== "closer").map((c) => c.ticket));
-  const review = closerOverview(ctx.closer, { tickets, linkable: true });
-  if (review) root.append(review);
+  if (!agentManaged) {
+    const tickets = new Set(p.contacts.filter((c) => c.kind !== "closer").map((c) => c.ticket));
+    const review = closerOverview(ctx.closer, { tickets, linkable: true });
+    if (review) root.append(review);
+  }
   const notes = docSection("Notes");
   const n = p.notes;
   if (n?.total) notes.querySelector(".group-head").append(el("span", "count", `${n.done}/${n.total} done`));
   notes.append(notesPanel(p.operation.id, ctx));
-  root.append(briefSection(p, doc, ctx), notes, autoSection(p, ctx), recoverSection(p, ctx), setupSection(p, doc, ctx), zonesContactsSection(p, ctx), closerSection(p, ctx));
+  root.append(briefSection(p, doc, ctx), notes);
+  if (agentManaged) root.append(setupSection(p, doc, ctx), agentSection(p, ctx));
+  else root.append(autoSection(p, ctx), recoverSection(p, ctx), setupSection(p, doc, ctx));
+  root.append(zonesContactsSection(p, ctx));
+  if (!agentManaged) root.append(closerSection(p, ctx));
 
   root.append(seedSection(doc, p), endSection(p, ctx));
   const created = el("div", "set-note opdoc-created");

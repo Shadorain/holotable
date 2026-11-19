@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OperationSummary } from "../board.ts";
 import type { Projection } from "../core/types.ts";
+import type { AgentWorkInput } from "../agent-work.ts";
 import { configHome, userUnitDir } from "../paths.ts";
 import { installService, UNIT_NAME, type InstallOptions, type InstallResult } from "../service.ts";
 import { boardIsLocked, readBoardInfo, readToken } from "../store/board.ts";
@@ -68,6 +69,22 @@ export function operations(home: string): Promise<OperationSummary[] | null> {
 
 export function projection(home: string, opId: string): Promise<Projection | null> {
   return serviceRef(home).then((ref) => (ref ? get<Projection>(ref, `/api/projection?op=${encodeURIComponent(opId)}`) : null));
+}
+
+/** Never replay an uncertain HTTP write against the local store. */
+export async function reportAgentWork(home: string, opId: string, input: AgentWorkInput): Promise<string | null> {
+  const ref = await serviceRef(home);
+  if (!ref) return null;
+  const res = await fetch(`${ref.base}/api/agent-work`, {
+    method: "POST",
+    headers: { ...headers(ref), origin: ref.base, "content-type": "application/json" },
+    body: JSON.stringify({ op: opId, ...input }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const body = await res.json() as { message?: string; error?: string };
+  if (!res.ok) throw new Error(body.error ?? `Agent work update failed (${res.status})`);
+  if (typeof body.message !== "string") throw new Error("Invalid agent work response");
+  return body.message;
 }
 
 interface ServiceIdentity {

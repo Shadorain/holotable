@@ -80,6 +80,7 @@ export const SET_FIELDS = [
   "auto.repairs",
   "auto.reviews",
   "recover",
+  "execution",
 ] as const;
 export type SetField = (typeof SET_FIELDS)[number];
 
@@ -106,7 +107,7 @@ export const HELP = `/holotable: campaign board over omp-mission missions.
   /holotable restart             restart the board without changing missions or data
   /holotable status              report the selected home's board health
   /holotable url                 print the running board URLs
-  /holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--closer] [--no-closer] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]
+  /holotable new <id> --repo <path> --base <branch> [--execution missions|agent] [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--closer] [--no-closer] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]
   /holotable list [--all]
   /holotable project <new|list|set|attach|detach|delete> …
   /holotable use <id>
@@ -209,6 +210,7 @@ export interface NewOperationSpec {
   base?: string;
   name?: string;
   integration?: string;
+  execution?: "missions" | "agent";
   pause?: boolean;
   tracker?: Tracker;
   fleet?: Fleet;
@@ -278,6 +280,7 @@ export async function createFromSpec(
     project: project?.id ?? null,
     ...(auto !== undefined ? { auto } : {}),
     recover: spec.recover === true,
+    ...(spec.execution !== undefined ? { execution: spec.execution } : {}),
     createdAt: now.toISOString(),
   } satisfies Omit<Operation, "ignoreChecks" | "zones" | "contacts" | "auto"> & { zones: unknown[]; contacts: unknown[]; auto?: unknown };
   // Seed zones, contacts and auto are unchecked JSON, and ignoreChecks is left to inherit or default:
@@ -316,10 +319,10 @@ function explicitSwitch(flags: ReadonlyMap<string, string | true>, name: string)
 async function cmdNew(tokens: string[], env: CommandEnv): Promise<CommandOutcome> {
 
   const usage =
-    "/holotable new <id> --repo <path> --base <branch> [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--closer] [--no-closer] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]";
+    "/holotable new <id> --repo <path> --base <branch> [--execution missions|agent] [--project <id>] [--name <text>] [--tracker T] [--fleet F] [--frontend H] [--delivery D] [--pause] [--no-pause] [--closer] [--no-closer] [--auto] [--recover] [--from <file.json>] [--brief <file.md>]";
   const parsed = parseArgs(
     tokens,
-    ["repo", "base", "project", "name", "tracker", "fleet", "frontend", "delivery", "from", "integration", "brief"],
+    ["repo", "base", "project", "name", "tracker", "fleet", "frontend", "delivery", "from", "integration", "brief", "execution"],
     ["no-pause", "pause", "closer", "no-closer", "auto", "recover"],
     usage,
   );
@@ -350,6 +353,7 @@ async function cmdNew(tokens: string[], env: CommandEnv): Promise<CommandOutcome
     ...(flag(parsed, "tracker") ? { tracker: oneOf(TRACKERS, flag(parsed, "tracker")!, "--tracker") } : {}),
     ...(flag(parsed, "fleet") ? { fleet: oneOf(FLEETS, flag(parsed, "fleet")!, "--fleet") } : {}),
     ...(flag(parsed, "frontend") ? { frontend: oneOf(FRONTENDS, flag(parsed, "frontend")!, "--frontend") } : {}),
+    ...(flag(parsed, "execution") ? { execution: oneOf(["missions", "agent"] as const, flag(parsed, "execution")!, "--execution") } : {}),
     ...(flag(parsed, "delivery") ? { delivery: oneOf(DELIVERIES, flag(parsed, "delivery")!, "--delivery") } : {}),
     ...(from ? { seed: await readFile(resolve(env.cwd, from), "utf8").catch((error: unknown) => {
       throw new Error(`Cannot read --from ${from}: ${messageOf(error)}`);
@@ -480,9 +484,9 @@ export function applyOperationField(op: Operation, field: string, raw: string, c
   const name = oneOf(SET_FIELDS, field, "field");
   if (raw === "inherit") {
     if (project === null) throw new Error(`${op.id} is standalone: there is no project to inherit ${name} from`);
+    if (name === "execution") throw new Error("execution cannot be inherited: it belongs to the operation");
     if (name.startsWith("auto")) throw new Error(`${name} cannot be inherited: auto mode belongs to the operation`);
     if (name === "recover") throw new Error("recover cannot be inherited: it belongs to the operation");
-    if (name === "name") throw new Error("name cannot be inherited: it belongs to the operation");
     const inherited = project[name as OverridableField];
     if (inherited === undefined) {
       const { worktreeRoot: _, ...rest } = op;
@@ -502,6 +506,8 @@ export function applyOperationField(op: Operation, field: string, raw: string, c
       return { ...op, pause: oneOf(["true", "false"], value, "pause") === "true" };
     case "ignoreChecks":
       return { ...op, ignoreChecks: oneOf(["true", "false"], value, "ignoreChecks") === "true" };
+    case "execution":
+      return { ...op, execution: oneOf(["missions", "agent"] as const, value, "execution") };
     case "tracker":
       return { ...op, tracker: oneOf(TRACKERS, value, "tracker") };
     case "fleet":

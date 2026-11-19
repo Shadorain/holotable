@@ -442,6 +442,50 @@ function missionReportBox(contact, data) {
   if (r.truncated) box.append(el("div", "set-note", "The mission trimmed this report to fit its status file."));
   return box;
 }
+function agentWorkBox(contact) {
+  const work = contact.agent;
+  if (!work) return null;
+  const box = el("section", "next report");
+  const title = work.state === "complete"
+    ? "Worker complete · awaiting coordinator verification and integration"
+    : work.state === "integrated"
+      ? "Integrated"
+      : `Worker ${work.state}`;
+  const head = el("div", "report-head");
+  head.append(el("div", "kicker", title));
+  if (work.at) {
+    const stamp = new Date(work.at);
+    const time = el("span", "dim", Number.isNaN(stamp.getTime()) ? work.at : stamp.toLocaleString());
+    head.append(time);
+  }
+  box.append(head);
+  if (work.coordinator) {
+    const coordinator = el("div", "report-part");
+    coordinator.append(el("div", "report-label", "Coordinator"), el("span", "mono", work.coordinator));
+    box.append(coordinator);
+  }
+  if (work.worker) {
+    const worker = el("div", "report-part");
+    worker.append(el("div", "report-label", "Worker"), el("span", "mono", work.worker));
+    box.append(worker);
+  }
+  if (work.summary) {
+    const summary = el("div", "card-desc report-summary");
+    summary.append(renderMarkdown(work.summary));
+    box.append(summary);
+  }
+  if (work.verification) {
+    const verification = el("div", "report-part");
+    verification.append(el("div", "report-label", "Coordinator verification"), el("div", "report-review", work.verification));
+    box.append(verification);
+  }
+  if (work.commit) {
+    const commit = el("div", "report-part");
+    commit.append(el("div", "report-label", "Commit"), el("span", "mono", work.commit));
+    box.append(commit);
+  }
+  return box;
+}
 
 // ---- plan tab ----
 
@@ -719,8 +763,8 @@ export const CARD_TABS = [
 ];
 
 /** Tabs this contact actually has; Plan only while a pending plan is on disk. */
-export function cardTabs(contact) {
-  return CARD_TABS.filter(([id]) => id !== "plan" || contact?.plan);
+export function cardTabs(contact, agentManaged = false) {
+  return CARD_TABS.filter(([id]) => (id !== "plan" || contact?.plan) && (!agentManaged || id !== "plan"));
 }
 
 export function renderCard(root, projection, contact, ctx, tab, entries, plan, closer = null, report = null) {
@@ -729,14 +773,15 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan, c
     root.append(el("div", "placeholder", projection.contacts.length ? "Select a contact." : "No contacts yet. Add one with /holotable add <ticket> --zone <id>."));
     return;
   }
+  const agentManaged = projection.operation.execution === "agent";
   const zone = projection.operation.zones.find((z) => z.id === contact.zone)?.label;
   root.append(header(contact, zone));
 
-  const active = contact.plan || tab !== "plan" ? tab : "overview";
+  const active = agentManaged && tab === "plan" ? "overview" : contact.plan || tab !== "plan" ? tab : "overview";
 
   const tabs = el("div", "tabs");
   tabs.setAttribute("role", "tablist");
-  for (const [id, label] of cardTabs(contact)) {
+  for (const [id, label] of cardTabs(contact, agentManaged)) {
     const b = el("button", "tab-btn", label);
     b.type = "button";
     b.setAttribute("role", "tab");
@@ -752,7 +797,7 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan, c
 
   if (active === "details") {
     body.append(facts(contact, projection, ctx));
-    if (contact.kind === "closer") body.append(closerBriefBox(contact, closer));
+    if (!agentManaged && contact.kind === "closer") body.append(closerBriefBox(contact, closer));
     return;
   }
   if (active === "history") {
@@ -764,10 +809,12 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan, c
     return;
   }
   // Actions lead the Overview: Land or Approve must never sink below a long status, report or closer review.
-  const actions = actionBar(contact, ctx);
+  const actions = agentManaged ? null : actionBar(contact, ctx);
   if (actions) body.append(actions);
-  const bar = progress(contact);
-  if (bar) body.append(bar);
+  if (!agentManaged) {
+    const bar = progress(contact);
+    if (bar) body.append(bar);
+  }
   // Waiting on other tickets is shown by "Waits for" below; a contact blocked by a setting needs its reason here.
   if (contact.state !== "blocked" || contact.blockedBy.every((b) => b.landed)) {
     const problem = contact.problem;
@@ -777,10 +824,10 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan, c
       : contact.detail;
     next.append(el("div", "kicker", contact.state === "waiting" && problem ? "Retry scheduled" : contact.attention ? "Your move" : "Status"), el("div", "next-text", message));
     // Only when the operator should not touch it: the mission or auto mode/Recovery owns the next step.
-    if (contact.handsOff) next.append(el("div", "hands-off", `Hands off · ${contact.handsOff}`));
+    if (!agentManaged && contact.handsOff) next.append(el("div", "hands-off", `Hands off · ${contact.handsOff}`));
     if (problem?.completed !== null && problem?.completed !== undefined && problem.total !== null)
       next.append(el("div", "set-note", `${problem.completed}/${problem.total} reviewers retained${problem.attempt ? ` · failed attempt ${problem.attempt}` : ""}`));
-    if (contact.review)
+    if (!agentManaged && contact.review)
       next.append(el("div", "set-note", `${contact.review.completed}/${contact.review.total} reviewers finished · ${contact.review.active} running${contact.review.models.length ? ` on ${contact.review.models.join(", ")}` : ""}`));
     if (problem && problem.detail !== contact.detail) {
       const details = el("details", "mission-error");
@@ -789,17 +836,25 @@ export function renderCard(root, projection, contact, ctx, tab, entries, plan, c
     }
     body.append(next);
   }
-  const decided = decisionBox(contact, projection.operation.id);
-  if (decided) body.append(decided);
-  const asked = askBox(contact, ctx, projection.operation.id);
-  if (asked) body.append(asked);
-  const approval = approvalBox(contact, ctx);
-  if (approval) body.append(approval);
-  if (contact.kind === "closer") {
-    const tickets = new Set(projection.contacts.filter((c) => c.ticket !== contact.ticket).map((c) => c.ticket));
-    body.append(closerReportBox(contact, closer, { tickets, linkable: true }));
+  if (!agentManaged) {
+    const decided = decisionBox(contact, projection.operation.id);
+    if (decided) body.append(decided);
+    const asked = askBox(contact, ctx, projection.operation.id);
+    if (asked) body.append(asked);
+    const approval = approvalBox(contact, ctx);
+    if (approval) body.append(approval);
+    if (contact.kind === "closer") {
+      const tickets = new Set(projection.contacts.filter((c) => c.ticket !== contact.ticket).map((c) => c.ticket));
+      body.append(closerReportBox(contact, closer, { tickets, linkable: true }));
+    }
   }
-  for (const part of [missionReportBox(contact, report), relations(contact, projection)]) if (part) body.append(part);
+  const worker = agentWorkBox(contact);
+  if (worker) body.append(worker);
+  if (!agentManaged) {
+    const reportBox = missionReportBox(contact, report);
+    if (reportBox) body.append(reportBox);
+  }
+  body.append(relations(contact, projection));
 }
 
 // The operator's tentative pick on a decision card survives region re-renders; the decision

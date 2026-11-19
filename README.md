@@ -4,7 +4,7 @@
 
 <h1>Holotable</h1>
 
-**Mission control for OMP.**
+**Mission control for OMP and agent-managed work.**
 
 [![OMP](https://img.shields.io/badge/OMP-18.22.0%2B-37d4a7?style=for-the-badge)](https://github.com/can1357/oh-my-pi)
 [![Bun](https://img.shields.io/badge/runtime-Bun-ff4971?style=for-the-badge&logo=bun&logoColor=white)](https://bun.sh)
@@ -16,7 +16,7 @@
 
 </div>
 
-Holotable is an [OMP](https://github.com/can1357/oh-my-pi) extension and a local web board for running many [omp-mission](https://github.com/Shadorain/omp-mission) missions as one campaign. You put tickets on a board, say which ones wait on which, and launch them. Each launched ticket becomes a mission in its own worktree and terminal pane. The board shows every mission's state, what needs you, and what is ready to land, and lets you approve, answer and land from one page. It launches and watches missions; it never runs them. Plan approval, Pause gates, resume hold and ownership locks stay inside each mission, and nothing is launched or landed unless you click or switch on auto mode for that operation.
+Holotable is an [OMP](https://github.com/can1357/oh-my-pi) extension and a local web board for coordinating operation contacts. Choose **Missions** to launch [omp-mission](https://github.com/Shadorain/omp-mission) sessions in separate worktrees, or **Agent-managed** when your main OMP session will orchestrate native task subagents. In agent-managed mode the board remains passive: it records only lifecycle updates the coordinator reports, and never launches or recovers workers.
 
 ![Holotable Board view: the queue ordered by what needs you, a contact card with its actions and mission report, and the operation panel](docs/board.webp)
 
@@ -96,10 +96,10 @@ OMP at the workflow and CLI docs; it is manual-only and never auto-invoked.
    - **From a markdown plan or a rough goal:** paste the plan, or describe the goal, constraints and what done looks like, in **What**, then **Draft it**. For work with no tickets, use a project with **Tracker → none** so the draft proposes local mission ids.
    - **From a seed file:** **Load a file** fills the form's seed JSON. In OMP, `/holotable new q3 --project <project-id> --from seed.json` does the same. The [seed file](docs/reference.md#seed-file) lists zones, contacts and dependencies.
    - **Blank:** name it and **Create**, then add zones and contacts on its Operation page (Plan → Operation).
-4. **Launch.** On the Board, press **Launch** on a ready contact. Its mission opens in a new pane and writes a plan. Approve the plan from the card's **Plan** tab (or in the pane).
-5. **Follow it through.** Approve Pause gates and answer questions from the card. When a contact is complete, press **Land**. Contacts that waited on it become ready.
+4. **Choose execution.** In New operation, choose **Missions** for board-launched mission panes or **Agent-managed** for native task subagents orchestrated by your main OMP session. Agent-managed operations hide mission Auto and Recovery settings.
+5. **Work the contacts.** In Missions mode, click **Launch**, review the plan and **Land** finished work. In Agent-managed mode, claim the operation with `holotable_work`, launch task subagents from the main session, report every state change, verify and integrate each completion, then report it as integrated. The card distinguishes complete from landed/integrated.
 
-On a small or heat-constrained machine, set **Settings → Agents** to 2 first. Auto mode is off by default; turn it on per operation only when you want it. Recovery (**Keep missions running**) is on by default in the New operation form; switch it off there or on the Operation page if you want to restart crashed panes yourself.
+Mission auto mode is off by default; Recovery (**Keep missions running**) is on by default only for Missions operations. Agent-managed operations have neither setting because the main OMP session, not the board, owns worker execution.
 
 Subscription quotas and OMP's account-wide routing-policy counts are available under **Settings → AI & Models → Load subscription quotas**. The policy counts are diagnostics only; OMP remains responsible for routing each model.
 
@@ -121,28 +121,31 @@ It prints the board URLs (port 4747 by default; `--port` changes it). Launch a c
 |Term|Meaning|
 |---|---|
 |**Project**|One repository and its defaults: base branch, integration checkout, tracker, frontend, delivery and worktree folder. Operations in a project inherit these unless they override them; `/holotable set <field> inherit` or **use project value** on the Operation page drops an override.|
-|**Operation**|One campaign: a set of contacts, their dependencies, a brief and notes. It belongs to a project or stands alone. When it ends, it moves to the archive with a report.|
+|**Operation**|One campaign: contacts, dependencies, a brief and notes. Its execution mode is `missions` (the default) or `agent` (main-session orchestration of native task subagents). When it ends, it moves to the archive with a report.|
 |**Zone**|A workstream inside an operation, such as "API" or "Cutover". Zones are the sectors of the radar and the columns of the Plan map.|
-|**Contact**|One ticket on the board, with a short title and a full description. Kinds: `implement` (the default), `audit`, `decision`, `closer`, and `conflict` (opened by Land).|
-|**Mission**|The omp-mission session that works one contact in its own worktree and terminal pane: plan, execute, verify, deliver, review, complete.|
-|**Lane**|The worktree, branch and terminal recorded for a launched contact. A contact without a lane is queued.|
-|**Blocker**|A contact another one waits for (`blockedBy`). A blocker counts as done only once it has **landed**, not when its mission completes.|
+|**Contact**|One ticket on the board, with a short title and full description. Kinds: `implement` (default), `audit`, `decision`, `closer`, and `conflict` (opened by Land).|
+|**Mission**|An omp-mission session working one contact in its own worktree and terminal pane: plan, execute, verify, deliver, review, complete.|
+|**Agent-managed**|Passive board tracking for work orchestrated by the main OMP session using native task subagents. The coordinator explicitly reports worker lifecycle; the board does not launch, infer, recover, retry or terminate those jobs.|
+|**Coordinator**|The session owning an Agent-managed operation. On OMP, the adapter supplies the current session id; takeover requires explicit operator release.|
+|**Worker complete**|A task worker reported completion. It is not integrated or landed and does not unblock dependencies; the coordinator verifies and integrates before reporting `integrated`.|
+|**Lane**|The worktree, branch and terminal recorded for a launched mission contact. Agent-managed worker identity instead uses the native task-job id.|
+|**Blocker**|A contact another one waits for (`blockedBy`). It counts as done only once landed/integrated, not when a mission or worker merely reports completion.|
 |**Landed**|Merged into the base branch, confirmed by the delivery (PR state or Git ancestry).|
-|**Decision**|A contact that is a question, not code. It never launches; you (or an agent pane you start) pick an answer, and work that depends on it unblocks.|
+|**Decision**|A contact that is a question, not code. It never launches; an operator or coordinator chooses an offered answer, and work depending on it unblocks.|
 |**Conflict mission**|A new local mission that resolves the merge conflicts Land found, so the original contact can land.|
 |**Closer**|An operation's last contact. Once everything else has landed, it reviews the integrated result, fixes small problems and reports the rest as follow-ups.|
 |**Pause gate**|A stop inside a mission that waits for your approval before it continues.|
 |**Frontend, tracker, delivery, fleet**|The adapters an operation uses: where panes open (`orca`, `herdr`, `custom`), where tickets live (`linear`, `github`), how work merges (`github-pr`, `local-merge`), and what runs missions (`omp-mission`). Each can be `none`.|
-|**Auto mode**|A per-operation switch that launches and lands for you. See [below](#what-you-do-and-what-auto-mode-does).|
-|**Recovery**|A per-operation switch, **Keep missions running**, that reopens and continues missions whose pane crashed or closed. On by default for operations created in the New operation form.|
+|**Auto mode**|A Missions-only per-operation switch that launches and lands work for you. See [below](#what-you-do-and-what-auto-mode-does).|
+|**Recovery**|A Missions-only switch, **Keep missions running**, that reopens and continues mission panes. Agent-managed workers are never automatically restarted.|
 
 ## The board
 
 The page has four views. Switch with the header buttons or keys `1`–`4`.
 
 - **Table** (`1`): a radar. Zones are sectors; rings are lifecycle stages from the outside in (queued, planning, active, complete). Contacts that need you pulse.
-- **Board** (`2`): the contact list ordered by what needs you (**Needs you**, **In flight**, **Queue**, **Landed**), the selected contact's card with its actions and mission report, and the operation's progress, notes and wiring.
-- **Plan** (`3`): the dependency map by zone, with history beside it. Its **Operation** sub-view is the operation as a document: brief, notes, auto mode, setup, zones, contacts, closer and **End the operation**.
+- **Board** (`2`): the contact list ordered by what needs you (**Needs you**, **In flight**, **Queue**, **Landed**), the selected contact's card with its actions and mission report, and the operation's progress, notes and wiring. Agent-managed boards instead show reported workers and worker details, with mission plan/control affordances omitted.
+- **Plan** (`3`): the dependency map by zone, with history beside it. Its **Operation** sub-view is the operation as a document: brief, notes, setup, zones, contacts, closer and **End the operation**; mission automation settings appear only for Missions operations.
 - **Intel** (`4`): measurements from the recorded history: where time goes, what waited on you, spend, stalls, conflicts and ranked recommendations, for one operation or the whole fleet. See [Intel](docs/intel.md).
 
 |Table|Plan|
@@ -152,6 +155,8 @@ The page has four views. Switch with the header buttons or keys `1`–`4`.
 |![Intel view: where time goes, waits, spend, stalls and ranked recommendations](docs/intel.webp)|![Closer review: outcome banner, tickets checked, verification, fixes and follow-ups](docs/closer.webp)|
 
 The [guide](docs/guide.md#the-board) walks through each view and the full key list.
+
+For **Agent-managed** work, the main OMP session claims the operation, maps contacts to native task-job ids, and explicitly reports worker state. `complete` awaits coordinator verification and integration; only verified `integrated` work lands and unblocks dependents. Decision contacts use `holotable_work`'s `decide` action. The board never infers worker status, relaunches jobs or terminates them. See the [Agent-managed workflow](docs/guide.md#agent-managed-operations).
 
 ## Typical workflow
 
@@ -179,15 +184,15 @@ A failed automatic step never switches auto mode off: it retries that contact af
 
 ## Safety model
 
-- **The board never runs a mission.** It opens panes and reads status files. It never attaches to a mission and never calls its `control()`. Every change to a mission is a request to that mission's own control socket, which runs the same code as the slash command.
-- **Mission rules still apply.** Pause gates, resume hold, plan mode and the ownership lock are enforced inside the mission. The board never routes around them. Plan approval resolves OMP's native plan review through the mission socket, only on your click or with opt-in `auto.plans`. Recovery only reopens closed panes and sends **Continue**, only to sessions the board launched, never after failed verification or on a quota hold, and never approves a gate or a plan.
-- **Only you, or auto mode you switched on, change the outside world.** The board merges a pull request or a branch only on your **Land** click or under auto mode you enabled for that operation. It reads trackers but never edits or closes an issue itself; a merged PR can still close linked issues through your tracker's own integration.
-- **Landing is careful with your checkout.** Land merges on the integration checkout, never inside a mission's worktree. It refuses when that checkout is on the wrong branch or has uncommitted changes on the paths the merge would write, and never stashes, discards or commits your changes. A conflict becomes a new mission, not a second copy of the ticket.
-- **Close keeps your work.** Closing an operation closes its mission panes and removes clean worktrees only. It keeps every worktree with uncommitted changes, and it does not touch Git branches, pull requests, tracker issues, the base branch or the integration checkout. **Abort** also deletes worktrees with uncommitted changes, after it lists them and you type the operation id.
-- **Blocked work stays visible.** A contact with unmet blockers never launches and never disappears from the queue.
-- **History is append-only.** Every action except **Focus**, by you, auto mode or Recovery, is an event that records who caused it. The board keeps no second copy of mission state.
+- **The board never runs a mission or native task worker.** In Missions mode it opens panes and reads status files; it never attaches to a mission or calls its `control()`. In Agent-managed mode the main OMP session starts native subagents and explicitly reports progress; the board never infers their status or launches, recovers, retries or terminates them.
+- **Mission rules still apply.** Pause gates, resume hold, plan mode and the ownership lock are enforced inside a mission. The board never routes around them. Plan approval resolves OMP's native plan review through the mission socket, only on your click or with opt-in `auto.plans`. Recovery only reopens mission panes and sends **Continue**, only to sessions the board launched, never after failed verification or on a quota hold, and never approves a gate or a plan.
+- **Only you, or mission auto mode you switched on, change the outside world.** The board merges a pull request or branch only on your **Land** click or under Missions auto mode enabled for that operation. For Agent-managed work, the coordinator must verify and integrate changes before reporting `integrated`. It reads trackers but never edits or closes an issue itself; a merged PR can still close linked issues through your tracker's own integration.
+- **Landing is careful with your checkout.** Missions Land merges on the integration checkout, never inside a mission's worktree. It refuses when that checkout is on the wrong branch or has uncommitted changes on the paths the merge would write, and never stashes, discards or commits your changes. A conflict becomes a new mission, not a second copy of the ticket.
+- **Close keeps your work.** Closing an operation closes its mission panes and removes clean worktrees only. It keeps every worktree with uncommitted changes, and does not touch Git branches, pull requests, tracker issues, the base branch or the integration checkout. Closing or aborting cannot stop Agent-managed native task jobs; coordinate or stop every worker separately before handoff or archival. **Abort** also deletes worktrees with uncommitted changes, after it lists them and you type the operation id.
+- **Blocked work stays visible.** A contact with unmet blockers never launches and never disappears from the queue. Agent-managed worker `complete` is not landed and does not unblock dependents.
+- **History is append-only.** Every action except **Focus**, by you, mission auto mode, Recovery or the coordinator, is an event that records who caused it. The board keeps no second copy of mission or worker state.
 - **Access needs the token.** Anyone with the full board URL can approve gates, so keep it private. The board answers on loopback and Tailscale by default (Settings → Server). Every API call needs the token from the URL fragment and passes Host and Origin checks. The connection is plain HTTP: use a trusted network, Tailscale or an SSH tunnel. API errors are typed by cause; see [HTTP API errors](docs/reference.md#http-api-errors).
-- **Model tools only propose.** In an OMP session, `holotable_state` reads the board and `holotable_queue` adds or edits queued contacts. Neither can launch, land or approve.
+- **Model tools have different authority.** In OMP, `holotable_state` reads and `holotable_queue` adds or edits queued contacts. `holotable_work` explicitly records Agent-managed ownership, worker updates and decisions; it does not launch or monitor subagents, and an `integrated` report must follow real coordinator verification and integration.
 
 ## Documentation
 

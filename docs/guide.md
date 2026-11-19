@@ -64,15 +64,28 @@ A board with no operations opens on Projects with a **Getting started** card: ch
 
 ### New operation
 
-Picker → New operation. Choose the project, paste a source or rough goal into **What**, then **Draft it**. The drafting toolbar has a per-run model picker and a separate progress message. Review the generated name, brief, zones, contacts and notes before **Create**; drafting needs a terminal frontend and creates no operation by itself. **Finish with a closer review** (on by default, from `defaults.closer`) adds a [closer](#closer-review) as the last contact. **Keep missions running** (on by default) switches on [Recovery](automation.md#recovery) for the new operation. **Load a file** fills the seed JSON from a file instead of a draft. With no seed, **Create** makes an empty operation; add zones and contacts on its Operation page.
+Picker → New operation. Choose the project, execution mode, and optionally paste a source or rough goal into **What**, then **Draft it**. The form offers **Missions** and **Agent-managed**. Missions creates work through the configured frontend/fleet; Agent-managed is for the main OMP session to orchestrate native task subagents. It hides mission Auto and Recovery settings because the board neither launches nor continues those workers. Drafting still needs a terminal frontend and creates no operation by itself. Review the generated name, brief, zones, contacts and notes before **Create**. In Missions mode, **Finish with a closer review** (on by default, from `defaults.closer`) adds a [closer](#closer-review) as the last contact; Agent-managed operations do not add a closer mission. **Keep missions running** is a Missions-only Recovery switch. **Load a file** fills the seed JSON. With no seed, **Create** makes an empty operation; add zones and contacts on its Operation page.
+
+The Operation page's execution setting selects `missions` or `agent`. Agent-managed pages show the coordinator and explicit **Release coordinator** action instead of mission automation settings. Release requires confirmation, does not stop task jobs or clear assignments, and should only be used after coordinating or stopping workers; a crashed main session is not proof its workers stopped.
+
+### Agent-managed operations
+
+The main OMP session is the sole coordinator; the board records reported progress but does not launch, infer, recover, retry or terminate native subagents. Select/create an operation with `--execution agent`, inspect its queue, and use `holotable_work` action `claim` before launching native task subagents. On OMP, the adapter supplies the stable current session id as coordinator; do not invent one. A competing coordinator cannot take over silently; ask an operator to release ownership.
+
+Queue ready contacts with `holotable_queue`, respecting dependencies. Use native task subagents from the main session and map every ticket to the returned task job id; report that id as `worker`, not only a callsign. Use `holotable_work` action `report` to explicitly publish `assigned`, `running`, `blocked`, `verifying`, `complete` and finally `integrated` state, with a useful summary and updated verification/commit. Tool returns do not automatically update the board: explicitly report lifecycle changes. Report failures or unknown worker status as blocked and never call them successful.
+
+`complete` is worker-reported completion only. It is not a merge, does not count as landed, and does not unblock dependents. The coordinator must inspect and verify the work, resolve integration conflicts, and actually integrate it before reporting `integrated` with commit and verification evidence. For a decision contact, use `holotable_work` action `decide` with one of its offered options as `choice` and a concise `summary`; decisions have no worker. Dependencies continue to gate work until the backend records the decision/integration as landed.
+
+The contact card presents the task-job identity, reported worker state, summary, verification, commit and report timestamp. Mission plan tabs and mission control affordances are absent in Agent-managed mode. Closing/aborting an operation cannot terminate native task jobs; check their actual task-job status and coordinate or stop every worker before archiving or handing off.
 
 The brief has a full-width editor, markdown **Preview**, and **Review in focus** for a wide review
 window with edit/preview and Save/Cancel. Draft completion fills both review views and preserves
 brief text you have edited yourself.
 
-Dependencies control eligibility, not map columns or prose numbering. Auto launch takes the first
-ready contact in the saved queue; independent missions may run together, while hard prerequisites
-and undecided decisions keep dependent contacts blocked.
+Dependencies control eligibility, not map columns or prose numbering. In Missions mode, Auto launch
+takes the first ready contact in the saved queue; independent missions may run together, while hard
+prerequisites and undecided decisions keep dependent contacts blocked. Agent-managed mode only shows
+readiness: the coordinator chooses and launches native task subagents.
 
 ### Draft from a plan or an idea
 
@@ -121,7 +134,7 @@ The Board view is shown in the [README](../README.md).
 
 ### Header, views and keys
 
-The header has the project breadcrumb (opens the project page), the operation picker (grouped by project; below the list, New operation and a link to the Archive), the four view buttons, the needs-you and auto-mode pills (the auto pill opens the Operation page), base branch, load, note tasks done (hidden when the notes have no task lines), the connection dot and, rightmost, the settings gear. Hovering or focusing any control shows a tooltip saying what it does, and for a disabled one why it is off. On touch screens, tapping a pill, dot, chip or label toggles its tooltip and a long press on a button shows its tooltip without pressing it; tapping elsewhere or scrolling hides it. Hovering or focusing the Load stat instead shows live CPU and memory for the operation and the machine (plus all open operations when more than one is open) ; clicking Load pins a small CPU · MEM chip for the selected operation next to it, and clicking again hides it (`GET /api/usage`: /proc sampling, processes attributed by lane worktree; over 80% is tinted, over 95% marked bad). Simulated missions in the playground have no real processes, so attributed usage there reads zero while the machine line stays real.
+The header has the project breadcrumb (opens the project page), the operation picker (grouped by project; below the list, New operation and a link to the Archive), the four view buttons, the needs-you pill and (in Missions mode only) auto-mode pill (the auto pill opens the Operation page), base branch, load, note tasks done (hidden when the notes have no task lines), the connection dot and, rightmost, the settings gear. Hovering or focusing any control shows a tooltip saying what it does, and for a disabled one why it is off. On touch screens, tapping a pill, dot, chip or label toggles its tooltip and a long press on a button shows its tooltip without pressing it; tapping elsewhere or scrolling hides it. Hovering or focusing the Load stat instead shows live CPU and memory for the operation and the machine (plus all open operations when more than one is open) ; clicking Load pins a small CPU · MEM chip for the selected operation next to it, and clicking again hides it (`GET /api/usage`: /proc sampling, processes attributed by lane worktree; over 80% is tinted, over 95% marked bad). Simulated missions in the playground have no real processes, so attributed usage there reads zero while the machine line stays real.
 
 Toggle views with the header buttons or `1 2 3 4` / `t b p i`. The Plan view has two sub-views (Map | Operation); `Shift+P` flips between them. Intel has two (Selected operation | Fleet overview). The view, its sub-view and the operation survive a reload; `/intel` (with the old `?op=`, `?archive=` or `?view=fleet`) opens the board on Intel.
 

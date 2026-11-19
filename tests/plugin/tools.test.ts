@@ -27,7 +27,7 @@ const contact = (ticket: string, over: Partial<Contact> = {}): Contact => ({
   ...over,
 });
 
-async function setup(contacts: Contact[]) {
+async function setup(contacts: Contact[], execution: "missions" | "agent" = "missions") {
   const home = mkdtempSync(join(tmpdir(), "holotable-tools-"));
   cleanup.push(() => rmSync(home, { recursive: true, force: true }));
   const op: Operation = {
@@ -51,10 +51,11 @@ async function setup(contacts: Contact[]) {
     project: null,
     recover: false,
     createdAt: "2026-01-01T00:00:00.000Z",
+    execution,
   };
   await createOperation(home, op);
   const tools = holotableToolDefs({ home, current: () => "lab", now: () => new Date("2026-01-02T00:00:00Z") });
-  return { home, state: tools.state, queue: tools.queue };
+  return { home, state: tools.state, queue: tools.queue, work: tools.work };
 }
 
 test("holotable_state stays within 4000 chars on a 200-contact operation and says what was cut", async () => {
@@ -149,4 +150,31 @@ test("queue edits preserve independent scope, and explicit null clears it", asyn
   expect((await readOperation(home, "lab")).contacts[0]).toMatchObject({
     title: "Updated title", zone: "ship", description: null,
   });
+});
+
+test.each([false, true])("main-agent worker reports survive reload without unblocking dependencies (service=%s)", async (live) => {
+  const { home, work, queue } = await setup([contact("a"), contact("b", { blockedBy: ["a"] })], "agent");
+  if (live) {
+    const board = await startBoard({
+      home,
+      settings: { ...DEFAULT_SETTINGS, port: 0, pollMs: 60_000, sampleMs: 60_000 },
+      run: noRun,
+      portsFor: () => fakePorts().ports,
+    });
+    cleanup.push(() => board.close());
+  }
+  await work.execute({ action: "claim", coordinator: "main" });
+  await work.execute({ action: "report", coordinator: "main", ticket: "a", worker: "Boost", state: "assigned", summary: "Implement a" });
+  await work.execute({ action: "report", coordinator: "main", ticket: "a", worker: "Boost", state: "running", summary: "Editing" });
+  await expect(queue.execute({ action: "update", ticket: "a", title: "Changed scope" })).rejects.toThrow();
+  await work.execute({ action: "report", coordinator: "main", ticket: "a", worker: "Boost", state: "complete", summary: "Worker returned; review pending" });
+  const reloaded = holotableToolDefs({ home, current: () => "lab", now: () => new Date("2026-01-02T00:01:00Z") });
+  const text = await reloaded.state.execute({});
+  expect(text).toContain("execution=agent coordinator=main");
+  expect(text).toContain("worker=Boost reported=complete");
+  expect(text).toContain("b ops implement blocked");
+  await expect(reloaded.work.execute({
+    action: "report", coordinator: "main", ticket: "b", worker: "Dash",
+    state: "assigned", summary: "Premature assignment",
+  })).rejects.toThrow();
 });

@@ -1,5 +1,6 @@
 import {
   CONTACT_EVENT_KINDS,
+  AGENT_WORK_STATES,
   SOURCES,
   FRONTENDS,
   OPERATION_EVENT_KINDS,
@@ -70,6 +71,12 @@ export function validateEvent(value: unknown, path = "events.jsonl"): Event {
       if (typeof value.waiting !== "boolean") return fail("waiting must be a boolean");
       return { v: 1, at, kind: "capacity-wait", waiting: value.waiting };
     }
+    if (kind === "agent-claim" || kind === "agent-release") {
+      const coordinator = str("coordinator");
+      return kind === "agent-claim"
+        ? { v: 1, at, kind, coordinator }
+        : { v: 1, at, kind, coordinator };
+    }
     return {
       v: 1,
       at,
@@ -84,6 +91,14 @@ export function validateEvent(value: unknown, path = "events.jsonl"): Event {
   const base = { v: 1 as const, at, contact: value.contact };
 
   switch (kind) {
+    case "agent-report":
+      return {
+        ...base, kind, coordinator: str("coordinator"),
+        worker: str("worker"), state: inList("state", value.state, AGENT_WORK_STATES),
+        summary: str("summary"),
+        ...(value.verification !== undefined ? { verification: str("verification") } : {}),
+        ...(value.commit !== undefined ? { commit: str("commit") } : {}),
+      };
     case "queued":
       return value.source === undefined
         ? { ...base, kind: "queued" }

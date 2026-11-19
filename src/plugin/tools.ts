@@ -1,20 +1,24 @@
+import { agentWork, type AgentWorkInput } from "../agent-work.ts";
+import type { Run } from "../ports.ts";
 import { addContact, updateContact } from "../contacts.ts";
 import { KINDS, type Kind, type Projection } from "../core/types.ts";
 import { readSettings } from "../store/settings.ts";
 import { loadProjection } from "../snapshot.ts";
-import { projection } from "./client.ts";
+import { projection, reportAgentWork } from "./client.ts";
 
 const MAX_CHARS = 4000;
 
 /** One line per contact plus a header; capped so a big board cannot flood the model. */
 export function stateText(p: Projection): string {
   const queued = p.contacts.filter((c) => c.group === "queue").length;
-  const head = `${p.operation.id} "${p.operation.name}" base=${p.operation.base} tracker=${p.operation.tracker} fleet=${p.operation.fleet} frontend=${p.operation.frontend} delivery=${p.operation.delivery} | ${p.header.open}/${p.header.cap} omp, ${queued} queued, ${p.contacts.length} contacts`;
+  const execution = p.operation.execution ?? "missions";
+  const head = `${p.operation.id} "${p.operation.name}" execution=${execution}${p.operation.coordinator ? ` coordinator=${p.operation.coordinator}` : ""} base=${p.operation.base} tracker=${p.operation.tracker} fleet=${p.operation.fleet} frontend=${p.operation.frontend} delivery=${p.operation.delivery} | ${p.header.open}/${p.header.cap} omp, ${queued} queued, ${p.contacts.length} contacts`;
   const lines: string[] = [head];
   let size = head.length;
   for (const [index, c] of p.contacts.entries()) {
     const blockers = c.blockedBy.length ? ` blockedBy=${c.blockedBy.map((b) => `${b.ticket}${b.landed ? "(landed)" : ""}`).join(",")}` : "";
-    const line = `${c.ticket} ${c.zone} ${c.kind} ${c.state} ${c.detail}${blockers}`;
+    const worker = c.agent ? ` worker=${c.agent.worker} reported=${c.agent.state}` : "";
+    const line = `${c.ticket} ${c.zone} ${c.kind} ${c.state}${worker} ${c.detail}${blockers}`;
     if (size + line.length + 1 > MAX_CHARS - 40) {
       lines.push(`… ${p.contacts.length - index} more contacts`);
       break;
@@ -43,6 +47,7 @@ export interface ToolDeps {
   /** The host's selected operation; used when params.operation is absent. */
   current(): Promise<string | null> | string | null;
   now(): Date;
+  run?: Run;
 }
 
 const OPT_STR = { type: "string" };
@@ -83,7 +88,7 @@ function optStringList(params: Record<string, unknown>, key: string): string[] |
 }
 
 /** Host-agnostic tool definitions: the OMP adapter wraps them with pi.zod, another host reuses them as-is. */
-export function holotableToolDefs(deps: ToolDeps): { state: GenericTool; queue: GenericTool } {
+export function holotableToolDefs(deps: ToolDeps): { state: GenericTool; queue: GenericTool; work: GenericTool } {
   return {
     state: {
       name: "holotable_state",
@@ -174,6 +179,49 @@ export function holotableToolDefs(deps: ToolDeps): { state: GenericTool; queue: 
           "model",
         );
         return `${updated.ticket} updated in ${id}.`;
+      },
+    },
+    work: {
+      name: "holotable_work",
+      label: "Holotable work",
+      description:
+        "Coordinate an agent-managed operation. Claim it before spawning your own task subagents, report each ticket's worker and progress, then report complete when the worker returns. Verify and integrate separately: integrated requires verification evidence and a full commit SHA already on the integration checkout's base branch. Decide answers a decision contact using choice and summary. This tool never launches workers, merges code, approves mission gates or changes tracker issues. Use a stable coordinator identity; another coordinator must be released explicitly. Reassign with assigned before using a different worker.",
+      approval: "write",
+      defaultInactive: true,
+      params: {
+        type: "object",
+        required: ["action", "coordinator"],
+        properties: {
+          operation: OPT_STR,
+          coordinator: { ...OPT_STR, description: "Stable main-session identity" },
+          action: { type: "string", enum: ["claim", "release", "report", "decide"] },
+          ticket: OPT_STR,
+          choice: { ...OPT_STR, description: "Selected answer for a decision contact (decide action)" },
+          worker: { ...OPT_STR, description: "Task subagent identity; stable for this assignment" },
+          state: { type: "string", enum: ["assigned", "running", "blocked", "verifying", "complete", "integrated"] },
+          summary: { ...OPT_STR, description: "Actual progress, blocker or result; never infer success from silence" },
+          verification: { ...OPT_STR, description: "Checks actually run and their outcomes" },
+          commit: { ...OPT_STR, description: "Full integrated Git commit SHA, not a branch name" },
+        },
+        additionalProperties: false,
+      },
+      async execute(params) {
+        const id = await resolveOp(deps, params.operation);
+        const action = requireString(params, "action");
+        if (action !== "claim" && action !== "release" && action !== "report" && action !== "decide")
+          throw new Error("action must be claim, release, report or decide");
+        const input: AgentWorkInput = { action, coordinator: requireString(params, "coordinator") };
+        for (const key of ["ticket", "worker", "summary", "verification", "commit", "choice"] as const) {
+          const value = optString(params, key);
+          if (value !== undefined) input[key] = value;
+        }
+        const state = optString(params, "state");
+        if (state !== undefined) {
+          if (!["assigned", "running", "blocked", "verifying", "complete", "integrated"].includes(state))
+            throw new Error("invalid worker state");
+          input.state = state as AgentWorkInput["state"];
+        }
+        return (await reportAgentWork(deps.home, id, input)) ?? agentWork(deps.home, deps.now(), id, input, deps.run);
       },
     },
   };

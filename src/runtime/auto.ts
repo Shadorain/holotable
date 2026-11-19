@@ -118,8 +118,10 @@ export function createAuto(deps: AutoDeps): { pass(): Promise<void>; landingWait
   }
 
   async function runOp(opId: string): Promise<void> {
+    const operation = await readOperation(deps.home, opId);
+    if ((operation.execution ?? "missions") === "agent") return;
     // Off needs no projection; when on, the projected `auto` carries capacityWait.
-    if (!(await readOperation(deps.home, opId)).auto?.enabled) {
+    if (!operation.auto?.enabled) {
       await recordCapacityWait(opId, false);
       landingWaits.delete(opId);
       return;

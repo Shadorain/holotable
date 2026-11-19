@@ -51,23 +51,31 @@ export function renderOps(root, projection, ctx) {
   root.replaceChildren();
   const op = projection.operation;
   const contacts = projection.contacts;
-
-  // Progress first: the one question this column answers at a glance.
-  const landed = contacts.filter((c) => c.state === "landed").length;
-  const progress = section("Progress", `${landed}/${contacts.length} landed`);
+  const agentManaged = op.execution === "agent";
+  const resolved = contacts.filter((c) => c.state === "landed" || c.agent?.state === "integrated").length;
+  const progress = section("Progress", `${resolved}/${contacts.length} ${agentManaged ? "integrated" : "landed"}`);
   const meter = el("div", "meter");
   const fill = el("span", "");
-  fill.style.width = contacts.length ? `${Math.round((landed / contacts.length) * 100)}%` : "0";
+  fill.style.width = contacts.length ? `${Math.round((resolved / contacts.length) * 100)}%` : "0";
   meter.append(fill);
   progress.append(meter);
-  progress.append(
-    kv([
+  const needsYou = ["Needs you", String(contacts.filter((c) => c.attention).length), "Waiting on an operator click or a decision"];
+  if (agentManaged) {
+    progress.append(kv([
+      ["Execution", "Agent-managed"],
+      ["Coordinator", op.coordinator ?? "unclaimed", "The main session that owns worker reporting"],
+      ["Workers", String(contacts.filter((c) => ["assigned", "running", "verifying"].includes(c.agent?.state)).length), "Reported task jobs not yet complete or integrated"],
+      ["Queued", String(contacts.filter((c) => c.group === "queue").length), "Ready or dependency-blocked contacts"],
+      needsYou,
+    ]));
+  } else {
+    progress.append(kv([
       ["Started", String(contacts.filter((c) => c.group === "live" && c.state !== "landed").length), "Launched and not landed yet"],
       ["Queued", String(contacts.filter((c) => c.group === "queue").length), "Waiting to launch (blocked, ready or decisions)"],
-      ["Needs you", String(contacts.filter((c) => c.attention).length), "Waiting on an operator click or a decision"],
+      needsYou,
       ["Auto mode", op.auto?.enabled ? "on" : "off", "Open the Operation page to change it", ctx.openOperationPage],
-    ]),
-  );
+    ]));
+  }
   root.append(progress);
 
   const n = projection.notes;
@@ -75,15 +83,18 @@ export function renderOps(root, projection, ctx) {
   notes.append(notesPanel(op.id, ctx, { compact: true }));
   root.append(notes);
 
-  const wiring = foldable("wiring", "Wiring");
+  const wiring = foldable("wiring", agentManaged ? "Tracker" : "Wiring");
   const ports = el("div", "ports");
-  for (const [k, v, tip] of [
-    ["tracker", op.tracker, "Where tickets live (Linear, GitHub)"],
-    ["fleet", op.fleet, "What runs the work (omp-mission)"],
-    ["frontend", op.frontend, "Where worktrees and mission panes come from"],
-    ["delivery", op.delivery, "How finished work lands"],
-    ["pause gates", op.pause ? "on" : "off", "Missions stop at Pause gates for your approval"],
-  ]) {
+  const wiringPorts = agentManaged
+    ? [["tracker", op.tracker, "Where tickets live (Linear, GitHub)"]]
+    : [
+      ["tracker", op.tracker, "Where tickets live (Linear, GitHub)"],
+      ["fleet", op.fleet, "What runs the work (omp-mission)"],
+      ["frontend", op.frontend, "Where worktrees and mission panes come from"],
+      ["delivery", op.delivery, "How finished work lands"],
+      ["pause gates", op.pause ? "on" : "off", "Missions stop at Pause gates for your approval"],
+    ];
+  for (const [k, v, tip] of wiringPorts) {
     const chip = el("span", `port${v === "none" ? " off" : ""}`);
     chip.title = tip;
     chip.append(el("span", "", k), el("b", "", v));

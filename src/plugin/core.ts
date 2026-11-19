@@ -41,7 +41,7 @@ export interface HolotableCore {
   /** Builds a fresh snapshot each call: cheap, and always in step with the store. */
   completions(prefix: string, current?: string | null): Promise<CompletionItem[] | null>;
   completionSnapshot(current?: string | null): Promise<CompletionSnapshot>;
-  tools: { state: GenericTool; queue: GenericTool };
+  tools: { state: GenericTool; queue: GenericTool; work: GenericTool };
   /** Structured live status; hosts render it in their own theme. */
   status(current?: string | null): Promise<HolotableStatus>;
   /** Service health: board.json exists and the service answers with our token. */
@@ -90,7 +90,7 @@ export function createHolotableCore(deps: HolotableCoreDeps): HolotableCore {
       return holotableCompletions(prefix, await snapshot(await currentOf(current)));
     },
     completionSnapshot: async (current) => snapshot(await currentOf(current)),
-    tools: holotableToolDefs({ home, current: () => deps.current?.() ?? null, now: deps.now }),
+    tools: holotableToolDefs({ home, current: () => deps.current?.() ?? null, now: deps.now, run }),
     async status(current) {
       const rows = await operations(home);
       if (rows === null) return { running: false };

@@ -150,6 +150,8 @@ export interface StoredOperation {
   delivery?: Delivery;
   worktreeRoot?: string;
   ignoreChecks?: boolean;
+  /** Absent operations continue using mission orchestration. */
+  execution?: "missions" | "agent";
   zones: Zone[];
   contacts: Contact[];
   createdAt: string;
@@ -176,6 +178,7 @@ export interface Operation {
   createdAt: string;
   /** The project this operation inherits unset overridable fields from; null = standalone. */
   project: string | null;
+  execution?: "missions" | "agent";
   /** Overrides settings.worktrees.root for this operation's git-managed lanes (herdr, custom). */
   worktreeRoot?: string;
   /** Auto mode; absent until first enabled. See runtime/auto.ts. */
@@ -232,7 +235,21 @@ interface ContactEventBase extends EventBase {
 }
 export type LaunchStep = "repo" | "workspace" | "terminal" | "socket";
 export type ClosedOutcome = "landed" | "abandoned" | "decision" | "failed";
+export type AgentWorkState = "assigned" | "running" | "blocked" | "verifying" | "complete" | "integrated";
+export interface AgentWorkView {
+  coordinator: string;
+  worker: string;
+  state: AgentWorkState;
+  summary: string;
+  verification?: string;
+  commit?: string;
+  at: string;
+}
+export const AGENT_WORK_STATES = ["assigned", "running", "blocked", "verifying", "complete", "integrated"] as const;
 export type Event =
+  | (EventBase & { kind: "agent-claim"; coordinator: string })
+  | (EventBase & { kind: "agent-release"; coordinator: string })
+  | (EventBase & { kind: "agent-report"; coordinator: string; contact: string; worker: string; state: AgentWorkState; summary: string; verification?: string; commit?: string })
   | (ContactEventBase & { kind: "queued"; source?: Source })
   | (ContactEventBase & { kind: "edited"; source: Source; fields: string[] })
   | (ContactEventBase & { kind: "blocked"; by: string[] })
@@ -284,8 +301,9 @@ export const CONTACT_EVENT_KINDS = [
   "sample",
   "pane-usage",
   "recovery-wait",
+  "agent-report",
 ] as const;
-export const OPERATION_EVENT_KINDS = ["workflow", "closed", "auto", "recover", "capacity-wait"] as const;
+export const OPERATION_EVENT_KINDS = ["workflow", "closed", "auto", "recover", "capacity-wait", "agent-claim", "agent-release"] as const;
 
 // ---- settings (C4) ----
 
@@ -729,6 +747,7 @@ export interface ContactView {
   /** Why to leave it alone: the mission is working, or auto mode or Recovery owns the next step; null otherwise. */
   handsOff: string | null;
   actions: ActionView[];
+  agent?: AgentWorkView | null;
 }
 
 export interface Projection {
@@ -741,6 +760,8 @@ export interface Projection {
     fleet: Fleet;
     auto: (AutoMode & { landWait?: string | null; capacityWait?: string | null }) | null;
     recover: boolean;
+    execution: "missions" | "agent";
+    coordinator: string | null;
     delivery: Delivery;
     pause: boolean;
     project: { id: string; name: string } | null;

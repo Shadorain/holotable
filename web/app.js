@@ -312,7 +312,7 @@ function renderHeader() {
     state.opId,
     state.view,
     shown,
-    p ? [p.operation.base, p.header.open, p.header.cap, p.notes?.done, p.notes?.total, needs, p.operation.auto] : null,
+    p ? [p.operation.base, p.operation.execution, p.operation.coordinator, p.header.open, p.header.cap, p.notes?.done, p.notes?.total, needs, p.operation.auto] : null,
     state.conn,
     state.intelArchive,
     state.view === "intel" ? state.intelArchives : null,
@@ -375,8 +375,7 @@ function renderHeader() {
   $("conn").className = `conn c-${state.conn}`;
   $("connText").textContent = { live: "live", connecting: "connecting", lost: "reconnecting", denied: "token rejected" }[state.conn];
   const auto = p?.operation?.auto;
-  $("autoInd").hidden = !auto?.enabled;
-  $("autoText").textContent = auto?.enabled ? (auto.launch || auto.land ? "Auto" : "Auto (manual land)") : "";
+  $("autoInd").hidden = p?.operation?.execution === "agent" || !auto?.enabled;
   const intDirty = p?.operation?.integrationDirty;
   const dirty = typeof intDirty === "number" && intDirty > 0;
   $("intWarn").hidden = !dirty;
@@ -504,7 +503,7 @@ function render() {
     region($("stage"), { op: p.operation.id, contacts: p.contacts.map((c) => [c.ticket, c.title, c.zone, c.group, c.state, c.attention, c.detail, c.blockedBy.map(b => [b.ticket, b.landed]), c.conflictOf]), zones: p.operation.zones, selected }, () =>
       radar.update(p, selected));
   } else if (state.view === "board") {
-    region($("ops"), { op: p.operation, notes: p.notes, notesKey: notesKey(p.operation.id), counts: p.contacts.map((c) => [c.state, c.group, c.attention]), busy }, (root) => renderOps(root, p, ctx));
+    region($("ops"), { op: p.operation, notes: p.notes, notesKey: notesKey(p.operation.id), counts: p.contacts.map((c) => [c.state, c.group, c.attention, c.agent?.state]), busy }, (root) => renderOps(root, p, ctx));
   } else {
     // Also reached by a page view while the connection is not live.
     renderPlanView(p, selected, ctx, busy);
@@ -573,8 +572,10 @@ function renderOpPage(p, ctx, busy) {
     doc,
     ui: opUiKey(p.operation.id, p.operation.zones),
     auto: p.operation.auto,
+    execution: p.operation.execution,
+    coordinator: p.operation.coordinator,
     zones: p.operation.zones,
-    contacts: p.contacts.map((c) => [c.ticket, c.title, c.description, c.zone, c.kind, c.state, c.problem, c.blockedBy, c.tracker?.url ?? null]),
+    contacts: p.contacts.map((c) => [c.ticket, c.title, c.description, c.zone, c.kind, c.state, c.problem, c.blockedBy, c.tracker?.url ?? null, c.agent]),
     notes: p.notes,
     notesKey: notesKey(p.operation.id),
     busy,
@@ -1323,7 +1324,7 @@ document.addEventListener("keydown", (event) => {
   }
   if ((event.key === "[" || event.key === "]") && !onControl) {
     const contact = state.projection?.contacts.find((c) => c.ticket === selectedTicket());
-    const ids = cardTabs(contact).map(([id]) => id);
+    const ids = cardTabs(contact, state.projection?.operation.execution === "agent").map(([id]) => id);
     const at = ids.indexOf(state.cardTab);
     setCardTab(ids[(at + (event.key === "]" ? 1 : -1) + ids.length) % ids.length]);
   }
