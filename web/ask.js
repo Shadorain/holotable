@@ -40,13 +40,13 @@ export function askBox(contact, ctx, opId) {
   }
   const { data } = draft;
   const root = el("form", "decision-box ask-box");
+  root.noValidate = true;
   root.append(el("div", "kicker", "The mission asks"));
   const controls = el("fieldset", "ask-controls");
   controls.disabled = !action?.enabled || ctx.busy.has(`${contact.ticket}/*`);
   const error = el("div", "set-note");
   error.setAttribute("role", "alert");
   const rendered = new Set();
-  const fieldNodes = new Map();
   const setValue = (name, value) => {
     if (value === undefined) delete data[name]; else data[name] = value;
     error.textContent = "";
@@ -55,23 +55,41 @@ export function askBox(contact, ctx, opId) {
     if (rendered.has(field.name)) return null;
     rendered.add(field.name);
     const box = el("div", "ask-field");
-    fieldNodes.set(field.name, box);
     if (field.kind === "text") {
       const label = el("label", "set-label");
       appendSpans(label, field.label);
       const input = el(field.multiline ? "textarea" : "input", "ask-other");
-      if (!field.multiline) input.type = field.type === "range" ? "number" : ["text", "number", "date", "datetime-local", "time", "month", "week", "email", "url", "tel", "password", "search"].includes(field.type) ? field.type : "text";
+      const numeric = field.type === "number" || field.type === "range";
+      if (!field.multiline) input.type = numeric ? "text" : ["text", "date", "datetime-local", "time", "month", "week", "email", "url", "tel", "password", "search"].includes(field.type) ? field.type : "text";
+      if (numeric) input.inputMode = "decimal";
       input.name = field.name;
       input.value = data[field.name] ?? "";
       input.placeholder = field.placeholder;
       input.required = field.required;
-      for (const [property, value] of Object.entries({ min: field.min, max: field.max, pattern: field.pattern, minLength: field.minLength, maxLength: field.maxLength })) {
+      for (const [property, value] of Object.entries({ min: field.min, max: field.max, pattern: field.pattern, minLength: field.minLength })) {
         if (value !== undefined) input[property] = value;
       }
       if (field.multiline) input.rows = Math.min(20, Math.max(1, field.rows));
-      input.addEventListener("input", () => setValue(field.name, input.value));
+      const hint = el("div", "set-note");
+      const validate = () => {
+        let message = input.validationMessage;
+        if (!message && input.value.trim() && numeric) {
+          const number = Number(input.value);
+          if (!Number.isFinite(number)) message = "Enter a number";
+          else if (field.min !== undefined && number < field.min) message = `Must be at least ${field.min}`;
+          else if (field.max !== undefined && number > field.max) message = `Must be at most ${field.max}`;
+        }
+        if (!message && field.maxLength !== undefined && input.value.length > field.maxLength) message = `At most ${field.maxLength} characters`;
+        input.setAttribute("aria-invalid", String(Boolean(message)));
+        hint.textContent = message ? `${message}. You can still send this answer.` : "";
+      };
+      input.addEventListener("input", () => {
+        setValue(field.name, input.value);
+        validate();
+      });
+      validate();
       label.append(input);
-      box.append(label);
+      box.append(label, hint);
       return box;
     }
     const name = field.name;
@@ -217,19 +235,14 @@ export function askBox(contact, ctx, opId) {
   send.append(icon("send", { size: 13 }), document.createTextNode("Send answer"));
   controls.append(send);
   root.append(controls, error);
-  root.append(el("div", "set-note", action?.enabled ? "Answers this form in the mission pane." : `Use Answer in mission${action?.reason ? `: ${action.reason}` : "."}`));
+  root.append(el("div", "set-note", action?.enabled ? "Answers this form in the mission pane. Unanswered fields and validation warnings are sent as-is." : `Use Answer in mission${action?.reason ? `: ${action.reason}` : "."}`));
   root.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (controls.disabled || !root.reportValidity()) return;
+    if (controls.disabled) return;
     const submitted = { ...data };
     for (const field of ask.form.fields) {
       const value = submitted[field.name];
-      if (field.required && (value === undefined || value === "" || Array.isArray(value) && value.length === 0)) {
-        error.textContent = `Answer ${text(field.label) || field.name}.`;
-        fieldNodes.get(field.name)?.querySelector("input, select, textarea")?.focus();
-        return;
-      }
-      if (field.kind === "text" && ["number", "range"].includes(field.type) && String(value ?? "").trim() !== "") submitted[field.name] = Number(value);
+      if (field.kind === "text" && ["number", "range"].includes(field.type) && String(value ?? "").trim() !== "" && Number.isFinite(Number(value))) submitted[field.name] = Number(value);
     }
     controls.disabled = true;
     try {

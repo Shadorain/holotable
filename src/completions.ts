@@ -1,4 +1,4 @@
-import type { AutocompleteItem } from "@oh-my-pi/pi-tui";
+import type { AutocompleteItem } from "@oh-my-pi/pi-coding-agent/autocomplete/autocomplete";
 import { ACCESS_MODES, DELIVERIES, FLEETS, FRONTENDS, KINDS, THEMES, THINKING_LEVELS, TRACKERS } from "./core/types.ts";
 export interface CompletionSnapshot {
   operations: Array<{ id: string; name: string; archived: boolean }>;

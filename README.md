@@ -6,7 +6,7 @@
 
 **Mission control for OMP and agent-managed work.**
 
-[![OMP](https://img.shields.io/badge/OMP-18.22.0%2B-37d4a7?style=for-the-badge)](https://github.com/can1357/oh-my-pi)
+[![OMP](https://img.shields.io/badge/OMP-19.2.1%2B-37d4a7?style=for-the-badge)](https://github.com/can1357/oh-my-pi)
 [![Bun](https://img.shields.io/badge/runtime-Bun-ff4971?style=for-the-badge&logo=bun&logoColor=white)](https://bun.sh)
 [![License](https://img.shields.io/badge/license-MIT-blueviolet?style=for-the-badge)](LICENSE)
 
@@ -46,7 +46,7 @@ flowchart LR
 
 ## Requirements
 
-- **OMP 18.22.0 or later.** Mission panes and the board use the same current SDK, including native HTML-form questions and plan review.
+- **OMP 19.2.1 or later.** Mission panes and the board use the current host SDK and theme service, including native HTML-form questions and plan review. Restart existing OMP panes after upgrading the extensions.
 - **[omp-mission](https://github.com/Shadorain/omp-mission)** installed as an OMP extension. Launched panes must load it.
 - **[Bun](https://bun.sh/docs/installation)** on `PATH`, and a browser.
 - **A launch frontend:** Orca terminal (`orca` CLI plus the `orca-cli-patch` extension that adds `orca worktree create --command`), Herdr (`herdr` CLI), or your own shell templates. Setup checks launch capabilities before workspace creation. Without a frontend, the board can still organize work.

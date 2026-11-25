@@ -472,7 +472,7 @@ export interface ContactStatus {
   updatedAt: string;
 }
 
-// --- Ask form (mirrors the serializable `HtmlForm` of @oh-my-pi/pi-tui/html-form; the board cannot import it) ---
+// --- Ask form (mirrors the serializable `HtmlForm` of OMP's tools/html-form; the board cannot import it) ---
 
 /** Inline emphasis a span keeps from `<code>`, `<strong>`/`<b>` and `<em>`/`<i>`. */
 export type FormSpanStyle = "code" | "strong" | "em";

@@ -1,6 +1,5 @@
 import { z } from "@oh-my-pi/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext, LinkActivateEvent, Theme } from "@oh-my-pi/pi-coding-agent";
-import type { SymbolKey } from "@oh-my-pi/pi-tui/theme";
 import { holotableCompletions } from "../../completions.ts";
 import type { CompletionSnapshot } from "../../completions.ts";
 import { KINDS } from "../../core/types.ts";
@@ -22,8 +21,7 @@ function operationFromLink(url: string): string | null {
 
 function statusText(status: HolotableStatus, theme: Theme): string | undefined {
   if (status.running && status.operations === 0) return undefined;
-  const glyph = (key: SymbolKey, fallback: string) =>
-    typeof theme.symbol === "function" ? theme.symbol(key) || fallback : fallback;
+  const glyph = (key: string, fallback: string) => theme.symbols.symbol(key) || fallback;
   const separator = ` ${theme.fg("dim", glyph("sep.dot", "·").trim() || "·")} `;
   const rail = theme.fg("accent", glyph("advisor.rail", "▎"));
   const icon = theme.fg("accent", glyph("cmd.compass", "⌖"));

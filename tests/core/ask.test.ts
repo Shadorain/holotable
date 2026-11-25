@@ -105,12 +105,12 @@ test("answers are per-name values: options, Other text, numbers â€” 0 included â
     .toEqual({ revision: "rev-3", listen: "something else", workers: "2", channels: ["ops", "extra"] });
   // Numeric text answers stay verbatim for the producer's own normalization.
   expect(askAnswers(ask, { revision: "rev-3", listen: "status", workers: "1e2", channels: [] }))
-    .toBe("How many workers?: Must be at most 8");
+    .toEqual({ revision: "rev-3", listen: "status", workers: "1e2", channels: [] });
 });
 
-test("answers the form cannot take are refused before anything is sent", () => {
+test("form hints are advisory while malformed wire answers are refused", () => {
   expect(askAnswers(ask, ["send"])).toBe("data must be a field-to-value object");
-  expect(askAnswers(ask, { revision: "rev-3", listen: "send" })).toBe("How many workers?: Required");
+  expect(askAnswers(ask, { revision: "rev-3", listen: "send" })).toEqual({ revision: "rev-3", listen: "send" });
   expect(askAnswers(ask, { revision: "rev-3", listen: "send", workers: 2, bogus: "x" })).toBe('"bogus" is not a field of this form');
   expect(askAnswers(ask, { revision: "rev-2", listen: "send", workers: 2 })).toBe('"revision" does not match the form\'s hidden value');
   expect(askAnswers(ask, { revision: "rev-3", listen: "gone", workers: 2 })).toBe("Listen where?: a disabled option");
@@ -119,10 +119,11 @@ test("answers the form cannot take are refused before anything is sent", () => {
   expect(askAnswers(ask, { revision: "rev-3", listen: "send", workers: 2, channels: ["ops", "x", "y"] })).toBe("Channels: one free-text answer");
   expect(askAnswers(ask, { revision: "rev-3", listen: "send", workers: 2, channels: "ops" })).toBe("Channels: an option list");
   expect(askAnswers(ask, { revision: "rev-3", listen: "send", workers: 2, channels: [] })).toEqual({ revision: "rev-3", listen: "send", workers: 2, channels: [] });
-  expect(askAnswers(ask, { revision: "rev-3", listen: "send", workers: "lots" })).toBe("How many workers?: Enter a number");
-  expect(askAnswers(ask, { revision: "rev-3", listen: "send", workers: 9 })).toBe("How many workers?: Must be at most 8");
+  expect(askAnswers(ask, { revision: "rev-3", listen: "send", workers: "lots" })).toEqual({ revision: "rev-3", listen: "send", workers: "lots" });
+  expect(askAnswers(ask, { revision: "rev-3", listen: "send", workers: 9 })).toEqual({ revision: "rev-3", listen: "send", workers: 9 });
+  expect(askAnswers(ask, { workers: Number.POSITIVE_INFINITY })).toEqual(expect.any(String));
   expect(askAnswers(ask, { revision: "rev-3", listen: "send", workers: true })).toEqual(expect.any(String));
-  expect(askAnswers(ask, { revision: "rev-3", listen: "send", workers: 2, notes: "this is far too long" })).toBe("Notes: At most 10 characters");
+  expect(askAnswers(ask, { revision: "rev-3", listen: "send", workers: 2, notes: "this is far too long" })).toEqual({ revision: "rev-3", listen: "send", workers: 2, notes: "this is far too long" });
 });
 
 test("a single checkbox answers with one value, not a list", () => {
@@ -136,5 +137,5 @@ test("a single checkbox answers with one value, not a list", () => {
   };
   expect(askAnswers(single, { agree: "yes" })).toEqual({ agree: "yes" });
   expect(askAnswers(single, { agree: ["yes"] })).toEqual(expect.any(String));
-  expect(askAnswers(single, {})).toEqual(expect.any(String));
+  expect(askAnswers(single, {})).toEqual({});
 });

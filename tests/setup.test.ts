@@ -87,8 +87,9 @@ test("setup refuses outdated, prerelease and unidentifiable OMP binaries", async
   try {
     await writeSettings(home, DEFAULT_SETTINGS);
     for (const [version, supported] of [
-      ["18.21.9", false], ["omp v18.22.0", true], ["18.23.0+build1", true],
-      ["19.0.0", true], ["18.22.0-beta.1", false], ["omp v1", false], ["", false],
+      ["18.22.0", false], ["19.0.0", false], ["19.2.0", false],
+      ["omp/19.2.1", true], ["omp v19.2.1", true], ["19.3.0+build1", true], ["20.0.0", true],
+      ["19.2.1-beta.1", false], ["omp v1", false], ["", false],
     ] as const) {
       const report = await runSetupChecks(home, async (_cmd, args) => ({
         code: 0, stdout: args[0] === "--version" ? version : '{"npm":[]}', stderr: "",
@@ -120,7 +121,7 @@ test("setup distinguishes active, disabled and duplicate mission copies in an is
       if (scenario.linked) await mkdir(join(agent, "extensions", "omp-mission"), { recursive: true });
       const report = await runSetupChecks(home, async (_cmd, args) => ({
         code: 0,
-        stdout: args[0] === "--version" ? "18.22.0" : JSON.stringify({
+        stdout: args[0] === "--version" ? "omp/19.2.1" : JSON.stringify({
           npm: scenario.enabled === undefined ? [] : [{ name: "omp-mission", enabled: scenario.enabled }],
         }),
         stderr: "",

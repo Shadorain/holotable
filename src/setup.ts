@@ -136,15 +136,16 @@ export async function runSetupChecks(home: string, run?: Run): Promise<SetupRepo
 
   if (run) {
     addCheck("omp", "OMP CLI", runWithTimeout(run, "omp", ["--version"]).then((res) => {
-      const version = /(?:^|\s)v?(\d+)\.(\d+)\.(\d+)(?:\+[^\s]+)?(?:\s|$)/i.exec(res.stdout.trim());
-      if (res.code === 0 && version && (Number(version[1]) > 18 || (Number(version[1]) === 18 && Number(version[2]) >= 22)))
+      const version = /^(?:omp(?:\/|\s+))?v?(\d+)\.(\d+)\.(\d+)(?:\+[^\s]+)?$/i.exec(res.stdout.trim());
+      if (res.code === 0 && version && (Number(version[1]) > 19 || (Number(version[1]) === 19 &&
+          (Number(version[2]) > 2 || (Number(version[2]) === 2 && Number(version[3]) >= 1)))))
         return { ok: true, detail: res.stdout.trim() };
       return {
         ok: false,
         detail: res.code !== 0 ? (res.detail ?? res.stderr.trim()) || "omp not found"
-          : version ? `${res.stdout.trim()} is older than the required OMP 18.22.0`
+          : version ? `${res.stdout.trim()} is older than the required OMP 19.2.1`
             : `Cannot determine the OMP version from ${JSON.stringify(res.stdout.trim())}`,
-        fix: "Install OMP 18.22.0 or newer with native HTML forms and session lifecycle APIs",
+        fix: "Install OMP 19.2.1 or newer with the current extension UI and session APIs",
       };
     }));
 

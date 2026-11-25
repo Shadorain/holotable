@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import type { Access, AskForm, CloserReview, ContactStatus, MissionApproval, MissionAsk, MissionCheck, MissionReport, Operation, Settings, TerminalRef, Tracker } from "../src/core/types.ts";
 import { askSummary } from "../src/core/ask.ts";
-import { parseHtmlForm } from "@oh-my-pi/pi-tui/html-form/parse";
+import { parseHtmlForm } from "@oh-my-pi/pi-coding-agent/tools/html-form/parse";
 import { PortError, type Ports, type Run, type TrackerHit, type TrackerPort } from "../src/ports.ts";
 import { DEFAULT_SETTINGS, settingsFile } from "../src/settings.ts";
 import { readSettings } from "../src/store/settings.ts";
@@ -670,7 +670,7 @@ function simulate(initial: Map<string, SimMission["stage"]>, lanesRoot: string, 
   // The lander pins and merges with real git; the simulation answers as git would for a conflicted merge.
   const run: Run = async (command, args, cwd) => {
     // Setup checks mock
-    if (command === "omp" && args[0] === "--version") return { stdout: "omp v18.10.4", stderr: "", code: 0 };
+    if (command === "omp" && args[0] === "--version") return { stdout: "omp/19.2.1", stderr: "", code: 0 };
     if (command === "omp" && args[0] === "models") return { stdout: JSON.stringify({ models: SIM_MODELS }), stderr: "", code: 0 };
     if (command === "omp" && args[0] === "usage") return { stdout: "", stderr: "usage reports are not simulated", code: 1 };
     if (command === "omp" && args[0] === "plugin" && args[1] === "list" && args[2] === "--json") {

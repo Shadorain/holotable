@@ -126,7 +126,7 @@ function block(raw: unknown): FormBlock | null {
 
 /**
  * Parse the `ask` of a producer's status: `{id, form}` where `form` mirrors the serializable
- * `HtmlForm` of `@oh-my-pi/pi-tui/html-form/parse`. Lenient like the status `report`: anything
+ * `HtmlForm` of `@oh-my-pi/pi-coding-agent/tools/html-form/parse`. Lenient like the status `report`: anything
  * off-contract — wrong shapes, missing blocks, a form over the JSON or field bounds, `fields`
  * that are not exactly the field blocks of the sections, duplicate control names — reads as no
  * ask (null), so the question hold survives and the board points the operator at the pane.
@@ -208,25 +208,12 @@ export function askSummary(ask: MissionAsk): string {
   return (first && askQuestions(ask.form).get(first.name)) || "the mission's question";
 }
 
-/** `^(?:pattern)$` as HTML matches `pattern`, or undefined when the model wrote an invalid one. */
-function compilePattern(pattern: string): RegExp | undefined {
-  try {
-    return new RegExp(`^(?:${pattern})$`, "v");
-  } catch {
-    return undefined;
-  }
-}
-
 const isValue = (raw: unknown): raw is AskValue =>
-  typeof raw === "string" || typeof raw === "number" ||
+  typeof raw === "string" || typeof raw === "number" && Number.isFinite(raw) ||
   (Array.isArray(raw) && raw.every((item) => typeof item === "string"));
 
-/**
- * Why `raw` is not an acceptable answer for `f` — the board's mirror of the native
- * `fieldError`, plus what only the board can check: unknown values, disabled options
- * and value types. `raw` is already one of string | number | string[] | undefined.
- */
-function fieldError(f: FormField, raw: AskValue | undefined): string | undefined {
+/** Reject malformed wire values, not advisory form hints that native OMP lets the operator override. */
+function answerShapeError(f: FormField, raw: AskValue): string | undefined {
   if (f.kind === "choice") {
     const enabled = new Set(f.options.filter((o) => !o.disabled).map((o) => o.value));
     const member = (v: string): string | undefined => {
@@ -234,11 +221,10 @@ function fieldError(f: FormField, raw: AskValue | undefined): string | undefined
       if (enabled.has(v)) return undefined;
       return f.other && v.trim() !== "" ? undefined : "an unknown option";
     };
-    if (raw === undefined) return f.required ? "Required" : undefined;
     if (f.multi && f.options.length > 1) {
       if (!Array.isArray(raw)) return "an option list";
       if (new Set(raw).size !== raw.length) return "distinct choices";
-      if (raw.length === 0) return f.required ? "Select at least one" : undefined;
+      if (raw.length === 0) return undefined;
       const other = raw.filter((v) => !enabled.has(v) && !f.options.some((o) => o.disabled && o.value === v));
       if (other.length > 1) return "one free-text answer";
       for (const v of raw) {
@@ -250,31 +236,15 @@ function fieldError(f: FormField, raw: AskValue | undefined): string | undefined
     if (typeof raw !== "string") return "one option";
     return member(raw) ?? undefined;
   }
-  if (raw === undefined) return f.required ? "Required" : undefined;
-  const limit = f.maxLength;
-  const text = typeof raw === "string" ? raw : typeof raw === "number" && (f.type === "number" || f.type === "range") && Number.isFinite(raw) ? String(raw) : null;
-  if (text === null) return `a ${f.type === "number" || f.type === "range" ? "number" : "text answer"}`;
-  if (text.trim() === "") return f.required ? "Required" : undefined;
-  if (limit !== undefined && text.length > limit) return `At most ${limit} characters`;
-  if (f.type === "number" || f.type === "range") {
-    const n = Number(text);
-    if (!Number.isFinite(n)) return "Enter a number";
-    if (f.min !== undefined && n < f.min) return `Must be at least ${f.min}`;
-    if (f.max !== undefined && n > f.max) return `Must be at most ${f.max}`;
-  }
-  if (f.minLength !== undefined && text.length < f.minLength) return `Needs at least ${f.minLength} characters`;
-  if (f.type === "email" && !/^[^\s@]+@[^\s@]+$/.test(text)) return "Enter an email address";
-  if (f.type === "url" && !URL.canParse(text)) return "Enter a full URL";
-  if (f.pattern && compilePattern(f.pattern)?.test(text) === false) {
-    return `Must match ${f.pattern.length > 40 ? `${f.pattern.slice(0, 39)}…` : f.pattern}`;
-  }
-  return undefined;
+  if (typeof raw === "string") return undefined;
+  if (typeof raw === "number" && (f.type === "number" || f.type === "range")) return undefined;
+  return `a ${f.type === "number" || f.type === "range" ? "number or text answer" : "text answer"}`;
 }
 
 /**
  * Check an answer action's `data` against the mission's open ask: every key names a control
  * of the form, hidden inputs are immutable, and each value fits its control (choices only from
- * enabled options plus at most one "Other" text, numbers for number inputs, required answered).
+ * enabled options plus at most one "Other" text, and text or finite numbers for numeric inputs).
  * The mission checks again when it settles the dialog; this refuses a malformed submit before
  * anything is sent. Returns the data verbatim — numeric `0`, optional omissions and checkbox
  * single-vs-array shape survive — or the refusal reason.
@@ -293,14 +263,8 @@ export function askAnswers(ask: MissionAsk, raw: unknown): AskData | string {
     const f = fields.get(name);
     if (f === undefined) return `"${name}" is not a field of this form`;
     if (!isValue(value)) return `${questions.get(f.name) ?? name}: an answer must be text, a number or a list of options`;
-    const bad = fieldError(f, value);
+    const bad = answerShapeError(f, value);
     if (bad) return `${questions.get(f.name) ?? name}: ${bad}`;
-  }
-  for (const f of ask.form.fields) {
-    if (!(f.name in raw)) {
-      const bad = fieldError(f, undefined);
-      if (bad) return `${questions.get(f.name) ?? f.name}: ${bad}`;
-    }
   }
   if (new TextEncoder().encode(JSON.stringify({ id: ask.id, data: raw })).byteLength > 1024 * 1024 - 64)
     return "The answer exceeds the control socket's 1 MiB request limit";

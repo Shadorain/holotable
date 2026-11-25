@@ -80,7 +80,7 @@ function fixture(kind: "main" | "sub" = "main") {
       timers.delete(timer);
     },
     ui: {
-      theme: { fg: (_tone: string, text: string) => text, symbol: () => "" },
+      theme: { fg: (_tone: string, text: string) => text, symbols: { symbol: () => "" } },
       notify: (text: string, type?: string) => notices.push({ text, type }),
       setStatus: (_k: string, text?: string) => statuses.push(text),
     },
